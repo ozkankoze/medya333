@@ -90,6 +90,55 @@ const IG_VIDEO_INPUT = {
   inputExample: 'instagram.com/reel/CxYzAbCdEfG/',
 } as const
 
+const YT_CHANNEL_INPUT = {
+  inputLabel: 'YouTube kanal bağlantınız',
+  inputPlaceholder: '@medya333 veya kanal bağlantısı',
+  inputHelpText: 'Kanalın herkese açık olması gerekir. Girdiğiniz hedefi onaylamanız istenecek.',
+  inputExample: 'youtube.com/@medya333',
+} as const
+
+const YT_VIDEO_INPUT = {
+  inputLabel: 'Video bağlantısı',
+  inputPlaceholder: 'youtube.com/watch?v=... veya /shorts/...',
+  inputHelpText: 'Tarayıcıdaki tam adresi yapıştırın. Videonun herkese açık olması gerekir.',
+  inputExample: 'youtube.com/watch?v=dQw4w9WgXcQ',
+} as const
+
+const FB_PROFILE_INPUT = {
+  inputLabel: 'Facebook sayfa/profil bağlantınız',
+  inputPlaceholder: 'facebook.com/medya333',
+  inputHelpText: 'Sayfanın herkese açık olması gerekir. Girdiğiniz hedefi onaylamanız istenecek.',
+  inputExample: 'facebook.com/medya333',
+} as const
+
+const FB_POST_INPUT = {
+  inputLabel: 'Gönderi bağlantısı',
+  inputPlaceholder: 'facebook.com/medya333/posts/...',
+  inputHelpText: 'Tarayıcıdaki tam adresi yapıştırın. Gönderinin herkese açık olması gerekir.',
+  inputExample: 'facebook.com/medya333/posts/123456789',
+} as const
+
+const FB_VIDEO_INPUT = {
+  inputLabel: 'Video bağlantısı',
+  inputPlaceholder: 'facebook.com/medya333/videos/...',
+  inputHelpText: 'Tarayıcıdaki tam adresi yapıştırın. Videonun herkese açık olması gerekir.',
+  inputExample: 'facebook.com/medya333/videos/123456789',
+} as const
+
+const TT_PROFILE_INPUT = {
+  inputLabel: 'TikTok kullanıcı adınız',
+  inputPlaceholder: '@medya333 veya profil bağlantısı',
+  inputHelpText: 'Hesabınızın herkese açık olması gerekir. Girdiğiniz hedefi onaylamanız istenecek.',
+  inputExample: 'tiktok.com/@medya333',
+} as const
+
+const TT_VIDEO_INPUT = {
+  inputLabel: 'Video bağlantısı',
+  inputPlaceholder: 'tiktok.com/@medya333/video/...',
+  inputHelpText: 'Tarayıcıdaki tam adresi yapıştırın. Videonun herkese açık olması gerekir.',
+  inputExample: 'tiktok.com/@medya333/video/7301234567890123456',
+} as const
+
 // ---------------------------------------------------------------------------
 // Fabrikalar
 // ---------------------------------------------------------------------------
@@ -109,6 +158,29 @@ function packageTier([quantity, priceMinor]: PricePoint): TierSeed {
 }
 
 /**
+ * ⭐ TÜREV FİYAT — TAM SAYI KURUŞ ARİTMETİĞİ
+ *
+ * Facebook/TikTok fiyatları Instagram fiyatının %125'idir; YouTube Beğeni
+ * Instagram Türk Beğeni'nin %300'ü. Bu çarpım KAYAN NOKTA ile yapılmaz:
+ * `4990 * 1.25` JavaScript'te 6237.499999999999 verebilir ve 62,37 ₺'ye
+ * yuvarlanırdı. Bunun yerine tam sayı çarpımı + EN YAKIN KURUŞA yuvarlama:
+ *
+ *     4990 × 125 / 100 = 6237,5  →  6238  (62,38 ₺)
+ *
+ * ⚠️ Sonuç fiyatlar gerçek `PricingRule` satırı olarak DB'ye yazılır.
+ * Çalışma zamanında "Instagram fiyatını oku ve çarp" YAPILMAZ: Instagram
+ * fiyatı değişince diğer platformların fiyatı sessizce kaymaz.
+ */
+function scalePrices(prices: readonly PricePoint[], percent: number): readonly PricePoint[] {
+  return prices.map(([quantity, priceMinor]) => {
+    const numerator = priceMinor * percent
+    // Yarıyı yukarı yuvarla: floor((2n + d) / 2d)
+    const scaled = Math.floor((numerator * 2 + 100) / 200)
+    return [quantity, scaled] as const
+  })
+}
+
+/**
  * HAZIR MİKTARLI varyant (preset package pricing).
  * Müşteri yalnızca listedeki miktarlardan birini seçebilir; slider yoktur.
  */
@@ -120,6 +192,8 @@ function presetVariant(v: {
   tagline?: string
   badge?: string
   isDefault?: boolean
+  /** ⚠️ YALNIZCA açıkça belirtilen garanti süreleri doldurulur. Tahmin YOK. */
+  refillDays?: number
   prices: readonly PricePoint[]
 }): VariantSeed {
   const quantities = v.prices.map(([q]) => q)
@@ -131,6 +205,7 @@ function presetVariant(v: {
     tagline: v.tagline,
     badge: v.badge,
     isDefault: v.isDefault ?? false,
+    ...(v.refillDays != null ? { refillDays: v.refillDays } : {}),
     minQuantity: Math.min(...quantities),
     maxQuantity: Math.max(...quantities),
     quantityStep: 1,
@@ -255,7 +330,94 @@ const PAYLASIM_KAYDETME: readonly PricePoint[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// KATALOG — YALNIZCA INSTAGRAM
+// YOUTUBE FİYAT LİSTELERİ  (Faz 5.1 — KDV DAHİL, kuruş)
+// ---------------------------------------------------------------------------
+
+/** 3 fiyat noktası — ⚠️ maksimum 500 abone; üstü için fiyat VERİLMEDİ. */
+const YT_TURK_ABONE: readonly PricePoint[] = [
+  [100, 100_000], // 1.000,00 ₺
+  [250, 225_000], // 2.250,00 ₺
+  [500, 400_000], // 4.000,00 ₺
+]
+
+/**
+ * 7 fiyat noktası.
+ * ⚠️ Hizmet üst sınırı 1.000.000 abone olarak duyurulur AMA bu miktar için
+ * fiyat verilmemiştir; bu yüzden seçilebilir bir paket olarak ÜRETİLMEZ.
+ */
+const YT_YABANCI_ABONE: readonly PricePoint[] = [
+  [1_000, 250_000], // 2.500,00 ₺
+  [2_500, 575_000], // 5.750,00 ₺
+  [5_000, 1_050_000], // 10.500,00 ₺
+  [10_000, 2_000_000], // 20.000,00 ₺
+  [25_000, 4_750_000], // 47.500,00 ₺
+  [50_000, 9_000_000], // 90.000,00 ₺
+  [100_000, 17_000_000], // 170.000,00 ₺
+]
+
+/** 7 fiyat noktası */
+const YT_IZLENME: readonly PricePoint[] = [
+  [1_000, 40_000], // 400,00 ₺
+  [2_500, 90_000], // 900,00 ₺
+  [5_000, 160_000], // 1.600,00 ₺
+  [10_000, 275_000], // 2.750,00 ₺
+  [25_000, 600_000], // 6.000,00 ₺
+  [50_000, 1_100_000], // 11.000,00 ₺
+  [100_000, 2_000_000], // 20.000,00 ₺
+]
+
+/**
+ * 10 fiyat noktası — ⚠️ Instagram Türk Beğeni fiyatlarının TAM 3 KATI.
+ * Kaynak liste `TURK_BEGENI`; çarpım tam sayı kuruş üzerinden yapılır ve
+ * hiçbir noktada yuvarlama gerekmez (49,90 × 3 = 149,70).
+ */
+const YT_BEGENI: readonly PricePoint[] = scalePrices(TURK_BEGENI, 300)
+
+// ---------------------------------------------------------------------------
+// TÜREV KATALOG — FACEBOOK / TIKTOK  (Instagram × %125)
+// ---------------------------------------------------------------------------
+
+/** Facebook ve TikTok fiyatları Instagram karşılığının %125'idir. */
+const DERIVED_PERCENT = 125
+
+const D_YABANCI_TAKIPCI = scalePrices(YABANCI_TAKIPCI, DERIVED_PERCENT)
+const D_TURK_TAKIPCI = scalePrices(TURK_TAKIPCI, DERIVED_PERCENT)
+const D_TURK_BEGENI = scalePrices(TURK_BEGENI, DERIVED_PERCENT)
+const D_IZLENME = scalePrices(VIDEO_IZLENME, DERIVED_PERCENT)
+const D_TURK_YORUM = scalePrices(TURK_YORUM, DERIVED_PERCENT)
+const D_PAYLASIM_KAYDETME = scalePrices(PAYLASIM_KAYDETME, DERIVED_PERCENT)
+
+/**
+ * Instagram'daki takipçi/beğeni/izlenme/yorum varyantlarının başka bir
+ * platformdaki karşılığı. Etiketler aynı kalır; fiyatlar türetilir.
+ *
+ * ⚠️ Açıklamalarda YALNIZCA bileşim bilgisi tekrarlanır ("Takipçiler Türk'tür,
+ * düşüş oranı …"). Instagram metnindeki "her gün takip edilir, düşüş aynı gün
+ * yüklenir" TELAFİ VAADİ buraya kopyalanmaz: bu platformlarda garanti süresi
+ * verilmedi (`refillDays = null`) ve karşılığı olmayan bir söz verilemez.
+ */
+function derivedFollowerVariants(platformKey: string): VariantSeed[] {
+  return [
+    presetVariant({
+      slug: 'yabanci',
+      internalName: `${platformKey}-Takipci-Yabanci`,
+      customerLabel: 'Yabancı Takipçi',
+      description: 'Takipçiler yabancıdır, düşüş oranı %1 - %5 aralığındadır.',
+      isDefault: true,
+      prices: D_YABANCI_TAKIPCI,
+    }),
+    presetVariant({
+      slug: 'turk',
+      internalName: `${platformKey}-Takipci-Turk`,
+      customerLabel: 'Türk Takipçi',
+      description: 'Takipçiler Türk’tür, düşüş oranı %1 - %5 aralığındadır.',
+      prices: D_TURK_TAKIPCI,
+    }),
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// KATALOG
 // ---------------------------------------------------------------------------
 
 export const SERVICES: Record<string, ServiceSeed[]> = {
@@ -277,6 +439,9 @@ export const SERVICES: Record<string, ServiceSeed[]> = {
           description:
             'Takipçiler yabancıdır, düşüş oranı %1 - %5 aralığındadır. Profiliniz her gün takip edilir ve herhangi bir düşüş yaşanmışsa aynı gün tekrardan yüklenir.',
           isDefault: true,
+          // ⚠️ AÇIKÇA BELİRTİLEN garanti süresi (Faz 5.1). Tamamlanma anında
+          // Fulfillment.guaranteeDays / guaranteeEndsAt olarak snapshot'lanır.
+          refillDays: 365,
           prices: YABANCI_TAKIPCI,
         }),
         presetVariant({
@@ -285,6 +450,7 @@ export const SERVICES: Record<string, ServiceSeed[]> = {
           customerLabel: 'Türk Takipçi',
           description:
             'Takipçiler Türk’tür, düşüş oranı %1 - %5 aralığındadır. Profiliniz her gün takip edilir ve herhangi bir düşüş yaşanmışsa aynı gün tekrardan yüklenir.',
+          refillDays: 365,
           prices: TURK_TAKIPCI,
         }),
       ],
@@ -470,26 +636,336 @@ export const SERVICES: Record<string, ServiceSeed[]> = {
       ],
     },
   ],
+
+  // =========================================================================
+  //  YOUTUBE  (Faz 5.1)
+  // =========================================================================
+  youtube: [
+    {
+      slug: 'abone',
+      name: 'Abone',
+      shortDescription: 'Kanalınıza gerçek kullanıcı abonesi kazandırın.',
+      targetType: 'PROFILE',
+      measurementMode: 'METRIC',
+      unitLabel: 'abone',
+      ...YT_CHANNEL_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'turk',
+          internalName: 'YT-Abone-Turk',
+          customerLabel: 'Türk Abone',
+          description:
+            'Günlük azar azar yavaş miktarlarda yüklenir. Maksimum 500 abone satın alabilirsiniz. Düşüş oranı %0-%10 aralığındadır.',
+          isDefault: true,
+          // ⚠️ Garanti süresi VERİLMEDİ → refillDays yok (tahmin edilmez).
+          prices: YT_TURK_ABONE,
+        }),
+        presetVariant({
+          slug: 'yabanci',
+          internalName: 'YT-Abone-Yabanci',
+          customerLabel: 'Yabancı Abone',
+          description:
+            'Günde 25-50 aralığında abone yüklenir. Maksimum 1 Milyon abone satın alabilirsiniz. Düşüş oranı %0-%10 aralığındadır. Günlük takip edilerek düşüşler telafi edilir.',
+          prices: YT_YABANCI_ABONE,
+        }),
+      ],
+    },
+    {
+      slug: 'izlenme',
+      name: 'İzlenme',
+      shortDescription: 'Videolarınızın izlenme sayısını artırın.',
+      targetType: 'VIDEO',
+      measurementMode: 'METRIC',
+      unitLabel: 'izlenme',
+      ...YT_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'standart',
+          internalName: 'YT-Izlenme',
+          customerLabel: 'YouTube İzlenme',
+          description:
+            'Genelde düşme olmaz fakat herhangi bir düşüş olması durumunda ücretsiz telafi sağlanmaktadır.',
+          isDefault: true,
+          prices: YT_IZLENME,
+        }),
+      ],
+    },
+    {
+      slug: 'begeni',
+      name: 'Beğeni',
+      shortDescription: 'Videolarınıza gerçek kullanıcı beğenisi gelsin.',
+      targetType: 'VIDEO',
+      measurementMode: 'METRIC',
+      unitLabel: 'beğeni',
+      ...YT_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'standart',
+          internalName: 'YT-Begeni',
+          customerLabel: 'YouTube Beğeni',
+          isDefault: true,
+          prices: YT_BEGENI,
+        }),
+      ],
+    },
+  ],
+
+  // =========================================================================
+  //  FACEBOOK  (Faz 5.1 — Instagram × %125)
+  //
+  //  ⚠️ "Kaydetme" YOK: Facebook'ta kaydetme özel bir işlemdir, gönderide
+  //     herkese açık bir sayaç YOKTUR. Ölçülemeyen bir teslimi satmak,
+  //     Faz 4'ün metrik tabanlı ilerleme modeliyle de bağdaşmaz.
+  //  ⚠️ "Keşfet Paketi" ve "Aylık Türk Beğeni + Yorum Paketi" Instagram'a
+  //     özgüdür; kopyalanmadı.
+  // =========================================================================
+  facebook: [
+    {
+      slug: 'takipci',
+      name: 'Takipçi',
+      shortDescription: 'Sayfanıza gerçek kullanıcı takipçisi kazandırın.',
+      targetType: 'PROFILE',
+      measurementMode: 'METRIC',
+      unitLabel: 'takipçi',
+      ...FB_PROFILE_INPUT,
+      variants: derivedFollowerVariants('FB'),
+    },
+    {
+      slug: 'begeni',
+      name: 'Beğeni',
+      shortDescription: 'Gönderinize gerçek kullanıcı beğenisi gelsin.',
+      targetType: 'POST',
+      measurementMode: 'METRIC',
+      unitLabel: 'beğeni',
+      ...FB_POST_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'turk',
+          internalName: 'FB-Begeni-Turk',
+          customerLabel: 'Türk Beğeni',
+          description: 'Beğeniler tamamen Türk hesaplardan gelir.',
+          isDefault: true,
+          prices: D_TURK_BEGENI,
+        }),
+      ],
+    },
+    {
+      slug: 'goruntulenme',
+      name: 'Görüntülenme',
+      shortDescription: 'Videolarınızın izlenme sayısını artırın.',
+      targetType: 'VIDEO',
+      measurementMode: 'METRIC',
+      unitLabel: 'izlenme',
+      ...FB_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'video',
+          internalName: 'FB-Izlenme-Video',
+          customerLabel: 'Video İzlenme',
+          isDefault: true,
+          prices: D_IZLENME,
+        }),
+      ],
+    },
+    {
+      slug: 'yorum',
+      name: 'Yorum',
+      shortDescription: 'Gönderinize Türk hesaplardan yorum gelsin.',
+      targetType: 'POST',
+      measurementMode: 'MANUAL_COUNT',
+      unitLabel: 'yorum',
+      ...FB_POST_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'turk',
+          internalName: 'FB-Yorum-Turk',
+          customerLabel: 'Türk Yorum',
+          isDefault: true,
+          prices: D_TURK_YORUM,
+        }),
+      ],
+    },
+    {
+      slug: 'paylasim',
+      name: 'Paylaşım',
+      shortDescription: 'Gönderinizin paylaşılma sayısını artırın.',
+      targetType: 'POST',
+      measurementMode: 'METRIC',
+      unitLabel: 'paylaşım',
+      ...FB_POST_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'standart',
+          internalName: 'FB-Paylasim',
+          customerLabel: 'Paylaşım',
+          isDefault: true,
+          prices: D_PAYLASIM_KAYDETME,
+        }),
+      ],
+    },
+  ],
+
+  // =========================================================================
+  //  TIKTOK  (Faz 5.1 — Instagram × %125)
+  //
+  //  ⚠️ TikTok adapter'ı YALNIZCA PROFILE ve VIDEO hedefi destekler; içerik
+  //     zaten videodur. Bu yüzden beğeni/yorum/paylaşım/kaydetme hedefi VIDEO.
+  //  ⚠️ "Kaydetme" burada VAR: TikTok'ta favori sayısı videonun üstünde
+  //     herkese açık görünür, yani operatör ölçebilir.
+  //  ⚠️ Keşfet ve Aylık paketler kopyalanmadı (Instagram'a özgü).
+  // =========================================================================
+  tiktok: [
+    {
+      slug: 'takipci',
+      name: 'Takipçi',
+      shortDescription: 'Profilinize gerçek kullanıcı takipçisi kazandırın.',
+      targetType: 'PROFILE',
+      measurementMode: 'METRIC',
+      unitLabel: 'takipçi',
+      ...TT_PROFILE_INPUT,
+      variants: derivedFollowerVariants('TT'),
+    },
+    {
+      slug: 'begeni',
+      name: 'Beğeni',
+      shortDescription: 'Videolarınıza Türk hesaplardan beğeni gelsin.',
+      targetType: 'VIDEO',
+      measurementMode: 'METRIC',
+      unitLabel: 'beğeni',
+      ...TT_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'turk',
+          internalName: 'TT-Begeni-Turk',
+          customerLabel: 'Türk Beğeni',
+          description: 'Beğeniler tamamen Türk hesaplardan gelir.',
+          isDefault: true,
+          prices: D_TURK_BEGENI,
+        }),
+      ],
+    },
+    {
+      slug: 'goruntulenme',
+      name: 'Görüntülenme',
+      shortDescription: 'Videolarınızın izlenme sayısını artırın.',
+      targetType: 'VIDEO',
+      measurementMode: 'METRIC',
+      unitLabel: 'izlenme',
+      ...TT_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'video',
+          internalName: 'TT-Izlenme-Video',
+          customerLabel: 'Video İzlenme',
+          isDefault: true,
+          prices: D_IZLENME,
+        }),
+      ],
+    },
+    {
+      slug: 'yorum',
+      name: 'Yorum',
+      shortDescription: 'Videolarınıza Türk hesaplardan yorum gelsin.',
+      targetType: 'VIDEO',
+      measurementMode: 'MANUAL_COUNT',
+      unitLabel: 'yorum',
+      ...TT_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'turk',
+          internalName: 'TT-Yorum-Turk',
+          customerLabel: 'Türk Yorum',
+          isDefault: true,
+          prices: D_TURK_YORUM,
+        }),
+      ],
+    },
+    {
+      slug: 'kaydetme',
+      name: 'Kaydetme',
+      shortDescription: 'Videonuzun favorilere eklenme sayısını artırın.',
+      targetType: 'VIDEO',
+      measurementMode: 'METRIC',
+      unitLabel: 'kaydetme',
+      ...TT_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'standart',
+          internalName: 'TT-Kaydetme',
+          customerLabel: 'Kaydetme',
+          isDefault: true,
+          prices: D_PAYLASIM_KAYDETME,
+        }),
+      ],
+    },
+    {
+      slug: 'paylasim',
+      name: 'Paylaşım',
+      shortDescription: 'Videonuzun paylaşılma sayısını artırın.',
+      targetType: 'VIDEO',
+      measurementMode: 'METRIC',
+      unitLabel: 'paylaşım',
+      ...TT_VIDEO_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'standart',
+          internalName: 'TT-Paylasim',
+          customerLabel: 'Paylaşım',
+          isDefault: true,
+          prices: D_PAYLASIM_KAYDETME,
+        }),
+      ],
+    },
+  ],
 }
 
 /**
  * Fiyat noktası sayıları — testler ve seed özeti bu tablodan doğrulanır.
- * Toplam 63. Buradaki hiçbir sayı elle değiştirilmemeli; katalog değişirse
- * testler kırılmalıdır.
+ * Buradaki hiçbir sayı elle değiştirilmemeli; katalog değişirse testler
+ * kırılmalıdır.
  */
 export const EXPECTED_PRICE_POINTS = {
-  'takipci/yabanci': 10,
-  'takipci/turk': 8,
-  'begeni/turk': 10,
-  'goruntulenme/video': 9,
-  'yorum/turk': 7,
-  'kaydetme/standart': 7,
-  'paylasim/standart': 7,
-  'kesfet-paketi/kesfet': 1,
-  'aylik-begeni-yorum-paketi/paket-1': 1,
-  'aylik-begeni-yorum-paketi/paket-2': 1,
-  'aylik-begeni-yorum-paketi/paket-3': 1,
-  'aylik-begeni-yorum-paketi/paket-4': 1,
+  // --- Instagram (Faz 5) — 63 ---
+  'instagram/takipci/yabanci': 10,
+  'instagram/takipci/turk': 8,
+  'instagram/begeni/turk': 10,
+  'instagram/goruntulenme/video': 9,
+  'instagram/yorum/turk': 7,
+  'instagram/kaydetme/standart': 7,
+  'instagram/paylasim/standart': 7,
+  'instagram/kesfet-paketi/kesfet': 1,
+  'instagram/aylik-begeni-yorum-paketi/paket-1': 1,
+  'instagram/aylik-begeni-yorum-paketi/paket-2': 1,
+  'instagram/aylik-begeni-yorum-paketi/paket-3': 1,
+  'instagram/aylik-begeni-yorum-paketi/paket-4': 1,
+  // --- YouTube (Faz 5.1) — 27 ---
+  'youtube/abone/turk': 3,
+  'youtube/abone/yabanci': 7,
+  'youtube/izlenme/standart': 7,
+  'youtube/begeni/standart': 10,
+  // --- Facebook (Faz 5.1, Instagram × %125) — 51 ---
+  'facebook/takipci/yabanci': 10,
+  'facebook/takipci/turk': 8,
+  'facebook/begeni/turk': 10,
+  'facebook/goruntulenme/video': 9,
+  'facebook/yorum/turk': 7,
+  'facebook/paylasim/standart': 7,
+  // --- TikTok (Faz 5.1, Instagram × %125) — 58 ---
+  'tiktok/takipci/yabanci': 10,
+  'tiktok/takipci/turk': 8,
+  'tiktok/begeni/turk': 10,
+  'tiktok/goruntulenme/video': 9,
+  'tiktok/yorum/turk': 7,
+  'tiktok/kaydetme/standart': 7,
+  'tiktok/paylasim/standart': 7,
 } as const
 
-export const TOTAL_PRICE_POINTS = 63
+/** Platform bazında toplam fiyat noktası. */
+export const PRICE_POINTS_BY_PLATFORM = {
+  instagram: 63,
+  youtube: 27,
+  facebook: 51,
+  tiktok: 58,
+} as const
+
+export const TOTAL_PRICE_POINTS = 199

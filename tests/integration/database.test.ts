@@ -128,14 +128,14 @@ describe('seed', () => {
       db.taxRate.count(),
       db.coupon.count(),
     ])
-    // ⚠️ Faz 5: gerçek katalogda YALNIZCA Instagram aktiftir.
-    expect(platforms).toBe(1)
+    // ⚠️ Faz 5.1: Instagram · YouTube · Facebook · TikTok aktif.
+    expect(platforms).toBe(4)
     expect(services).toBe(EXPECTED_SERVICES)
-    expect(services).toBe(8)
+    expect(services).toBe(22)
     expect(variants).toBe(EXPECTED_VARIANTS)
-    expect(variants).toBe(12)
+    expect(variants).toBe(29)
     expect(tiers).toBe(EXPECTED_TIERS)
-    expect(tiers).toBe(63)
+    expect(tiers).toBe(199)
     expect(taxRates).toBe(2)
     expect(coupons).toBe(1)
   })

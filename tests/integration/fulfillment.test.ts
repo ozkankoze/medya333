@@ -549,6 +549,55 @@ describe('⚠️ MANUEL TAMAMLAMA — otomatik tamamlama YOK', () => {
     expect(diffDays).toBe(30)
   })
 
+  /**
+   * ⭐ FAZ 5.1 — INSTAGRAM TAKİPÇİ GARANTİSİ 365 GÜN
+   *
+   * Fixture Instagram Takipçi varyantını seçer; katalogda `refillDays = 365`
+   * tanımlıdır. Bu değer fulfillment AÇILIRKEN snapshot'lanır ve tamamlanma
+   * anında `guaranteeEndsAt` olarak tarihe çevrilir.
+   */
+  it('⭐ Instagram Takipçi: guaranteeDays 365 ve bitiş = tamamlanma + 365 gün', async () => {
+    const variant = await db.serviceVariant.findUniqueOrThrow({ where: { id: variantId } })
+    expect(variant.refillDays, 'katalogda 365 gün tanımlı olmalı').toBe(365)
+
+    const { fulfillmentId } = await startedFulfillment(2340)
+
+    // ⚠️ Gün sayısı AÇILIŞTA katalogdan kopyalanır — elle set EDİLMEZ.
+    const atCreate = await db.fulfillment.findUniqueOrThrow({ where: { id: fulfillmentId } })
+    expect(atCreate.guaranteeDays).toBe(365)
+    expect(atCreate.guaranteeEndsAt).toBeNull()
+
+    await updateProgress({ fulfillmentId, currentMetric: 2340 + qty }, OP1())
+    const res = await completeFulfillment(fulfillmentId, OP1())
+    expect(res.guaranteeEndsAt).toBeTruthy()
+
+    const f = await db.fulfillment.findUniqueOrThrow({ where: { id: fulfillmentId } })
+    expect(f.guaranteeDays).toBe(365)
+    const diffDays = Math.round(
+      (f.guaranteeEndsAt!.getTime() - f.completedAt!.getTime()) / (24 * 60 * 60 * 1000),
+    )
+    expect(diffDays).toBe(365)
+  })
+
+  it('⭐ katalogdaki garanti süresi sonradan değişse bile ESKİ sipariş etkilenmez', async () => {
+    const { fulfillmentId } = await startedFulfillment(2340)
+    await updateProgress({ fulfillmentId, currentMetric: 2340 + qty }, OP1())
+    await completeFulfillment(fulfillmentId, OP1())
+
+    // Katalog değişir (ör. garanti 30 güne indirilir)
+    await db.serviceVariant.update({ where: { id: variantId }, data: { refillDays: 30 } })
+    try {
+      const f = await db.fulfillment.findUniqueOrThrow({ where: { id: fulfillmentId } })
+      expect(f.guaranteeDays, 'snapshot değişmemeli').toBe(365)
+      const diffDays = Math.round(
+        (f.guaranteeEndsAt!.getTime() - f.completedAt!.getTime()) / (24 * 60 * 60 * 1000),
+      )
+      expect(diffDays).toBe(365)
+    } finally {
+      await db.serviceVariant.update({ where: { id: variantId }, data: { refillDays: 365 } })
+    }
+  })
+
   it('⚠️ COMPLETED iş tekrar STARTED OLAMAZ', async () => {
     const { fulfillmentId } = await startedFulfillment(2340)
     await updateProgress({ fulfillmentId, currentMetric: 2340 + qty }, OP1())

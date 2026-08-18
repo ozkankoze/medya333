@@ -40,9 +40,14 @@ test.describe('public katalog API', () => {
 
   test('katalog zinciri ve KDV bayrağı doğru', async ({ request }) => {
     const json = await (await request.get('/api/v1/catalog/snapshot')).json()
-    // ⚠️ Faz 5: gerçek katalogda yalnızca Instagram aktiftir.
-    expect(json.platforms).toHaveLength(1)
-    expect(json.platforms[0].slug).toBe('instagram')
+    // ⚠️ Faz 5.1: Instagram · YouTube · Facebook · TikTok aktiftir.
+    expect(json.platforms).toHaveLength(4)
+    expect(json.platforms.map((p: any) => p.slug).sort()).toEqual([
+      'facebook',
+      'instagram',
+      'tiktok',
+      'youtube',
+    ])
     expect(json.pricesTaxInclusive).toBe(true)
     expect(json.taxRateBp).toBe(2000)
     const svc = json.platforms[0].services[0]

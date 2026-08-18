@@ -735,22 +735,151 @@ tamamında `matrah + KDV = toplam` özdeşliği test edilir.
 
 ---
 
+## ADR-021 — Türev Fiyat Seed'de Hesaplanır, Çalışma Zamanında Değil
+
+**Bağlam.** Facebook ve TikTok fiyatları Instagram karşılığının %125'i, YouTube
+Beğeni ise Instagram Türk Beğeni'nin %300'ü olarak tanımlandı. İki uygulama yolu
+vardı: (a) çalışma zamanında "Instagram fiyatını oku ve çarp", (b) çarpımı bir kez
+yapıp sonucu gerçek `PricingRule` satırı olarak yazmak.
+
+**Karar.** (b). Türev fiyatlar seed'de hesaplanır ve DB'ye **gerçek kademe** olarak
+yazılır.
+
+Gerekçe:
+- Instagram fiyatı yarın değişirse Facebook/TikTok fiyatı **sessizce kaymaz**.
+  Runtime çarpımıyla, tek bir Instagram düzenlemesi üç platformun fiyatını aynı
+  anda değiştirirdi — admin bunu görmeden.
+- Admin her platformun fiyatını **ayrı ayrı** yönetebilir; türev fiyat başlangıç
+  değeridir, kalıcı bir bağ değil.
+- Fiyat çözümleme yolu tek kalır: `PricingRule` → `calculatePrice`. İkinci bir
+  "hesaplanmış fiyat" kod yolu yoktur.
+
+**Yuvarlama.** Çarpım tam sayı kuruş aritmetiğiyle, **en yakın kuruşa** yapılır:
+
+```
+4990 × 125 / 100 = 6237,5  →  6238     (49,90 ₺ → 62,38 ₺)
+```
+
+`applyBasisPoints(minor, 12_500)` — Faz 0'dan beri KDV hesabında kullanılan aynı
+`divRoundHalfUp` yardımcısı. Kayan nokta kullanılmaz: %125 (5/4) ikilik tabanda
+tam temsil edildiği için bu katsayıda tesadüfen doğru sonuç verirdi, ama katsayı
+%115 olsaydı beş fiyat noktası sessizce bir kuruş aşağı kayardı. Bir birim testi
+bu farkı açıkça gösterir.
+
+**Determinizm.** Seed tekrar çalıştırıldığında türev fiyatlar bit düzeyinde aynı
+kalır; bir entegrasyon testi 109 türev kademeyi seed öncesi/sonrası karşılaştırır.
+
+---
+
+## ADR-022 — Garanti Süresi Tahmin Edilmez
+
+**Bağlam.** Faz 5'te tüm varyantlar `refillDays = null` ile bırakılmıştı: ürün
+açıklamaları telafiden söz ediyordu ama hiçbir gün sayısı verilmemişti. Faz 5.1
+yalnızca Instagram Takipçi için 365 gün bildirdi.
+
+**Karar.** `refillDays` **yalnızca açıkça verilen** süreyle doldurulur.
+
+| Hizmet | refillDays | Neden |
+|---|---|---|
+| Instagram Yabancı/Türk Takipçi | **365** | açıkça belirtildi |
+| YouTube Abone / İzlenme / Beğeni | `null` | süre verilmedi |
+| Facebook / TikTok (tümü) | `null` | süre verilmedi |
+
+⚠️ Açıklamada "düşüşler telafi edilir" yazması bir SÜRE anlamına gelmez. YouTube
+İzlenme açıklaması ücretsiz telafiden söz eder ama gün sayısı vermez; bir birim
+testi tam olarak bunu kilitler.
+
+**Snapshot zinciri (Faz 4'ten değişmedi).** Gün sayısı fulfillment AÇILIRKEN
+katalogdan kopyalanır; `guaranteeEndsAt` ise COMPLETED anında hesaplanır:
+
+```
+ödeme doğrulandı → Fulfillment READY   (guaranteeDays = 365, guaranteeEndsAt = null)
+… manuel operasyon …
+operatör "Tamamla" dedi → guaranteeEndsAt = completedAt + 365 gün
+```
+
+Katalogdaki süre sonradan 30 güne indirilse bile tamamlanmış siparişin garantisi
+365 gün kalır — bir entegrasyon testi katalogu değiştirip snapshot'ın sabit
+kaldığını doğrular.
+
+---
+
+## ADR-023 — Katalog ile Adapter Ayrışamaz
+
+**Bağlam.** `PlatformAdapter.supportedTargetTypes` Faz 0'dan beri tanımlıydı ama
+**hiçbir yerde kontrol edilmiyordu**. Instagram adapter'ı `['PROFILE','POST']`
+diyordu; katalogdaki "Görüntülenme" hizmeti ise `VIDEO` hedefi kullanıyordu. Kod
+tesadüfen çalışıyordu (`parseTarget` POST ve VIDEO'yu aynı ele alıyor), ama
+katalog ile adapter sessizce ayrışmıştı.
+
+**Karar.** İki değişiklik:
+
+1. Instagram adapter'ı `VIDEO`'yu da destekler olarak işaretlendi — reel/tv
+   bağlantıları gerçekten çözümleniyor, liste eksikti.
+2. `createService` / `updateService` artık `assertTargetTypeSupported` çağırır:
+   adapter'ın desteklemediği bir hedef tipi **kaydedilemez**
+   (`UNSUPPORTED_TARGET_TYPE`, 400).
+
+Bu, Faz 5.1'de üç yeni platform eklenirken önemliydi: TikTok adapter'ı `POST`
+desteklemez (içerik zaten videodur), dolayısıyla TikTok beğeni/yorum/paylaşım
+hizmetleri `VIDEO` hedefi kullanır. Guard olmasaydı yanlış hedef tipiyle bir
+hizmet eklenip müşteri hedefini giremediğinde ancak canlıda fark edilirdi.
+
+---
+
+## Faz 5.1 Uygulama Özeti
+
+**Şema değişikliği YOK.** Yeni migration yazılmadı: `ServiceVariant.refillDays`
+Faz 0'dan beri mevcuttu, yeni platformlar mevcut `Platform` modelini kullanıyor.
+Faz 5.1 tamamen **veri ve doğrulama** fazıdır.
+
+**Katalog**
+
+| Platform | Hizmet | Varyant | Fiyat noktası | Kaynak |
+|---|---|---|---|---|
+| Instagram | 8 | 12 | 63 | gerçek liste (Faz 5) |
+| YouTube | 3 | 4 | 27 | gerçek liste (Faz 5.1) |
+| Facebook | 5 | 6 | 51 | Instagram × %125 |
+| TikTok | 6 | 7 | 58 | Instagram × %125 |
+| **TOPLAM** | **22** | **29** | **199** | |
+
+**Facebook/TikTok'a KOPYALANMAYANLAR**
+- `Keşfet Paketi` ve `Aylık Türk Beğeni + Yorum Paketi` — Instagram'a özgü
+  kurgulardır; başka platformda karşılığı yoktur.
+- **Facebook Kaydetme** — Facebook'ta kaydetme özel bir işlemdir ve gönderide
+  herkese açık bir sayaç YOKTUR. Ölçülemeyen bir teslim, Faz 4'ün metrik tabanlı
+  ilerleme modeliyle de bağdaşmaz. TikTok'ta ise favori sayısı videonun üzerinde
+  herkese açık göründüğü için Kaydetme hizmeti VARDIR.
+
+**YouTube üst sınırları**
+- Türk Abone: 100 / 250 / 500. Maksimum 500; 501 ve 1.000 hem arayüzde seçilemez
+  hem sunucuda `QUANTITY_NOT_ALLOWED` ile reddedilir.
+- Yabancı Abone: "maksimum 1 Milyon" bilgisi müşteriye ANLATILIR ama 1.000.000
+  için fiyat verilmediğinden **seçilebilir bir paket üretilmedi**.
+
+**Türev açıklamalar.** Instagram takipçi açıklamasındaki "her gün takip edilir ve
+düşüş aynı gün yüklenir" telafi vaadi Facebook/TikTok'a kopyalanmadı: o
+platformlarda garanti süresi verilmedi ve karşılığı olmayan bir söz verilemez.
+Yalnızca bileşim bilgisi ("Takipçiler Türk'tür, düşüş oranı %1-%5") taşındı.
+
+---
+
 ## Sonraki Faz — Faz 6 (onay bekliyor)
 
-Faz 5 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+Faz 5.1 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
 
 **Kalan teknik borç**
-- **Garanti süresi tanımsız.** Takipçi açıklamaları "düşüş olursa aynı gün
-  yüklenir" diyor ama brief bir GÜN SAYISI vermedi. Uydurmamak için tüm
-  varyantlarda `refillDays = null` bırakıldı; bu haliyle Faz 4 telafi akışı
-  bu ürünlerde açılamaz. Sayı verildiğinde tek alan doldurulacak.
-- **SLA vaadi yok.** `estimatedStartMinutes` / `estimatedCompleteMinutes`
-  boş; "0-6 saat içinde başlar" gibi ifadeler demo veriydi, kaldırıldı.
-- Admin panelinde hizmet/varyant OLUŞTURMA formu yok — API mevcut, arayüz
-  yalnızca düzenleme ve aktif/pasif yapıyor.
-- Fiyat kademesi ekleme/silme arayüzü yok (API mevcut).
-- Kampanya ve kupon yönetimi için admin arayüzü hâlâ yok.
-- `Order.unitPriceMinor` sabit pakette 0'dır; eski raporlar bu alanı birim fiyat
-  sanarsa yanılır. `pricingMode` snapshot'ı ile ayırt edilebilir.
-- Prisma WASM şema motoru mevcut veritabanına karşı diff alamıyor; migration'lar
-  elle yazılmaya devam ediyor.
+- **Garanti süresi yalnızca Instagram Takipçi'de tanımlı.** YouTube, Facebook ve
+  TikTok hizmetlerinde `refillDays = null`; bu haliyle o ürünlerde telafi kaydı
+  açılamaz. Süreler bildirildiğinde tek alan doldurulacak.
+- SLA vaadi (`estimatedStartMinutes` / `estimatedCompleteMinutes`) hiçbir üründe
+  tanımlı değil.
+- Admin panelinde hizmet/varyant OLUŞTURMA ve fiyat kademesi ekleme/silme formu
+  yok (API'ler mevcut).
+- Kampanya/kupon yönetimi için admin arayüzü yok.
+- Türev fiyatlar ilk seed'de yazılır; Instagram fiyatı değişince "türevleri de
+  güncelle" diye bir admin aracı YOK (bilinçli — sessiz kaymayı önlüyor — ama
+  toplu güncelleme ihtiyacı doğarsa ayrı bir araç gerekir).
+- `Order.unitPriceMinor` sabit pakette 0; eski raporlar bunu birim fiyat sanarsa
+  yanılır (`pricingMode` ile ayırt edilebilir).
+- Prisma WASM şema motoru diff alamıyor; migration'lar elle yazılıyor.

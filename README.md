@@ -1,11 +1,13 @@
-# Medya 333 — Faz 5
+# Medya 333 — Faz 5.1
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
 + **Faz 2** (sipariş oluşturma, misafir takibi, hesap, admin sipariş yönetimi)
 + **Faz 3** (ödeme altyapısı: iyzico/PayTR adapter, webhook, iade)
 + **Faz 4** (fulfillment: operasyon kuyruğu, manuel ilerleme, garanti/telafi)
-+ **Faz 5** (gerçek Instagram kataloğu: 8 hizmet · 12 varyant · **63 gerçek fiyat noktası**).
++ **Faz 5** (gerçek Instagram kataloğu: 8 hizmet · 12 varyant · **63 gerçek fiyat noktası**)
++ **Faz 5.1** (YouTube · Facebook · TikTok · Instagram takipçi garantisi 365 gün —
+  toplam **4 platform · 22 hizmet · 29 varyant · 199 fiyat noktası**).
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
 > Bu sistem bot, sahte hesap veya otomatik sosyal medya etkileşimi ÜRETMEZ.
@@ -105,6 +107,15 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
     seçilemez hem sunucuda `QUANTITY_NOT_ALLOWED` ile reddedilir.
 20. **Pasif katalog satılmaz ama SİLİNMEZ.** Pasif kayıt public katalogda
     görünmez ve sipariş edilemez; geçmiş sipariş/ödeme/fulfillment bozulmaz.
+21. **GARANTİ SÜRESİ TAHMİN EDİLMEZ.** Yalnızca açıkça verilen süre girilir
+    (Instagram Takipçi → 365 gün). Açıklamada "telafi edilir" yazması bir
+    süre ANLAMINA GELMEZ; süre verilmemişse `refillDays = null` kalır.
+22. **Türev fiyat DB'ye yazılır, çalışma zamanında hesaplanmaz.**
+    Facebook/TikTok = Instagram × %125, YouTube Beğeni = Instagram × %300.
+    Çarpım seed'de tam sayı kuruş aritmetiğiyle bir kez yapılır; Instagram
+    fiyatı sonradan değişirse diğer platformlar SESSİZCE kaymaz.
+23. **Katalog ile adapter ayrışamaz.** `Service.targetType`, platformun
+    adapter'ının desteklediği bir tip olmalıdır (`UNSUPPORTED_TARGET_TYPE`).
 
 ---
 
@@ -181,7 +192,8 @@ tests/unit/payment-status.test.ts     20  ödeme state machine + yapılandırma 
 tests/unit/payment-contracts.test.ts  23  iyzico/PayTR imza ve istek SÖZLEŞMESİ
 tests/unit/payment-redact.test.ts     10  kart/secret arındırma
 tests/unit/fulfillment-status.test.ts 36  fulfillment state machine, progress, garanti
-tests/unit/catalog-prices.test.ts     94  ⭐ 63 GERÇEK fiyat noktası birebir + paket modeli
+tests/unit/catalog-prices.test.ts     96  ⭐ 63 GERÇEK Instagram fiyat noktası birebir
+tests/unit/catalog-expansion.test.ts  65  ⭐ YouTube 27 nokta + FB/TikTok × %125 + garanti
 tests/integration/database.test.ts    28  migration, seed, FK, unique, cascade
 tests/integration/api.test.ts         34  katalog, pricing, kupon, admin
 tests/integration/orders.test.ts      31  sipariş, idempotency, fulfillment kapısı
@@ -193,15 +205,15 @@ tests/integration/fulfillment-api.test.ts 21 fulfillment uçları: yetki matrisi
 tests/integration/catalog.test.ts     18  katalog CRUD, cache, sızıntı, pasif katalog
 tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
                                       ───
-                                      584  (vitest)
+                                      662  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
 tests/e2e/api-security.spec.ts        12  API güvenlik yüzeyi
 tests/e2e/fulfillment.spec.ts          5  ödeme → READY → manuel start/progress/complete
-tests/e2e/catalog.spec.ts              5  admin katalog → fiyat → simülatör → müşteri → pasifleştirme
+tests/e2e/catalog.spec.ts              7  admin katalog → fiyat → simülatör → müşteri → YouTube/TikTok
                                       ───
-                                      138  (playwright, 2 proje · 135 passed, 3 skipped)
+                                      142  (playwright, 2 proje · 139 passed, 3 skipped)
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
@@ -209,32 +221,58 @@ Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
 
 ---
 
-## Gerçek Katalog (Faz 5)
+## Gerçek Katalog (Faz 5 + 5.1)
 
-Yalnızca **Instagram** aktiftir. Diğer platformlar ve Faz 0-4'ün demo hizmetleri
-**pasifleştirilmiştir** (silinmemiştir).
+Aktif platformlar: **Instagram · YouTube · Facebook · TikTok**.
+Gerçek katalogda karşılığı olmayan platformlar (X, Telegram) ve Faz 0-4'ün demo
+hizmetleri **pasifleştirilmiştir** (silinmemiştir).
 
-| # | Hizmet | Varyant | Fiyat noktası | Hedef |
-|---|---|---|---|---|
-| 1 | Takipçi | Yabancı Takipçi | 10 | profil |
-| 1 | Takipçi | Türk Takipçi | 8 | profil |
-| 2 | Beğeni | Türk Beğeni | 10 | gönderi |
-| 3 | Görüntülenme | Video İzlenme | 9 | video/reel |
-| 4 | Yorum | Türk Yorum | 7 | gönderi |
-| 5 | Kaydetme | Kaydetme | 7 | gönderi |
-| 6 | Paylaşım | Paylaşım | 7 | gönderi |
-| 7 | Keşfet Paketi | Instagram Keşfet Paketi | 1 | gönderi |
-| 8 | Aylık Türk Beğeni + Yorum | Paket 1-4 | 4 | profil |
-|   | | **TOPLAM** | **63** | |
+### Instagram — 63 fiyat noktası
 
-Fiyatların tek kaynağı `prisma/seed/services.ts`; `tests/unit/catalog-prices.test.ts`
-63 noktanın tamamını brief'ten ELLE yazılmış beklenen değerlerle karşılaştırır.
+| # | Hizmet | Varyant | Nokta | Garanti | Hedef |
+|---|---|---|---|---|---|
+| 1 | Takipçi | Yabancı Takipçi | 10 | **365 gün** | profil |
+| 1 | Takipçi | Türk Takipçi | 8 | **365 gün** | profil |
+| 2 | Beğeni | Türk Beğeni | 10 | — | gönderi |
+| 3 | Görüntülenme | Video İzlenme | 9 | — | video/reel |
+| 4 | Yorum | Türk Yorum | 7 | — | gönderi |
+| 5 | Kaydetme | Kaydetme | 7 | — | gönderi |
+| 6 | Paylaşım | Paylaşım | 7 | — | gönderi |
+| 7 | Keşfet Paketi | Instagram Keşfet Paketi | 1 | — | gönderi |
+| 8 | Aylık Türk Beğeni + Yorum | Paket 1-4 | 4 | — | profil |
+
+### YouTube — 27 fiyat noktası (Faz 5.1)
+
+| Hizmet | Varyant | Nokta | Not |
+|---|---|---|---|
+| Abone | Türk Abone | 3 | maksimum **500** |
+| Abone | Yabancı Abone | 7 | 1.000.000 için fiyat verilmedi → paket YOK |
+| İzlenme | YouTube İzlenme | 7 | video hedefi |
+| Beğeni | YouTube Beğeni | 10 | Instagram Türk Beğeni × **3** |
+
+### Facebook (51) ve TikTok (58) — Instagram × %125 (Faz 5.1)
+
+Takipçi (Yabancı + Türk) · Beğeni · Görüntülenme · Yorum · Paylaşım —
+TikTok'ta ayrıca Kaydetme (favori sayısı herkese açıktır).
+**Kopyalanmayanlar:** Keşfet Paketi ve Aylık Paket (Instagram'a özgü),
+Facebook Kaydetme (herkese açık sayaç yok).
+
+```
+Facebook/TikTok fiyatı = round_half_up(Instagram_kuruş × 125 / 100)
+49,90 ₺ → 4990 × 125 / 100 = 6237,5 → 6238 → 62,38 ₺
+```
+
+**TOPLAM: 4 platform · 22 hizmet · 29 varyant · 199 fiyat noktası**
+
+Fiyatların tek kaynağı `prisma/seed/services.ts`; `catalog-prices.test.ts` (63) ve
+`catalog-expansion.test.ts` (27 + türev) her noktayı brief'ten ELLE yazılmış
+beklenen değerlerle karşılaştırır.
 
 ---
 
 ## Sonraki Faz
 
-**Faz 6 — (onay bekliyor).** Faz 5 kapsamı tamamlandı; yeni faza kendiliğinden
+**Faz 6 — (onay bekliyor).** Faz 5.1 kapsamı tamamlandı; yeni faza kendiliğinden
 geçilmez. Detay ve kalan teknik borç: `docs/architecture-decisions.md`
 
 ### Ödeme sağlayıcısı yapılandırma

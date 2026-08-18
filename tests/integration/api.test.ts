@@ -126,9 +126,13 @@ function findVariant(platformSlug: string, serviceSlug: string, variantSlug?: st
 
 describe('GET /api/v1/catalog/snapshot', () => {
   it('katalog zinciri eksiksiz: Platform → Service → Variant → PricingRule → target config', () => {
-    // ⚠️ Faz 5: gerçek katalogda YALNIZCA Instagram aktiftir.
-    expect(catalog.platforms).toHaveLength(1)
-    expect(catalog.platforms[0].slug).toBe('instagram')
+    // ⚠️ Faz 5.1: Instagram · YouTube · Facebook · TikTok aktiftir.
+    expect(catalog.platforms.map((p: Json) => p.slug)).toEqual([
+      'instagram',
+      'tiktok',
+      'youtube',
+      'facebook',
+    ])
     const { service, variant } = findVariant('instagram', 'takipci', 'turk')
     expect(service.targetType).toBe('PROFILE')
     expect(service.inputLabel).toBeTruthy()
@@ -143,7 +147,8 @@ describe('GET /api/v1/catalog/snapshot', () => {
 
   it('⚠️ demo katalog müşteriye GÖRÜNMEZ', () => {
     const raw = JSON.stringify(catalog)
-    for (const demo of ['tiktok', 'youtube', 'facebook', 'telegram', 'profil-tanitimi', 'Premium', 'Standart']) {
+    // Gerçek katalogda yer almayan platformlar ve Faz 0-4 demo hizmetleri
+    for (const demo of ['telegram', 'profil-tanitimi', 'Premium', 'Standart', '"x"']) {
       expect(raw, `demo katalog kalıntısı: ${demo}`).not.toContain(demo)
     }
   })
@@ -162,10 +167,16 @@ describe('GET /api/v1/catalog/snapshot', () => {
     ])
   })
 
-  it('katalogdaki toplam fiyat noktası sayısı 63', () => {
+  it('katalogdaki toplam fiyat noktası sayısı 199', () => {
     const total = catalog.platforms.flatMap((p: Json) => p.services).flatMap((s: Json) => s.variants)
       .reduce((n: number, v: Json) => n + v.tiers.length, 0)
-    expect(total).toBe(63)
+    expect(total).toBe(199)
+
+    const instagram = catalog.platforms.find((p: Json) => p.slug === 'instagram')
+    const igTotal = instagram.services
+      .flatMap((s: Json) => s.variants)
+      .reduce((n: number, v: Json) => n + v.tiers.length, 0)
+    expect(igTotal).toBe(63)
   })
 
   it('KDV dahil bayrağı ve oranı', () => {

@@ -38,7 +38,13 @@ export const instagramAdapter: PlatformAdapter = {
     liveMetric: false,
   },
 
-  supportedTargetTypes: ['PROFILE', 'POST'],
+  /**
+   * ⚠️ VIDEO dahildir: reel/tv bağlantıları `parseTarget` tarafından gönderi
+   * ile AYNI şekilde çözümlenir ve katalogdaki "Görüntülenme" hizmeti VIDEO
+   * hedefi kullanır. Liste eksik kaldığında katalog ile adapter sessizce
+   * ayrışıyordu (bkz. assertTargetTypeSupported).
+   */
+  supportedTargetTypes: ['PROFILE', 'POST', 'VIDEO'],
 
   parse(input: string, targetType: TargetType) {
     return parseTarget('instagram', input, targetType)

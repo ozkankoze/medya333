@@ -11,7 +11,7 @@ import { validateTiers, findStepBoundaryIssues, type PricingTier } from '@/lib/p
 import { writeAudit } from '@/server/audit'
 import { revalidateCatalog } from '@/server/cache'
 import { db } from '@/server/db'
-import { hasAdapter } from '@/server/platforms/registry'
+import { getAdapter, hasAdapter } from '@/server/platforms/registry'
 import { invalidateCatalogCache } from './index'
 
 /**
@@ -122,9 +122,39 @@ export async function reorderPlatforms(order: Array<{ id: string; sortOrder: num
 
 type ServiceInput = z.infer<typeof adminServiceSchema>
 
+/**
+ * ⚠️ KATALOG İLE ADAPTER AYRIŞAMAZ.
+ *
+ * `Service.targetType`, platformun adapter'ının çözümleyebildiği bir tip
+ * olmalıdır. Aksi halde hizmet katalogda görünür ama müşteri hedefini
+ * giremez — hata ancak canlıda, sipariş kaybederek fark edilir.
+ */
+async function assertTargetTypeSupported(
+  platformId: string,
+  targetType: ServiceInput['targetType'],
+): Promise<void> {
+  const platform = await db.platform.findUnique({
+    where: { id: platformId },
+    select: { adapterKey: true, name: true },
+  })
+  if (!platform) throw new CatalogAdminError('PLATFORM_NOT_FOUND', 'Platform bulunamadı.', 404)
+
+  const adapter = getAdapter(platform.adapterKey)
+  if (!adapter.supportedTargetTypes.includes(targetType)) {
+    throw new CatalogAdminError(
+      'UNSUPPORTED_TARGET_TYPE',
+      `${platform.name} için "${targetType}" hedef tipi desteklenmiyor. ` +
+        `Desteklenen tipler: ${adapter.supportedTargetTypes.join(', ')}.`,
+      400,
+      { adapterKey: platform.adapterKey, supported: [...adapter.supportedTargetTypes] },
+    )
+  }
+}
+
 export async function createService(input: ServiceInput, actor: ActorContext) {
   const platform = await db.platform.findUnique({ where: { id: input.platformId }, select: { id: true } })
   if (!platform) throw new CatalogAdminError('PLATFORM_NOT_FOUND', 'Platform bulunamadı.', 404)
+  await assertTargetTypeSupported(input.platformId, input.targetType)
 
   const clash = await db.service.findUnique({
     where: { platformId_slug: { platformId: input.platformId, slug: input.slug } },
@@ -148,6 +178,13 @@ export async function updateService(id: string, input: Partial<ServiceInput>, ac
       select: { id: true },
     })
     if (clash) throw new CatalogAdminError('SLUG_TAKEN', 'Bu platformda aynı slug zaten var.', 409)
+  }
+
+  if (input.targetType || input.platformId) {
+    await assertTargetTypeSupported(
+      input.platformId ?? before.platformId,
+      input.targetType ?? before.targetType,
+    )
   }
 
   const after = await db.service.update({ where: { id }, data: input })

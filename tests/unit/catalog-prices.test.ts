@@ -226,32 +226,36 @@ describe('gerçek fiyat listesi — 63 fiyat noktası', () => {
     })
   }
 
-  it('toplam 63 fiyat noktası vardır', () => {
+  it('Instagram toplamı 63 fiyat noktasıdır', () => {
     const total = CASES.reduce((n, c) => n + c.expected.length, 0)
     expect(total).toBe(63)
-    expect(TOTAL_PRICE_POINTS).toBe(63)
 
     const seedTotal = (SERVICES.instagram ?? []).reduce(
       (n, s) => n + s.variants.reduce((m, v) => m + v.tiers.length, 0),
       0,
     )
     expect(seedTotal).toBe(63)
+    // Faz 5.1 sonrası katalogun TAMAMI: 63 Instagram + 27 YouTube + 51 FB + 58 TikTok
+    expect(TOTAL_PRICE_POINTS).toBe(199)
   })
 
-  it('fiyat noktası dağılımı brief ile birebir aynıdır', () => {
-    expect(EXPECTED_PRICE_POINTS).toEqual({
-      'takipci/yabanci': 10,
-      'takipci/turk': 8,
-      'begeni/turk': 10,
-      'goruntulenme/video': 9,
-      'yorum/turk': 7,
-      'kaydetme/standart': 7,
-      'paylasim/standart': 7,
-      'kesfet-paketi/kesfet': 1,
-      'aylik-begeni-yorum-paketi/paket-1': 1,
-      'aylik-begeni-yorum-paketi/paket-2': 1,
-      'aylik-begeni-yorum-paketi/paket-3': 1,
-      'aylik-begeni-yorum-paketi/paket-4': 1,
+  it('Instagram fiyat noktası dağılımı brief ile birebir aynıdır', () => {
+    const instagramOnly = Object.fromEntries(
+      Object.entries(EXPECTED_PRICE_POINTS).filter(([k]) => k.startsWith('instagram/')),
+    )
+    expect(instagramOnly).toEqual({
+      'instagram/takipci/yabanci': 10,
+      'instagram/takipci/turk': 8,
+      'instagram/begeni/turk': 10,
+      'instagram/goruntulenme/video': 9,
+      'instagram/yorum/turk': 7,
+      'instagram/kaydetme/standart': 7,
+      'instagram/paylasim/standart': 7,
+      'instagram/kesfet-paketi/kesfet': 1,
+      'instagram/aylik-begeni-yorum-paketi/paket-1': 1,
+      'instagram/aylik-begeni-yorum-paketi/paket-2': 1,
+      'instagram/aylik-begeni-yorum-paketi/paket-3': 1,
+      'instagram/aylik-begeni-yorum-paketi/paket-4': 1,
     })
   })
 
@@ -417,11 +421,11 @@ describe('gösterim yardımcıları', () => {
 })
 
 describe('katalog bütünlüğü', () => {
-  it('yalnızca Instagram platformu tanımlıdır', () => {
-    expect(Object.keys(SERVICES)).toEqual(['instagram'])
+  it('aktif platformlar: Instagram · YouTube · Facebook · TikTok', () => {
+    expect(Object.keys(SERVICES)).toEqual(['instagram', 'youtube', 'facebook', 'tiktok'])
   })
 
-  it('8 hizmet vardır ve isimleri brief ile aynıdır', () => {
+  it('Instagram\'da 8 hizmet vardır ve isimleri brief ile aynıdır', () => {
     expect((SERVICES.instagram ?? []).map((s) => s.name)).toEqual([
       'Takipçi',
       'Beğeni',
@@ -460,6 +464,27 @@ describe('katalog bütünlüğü', () => {
       'kesfet-paketi': 'paket',
       'aylik-begeni-yorum-paketi': 'ay',
     })
+  })
+
+  it('⚠️ Instagram TAKİPÇİ garanti süresi 365 gündür', () => {
+    const takipci = SERVICES.instagram?.find((s) => s.slug === 'takipci')
+    expect(takipci?.variants.map((v) => [v.slug, v.refillDays])).toEqual([
+      ['yabanci', 365],
+      ['turk', 365],
+    ])
+  })
+
+  it('⚠️ garanti süresi VERİLMEYEN hiçbir varyanta süre atanmamıştır', () => {
+    for (const [platform, services] of Object.entries(SERVICES)) {
+      for (const s of services) {
+        for (const v of s.variants) {
+          const isInstagramFollower = platform === 'instagram' && s.slug === 'takipci'
+          expect(v.refillDays ?? null, `${platform}/${s.slug}/${v.slug}`).toBe(
+            isInstagramFollower ? 365 : null,
+          )
+        }
+      }
+    }
   })
 
   it('tüm fiyat kademeleri PACKAGE modundadır ve pozitif fiyatlıdır', () => {

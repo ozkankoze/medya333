@@ -121,6 +121,16 @@ async function snapshot(): Promise<Json> {
   return (await catalogGET(makeReq('http://localhost/api/v1/catalog/snapshot'))).json()
 }
 
+/** Faz 5.1'den sonra birden çok platform aktif; sıraya güvenilmez. */
+function platformOf(snap: Json, slug: string): Json {
+  const p = snap.platforms.find((x: Json) => x.slug === slug)
+  if (!p) throw new Error(`Platform katalogda yok: ${slug}`)
+  return p
+}
+function igOf(snap: Json): Json {
+  return platformOf(snap, 'instagram')
+}
+
 let instagramId: string
 
 beforeAll(async () => {
@@ -167,23 +177,34 @@ beforeEach(async () => {
 describe('public katalog', () => {
   it('yalnızca AKTİF katalog döner', async () => {
     const snap = await snapshot()
-    expect(snap.platforms).toHaveLength(1)
-    expect(snap.platforms[0].slug).toBe('instagram')
-    expect(snap.platforms[0].services).toHaveLength(8)
+    // ⚠️ Faz 5.1: dört platform aktif; demo platformlar (X, Telegram) pasif.
+    expect(snap.platforms.map((p: Json) => p.slug).sort()).toEqual([
+      'facebook',
+      'instagram',
+      'tiktok',
+      'youtube',
+    ])
+    expect(igOf(snap).services).toHaveLength(8)
+    expect(platformOf(snap, 'youtube').services).toHaveLength(3)
+    expect(platformOf(snap, 'facebook').services).toHaveLength(5)
+    expect(platformOf(snap, 'tiktok').services).toHaveLength(6)
   })
 
-  it('63 fiyat noktası müşteriye ulaşır', async () => {
+  it('199 fiyat noktası müşteriye ulaşır (63 + 27 + 51 + 58)', async () => {
     const snap = await snapshot()
-    const points = snap.platforms
-      .flatMap((p: Json) => p.services)
-      .flatMap((s: Json) => s.variants)
-      .reduce((n: number, v: Json) => n + v.tiers.length, 0)
-    expect(points).toBe(63)
+    const count = (p: Json) =>
+      p.services.flatMap((s: Json) => s.variants).reduce((n: number, v: Json) => n + v.tiers.length, 0)
+
+    expect(count(igOf(snap))).toBe(63)
+    expect(count(platformOf(snap, 'youtube'))).toBe(27)
+    expect(count(platformOf(snap, 'facebook'))).toBe(51)
+    expect(count(platformOf(snap, 'tiktok'))).toBe(58)
+    expect(snap.platforms.reduce((n: number, p: Json) => n + count(p), 0)).toBe(199)
   })
 
   it('sabit paket içeriği ve açıklaması müşteriye gelir', async () => {
     const snap = await snapshot()
-    const kesfet = snap.platforms[0].services.find((s: Json) => s.slug === 'kesfet-paketi')
+    const kesfet = igOf(snap).services.find((s: Json) => s.slug === 'kesfet-paketi')
     expect(kesfet.variants[0].packageItems).toEqual([
       '500 - 1.500 Türk Beğeni',
       '10 - 35 Türk Yorum',
@@ -192,7 +213,7 @@ describe('public katalog', () => {
       '50 - 150 Paylaşım',
     ])
 
-    const takipci = snap.platforms[0].services.find((s: Json) => s.slug === 'takipci')
+    const takipci = igOf(snap).services.find((s: Json) => s.slug === 'takipci')
     const turk = takipci.variants.find((v: Json) => v.slug === 'turk')
     expect(turk.description).toContain('Takipçiler Türk')
     expect(turk.presetOnly).toBe(true)
@@ -217,7 +238,7 @@ describe('public katalog', () => {
 
   it('🔒 fiyat kademesinde iç alan yok', async () => {
     const snap = await snapshot()
-    const tier = snap.platforms[0].services[0].variants[0].tiers[0]
+    const tier = igOf(snap).services[0].variants[0].tiers[0]
     expect(Object.keys(tier).sort()).toEqual(
       [
         'id',
@@ -304,7 +325,7 @@ describe('admin katalog CRUD', () => {
 
     // Müşteri tarafında görünür ve fiyat BİREBİR aynıdır
     const snap = await snapshot()
-    const inSnap = snap.platforms[0].services.find((s: Json) => s.slug === 'test-hizmet')
+    const inSnap = igOf(snap).services.find((s: Json) => s.slug === 'test-hizmet')
     expect(inSnap).toBeTruthy()
 
     session.user = null
@@ -485,7 +506,7 @@ describe('⚠️ PASİF katalog SİPARİŞ EDİLEMEZ', () => {
     session.user = null
     const snap = await snapshot()
     expect(
-      snap.platforms[0].services.find((s: Json) => s.slug === 'paylasim'),
+      igOf(snap).services.find((s: Json) => s.slug === 'paylasim'),
       'pasif hizmet müşteriye görünüyor',
     ).toBeUndefined()
 
@@ -502,7 +523,7 @@ describe('⚠️ PASİF katalog SİPARİŞ EDİLEMEZ', () => {
     )
     session.user = null
     const back = await snapshot()
-    expect(back.platforms[0].services.find((s: Json) => s.slug === 'paylasim')).toBeTruthy()
+    expect(igOf(back).services.find((s: Json) => s.slug === 'paylasim')).toBeTruthy()
   })
 
   it('pasif varyant sipariş edilemez ama GEÇMİŞ sipariş bozulmaz', async () => {
@@ -654,5 +675,166 @@ describe('sipariş anlık görüntüsü', () => {
     await db.order.delete({ where: { id: order.id } })
     await db.target.delete({ where: { id: target.id } })
     await db.user.delete({ where: { id: user.id } })
+  })
+})
+
+// ===========================================================================
+//  FAZ 5.1 — KATALOG GENİŞLETME
+// ===========================================================================
+
+describe('⭐ Faz 5.1 — YouTube / Facebook / TikTok', () => {
+  it('dört platform da public katalogda ve fiyatları DB\'den geliyor', async () => {
+    const snap = await snapshot()
+    const yt = platformOf(snap, 'youtube')
+    const abone = yt.services.find((s: Json) => s.slug === 'abone')
+    const turkAbone = abone.variants.find((v: Json) => v.slug === 'turk')
+
+    expect(abone.unitLabel).toBe('abone')
+    expect(turkAbone.presetQuantities).toEqual([100, 250, 500])
+
+    const quote = await quotePOST(
+      makeReq('http://localhost/api/v1/pricing/quote', {
+        serviceVariantId: turkAbone.id,
+        quantity: 250,
+      }),
+    )
+    expect((await quote.json()).total).toBe(225_000) // 2.250,00 ₺
+  })
+
+  it('⚠️ YouTube Türk Abone: 500 üstü SUNUCUDA reddedilir', async () => {
+    const snap = await snapshot()
+    const turkAbone = platformOf(snap, 'youtube')
+      .services.find((s: Json) => s.slug === 'abone')
+      .variants.find((v: Json) => v.slug === 'turk')
+
+    for (const q of [501, 1_000, 150]) {
+      const res = await quotePOST(
+        makeReq('http://localhost/api/v1/pricing/quote', {
+          serviceVariantId: turkAbone.id,
+          quantity: q,
+        }),
+      )
+      expect(res.status, `${q} kabul edilmemeli`).toBe(400)
+      expect((await res.json()).error.code).toBe('QUANTITY_NOT_ALLOWED')
+    }
+  })
+
+  it('⚠️ YouTube Yabancı Abone: 1.000.000 paketi YOK', async () => {
+    const snap = await snapshot()
+    const yabanci = platformOf(snap, 'youtube')
+      .services.find((s: Json) => s.slug === 'abone')
+      .variants.find((v: Json) => v.slug === 'yabanci')
+
+    expect(yabanci.presetQuantities).not.toContain(1_000_000)
+    const res = await quotePOST(
+      makeReq('http://localhost/api/v1/pricing/quote', {
+        serviceVariantId: yabanci.id,
+        quantity: 1_000_000,
+      }),
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('Facebook/TikTok fiyatları DB\'de GERÇEK kademe olarak durur', async () => {
+    // ⚠️ "Instagram fiyatını oku ve anlık çarp" YAPILMAZ. Instagram fiyatı
+    // değişince türev platformların fiyatı SESSİZCE kaymamalı.
+    const igRule = await db.pricingRule.findFirstOrThrow({
+      where: {
+        minQuantity: 100,
+        serviceVariant: { slug: 'turk', service: { slug: 'begeni', platform: { slug: 'instagram' } } },
+      },
+    })
+    const fbRule = await db.pricingRule.findFirstOrThrow({
+      where: {
+        minQuantity: 100,
+        serviceVariant: { slug: 'turk', service: { slug: 'begeni', platform: { slug: 'facebook' } } },
+      },
+    })
+    expect(igRule.packagePriceMinor).toBe(4_990)
+    expect(fbRule.packagePriceMinor).toBe(6_238) // 49,90 × 1,25 = 62,375 → 62,38
+
+    // Instagram fiyatını değiştir → Facebook DEĞİŞMEZ
+    await db.pricingRule.update({ where: { id: igRule.id }, data: { packagePriceMinor: 9_999 } })
+    try {
+      const fbAfter = await db.pricingRule.findUniqueOrThrow({ where: { id: fbRule.id } })
+      expect(fbAfter.packagePriceMinor).toBe(6_238)
+    } finally {
+      await db.pricingRule.update({ where: { id: igRule.id }, data: { packagePriceMinor: 4_990 } })
+    }
+  })
+
+  it('seed tekrar çalıştırıldığında türev fiyatlar DETERMİNİSTİK kalır', async () => {
+    const before = await db.pricingRule.findMany({
+      where: {
+        isActive: true,
+        serviceVariant: { service: { platform: { slug: { in: ['facebook', 'tiktok'] } } } },
+      },
+      select: { minQuantity: true, packagePriceMinor: true, serviceVariantId: true },
+      orderBy: [{ serviceVariantId: 'asc' }, { minQuantity: 'asc' }],
+    })
+    await seedAll(db)
+    const after = await db.pricingRule.findMany({
+      where: {
+        isActive: true,
+        serviceVariant: { service: { platform: { slug: { in: ['facebook', 'tiktok'] } } } },
+      },
+      select: { minQuantity: true, packagePriceMinor: true, serviceVariantId: true },
+      orderBy: [{ serviceVariantId: 'asc' }, { minQuantity: 'asc' }],
+    })
+    expect(after).toEqual(before)
+    expect(after).toHaveLength(109) // 51 Facebook + 58 TikTok
+  })
+
+  it('⭐ Instagram Takipçi garanti süresi DB\'de 365 gündür', async () => {
+    const variants = await db.serviceVariant.findMany({
+      where: { service: { slug: 'takipci', platform: { slug: 'instagram' } }, isActive: true },
+      select: { slug: true, refillDays: true },
+      orderBy: { slug: 'asc' },
+    })
+    expect(variants).toEqual([
+      { slug: 'turk', refillDays: 365 },
+      { slug: 'yabanci', refillDays: 365 },
+    ])
+  })
+
+  it('⚠️ garanti süresi VERİLMEYEN hiçbir aktif varyantta süre YOK', async () => {
+    const withGuarantee = await db.serviceVariant.findMany({
+      where: { isActive: true, refillDays: { not: null } },
+      select: { slug: true, refillDays: true, service: { select: { slug: true, platform: { select: { slug: true } } } } },
+    })
+    for (const v of withGuarantee) {
+      expect(
+        `${v.service.platform.slug}/${v.service.slug}`,
+        'garanti süresi yalnızca Instagram Takipçi\'de tanımlı olmalı',
+      ).toBe('instagram/takipci')
+      expect(v.refillDays).toBe(365)
+    }
+    expect(withGuarantee).toHaveLength(2)
+  })
+
+  it('🔒 yeni platformlarda da iç alan sızıntısı yok', async () => {
+    const raw = JSON.stringify(await snapshot())
+    for (const forbidden of ['YT-Abone', 'FB-Takipci', 'TT-Begeni', 'internalName', 'adapterKey']) {
+      expect(raw, `"${forbidden}" public katalogda görünüyor`).not.toContain(forbidden)
+    }
+  })
+
+  it('⚠️ adapter\'ın desteklemediği hedef tipi KAYDEDİLEMEZ', async () => {
+    asAdmin()
+    const tiktok = await db.platform.findUniqueOrThrow({ where: { slug: 'tiktok' } })
+    const res = await servicesPOST(
+      makeReq('http://localhost/api/v1/admin/services', {
+        platformId: tiktok.id,
+        name: 'Test Gönderi',
+        slug: 'test-gonderi',
+        // TikTok adapter'ı POST desteklemez (içerik videodur).
+        targetType: 'POST',
+        inputLabel: 'Hedef',
+        inputPlaceholder: 'tiktok.com/@ornek',
+        inputExample: 'tiktok.com/@ornek',
+      }),
+    )
+    expect(res.status).toBe(400)
+    expect((await res.json()).error.code).toBe('UNSUPPORTED_TARGET_TYPE')
   })
 })
