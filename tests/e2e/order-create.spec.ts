@@ -267,7 +267,7 @@ test.describe('kayıt ve giriş', () => {
 
     // Kayıt sonrası otomatik giriş → hesabım
     await expect(page).toHaveURL(/\/hesabim/, { timeout: 20_000 })
-    await expect(page.getByRole('heading', { name: 'Siparişlerim' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Hoş geldiniz/ })).toBeVisible()
     await expect(page.getByText(email)).toBeVisible()
 
     // Oturum çerezi HttpOnly ve JWT DEĞİL (veritabanı oturum token'ı)

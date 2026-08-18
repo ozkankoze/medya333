@@ -45,6 +45,19 @@ export function PriceRows({
           className="text-success-700"
         />
       )}
+
+      {/* ⚠️ KDV EKLENMEZ, AYRIŞTIRILIR. Fiyatlar KDV dahildir; buradaki iki
+          satır yalnızca dökümdür ve toplamı DEĞİŞTİRMEZ. */}
+      <Row
+        label="Ara toplam (matrah)"
+        value={formatMinor(breakdown.subtotalMinor)}
+        className="text-ink-500"
+      />
+      <Row
+        label={`KDV (%${breakdown.taxRateBp / 100})`}
+        value={formatMinor(breakdown.taxAmountMinor)}
+        className="text-ink-500"
+      />
     </dl>
   )
 }

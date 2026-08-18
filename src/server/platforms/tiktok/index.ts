@@ -34,7 +34,7 @@ export const tiktokAdapter: PlatformAdapter = {
     // FAZ 6 (VIDEO): GET https://www.tiktok.com/oembed?url=<canonicalUrl>
     const reason =
       targetType === 'PROFILE'
-        ? 'TikTok profilleri için resmî otomatik doğrulama bulunmuyor. Hedefi kontrol edip onaylayın.'
+        ? 'TikTok profillerini otomatik olarak doğrulayamıyoruz. Hedefi kontrol edip onaylayın.'
         : 'Otomatik doğrulama henüz etkin değil. Hedefi kontrol edip onaylayın.'
     return unverified(normalized, ctx.canonicalUrl, reason)
   },

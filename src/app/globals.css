@@ -140,6 +140,18 @@
   .sticky-price-bar {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
+
+  /**
+   * ⚠️ MOBİL DOKUNMA HEDEFİ KURTARMA
+   *
+   * Alta yapışan fiyat çubuğu, kaydırma sonrası ekranın en altındaki onay
+   * kutusunu/butonu ÖRTEBİLİYORDU: kullanıcı öğeyi görüyor ama dokunamıyordu.
+   * Sihirbazdaki etkileşimli öğelere kaydırma payı verilir; böylece
+   * `scrollIntoView` her zaman çubuğun ÜSTÜNDE bırakır.
+   */
+  .wizard-scope :is(button, input, label, a) {
+    scroll-margin-bottom: 9rem;
+  }
 }
 
 @layer utilities {

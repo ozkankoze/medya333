@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next'
-import Link from 'next/link'
-import { HeaderNav } from '@/components/layout/HeaderNav'
-import { Logo } from '@/components/brand/Logo'
+import { SiteFooter } from '@/components/layout/SiteFooter'
+import { SiteHeader } from '@/components/layout/SiteHeader'
 // Tipografi: Inter Variable, TAMAMEN self-host (npm paketi).
 // next/font/google yerine bu tercih edildi: derleme Google'a bağımlı olmaz
 // (kapalı CI ağlarında build kırılmaz) ve kullanıcı tarayıcısı hiçbir zaman
@@ -9,20 +8,46 @@ import { Logo } from '@/components/brand/Logo'
 import '@fontsource-variable/inter'
 import './globals.css'
 
+/**
+ * ⚠️ SEO metni KATALOGU TEKRARLAMAZ.
+ * Platform ve hizmet listesi katalogdan gelir; burada sabitlenirse katalog
+ * değiştiğinde meta açıklaması sessizce yanlışa döner. Bu yüzden açıklama
+ * hizmet SAYMAZ, ne yaptığımızı anlatır.
+ */
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
   title: {
-    default: 'Medya 333 — Social Media Growth, Simplified.',
+    default: 'Medya 333 | Sosyal Medya Hizmetleri',
     template: '%s · Medya 333',
   },
   description:
-    'Gerçek kullanıcılarla sosyal medya hesabınızı büyütmek için profesyonel tanıtım hizmetleri.',
+    'Instagram, YouTube, Facebook ve TikTok hesaplarınız için gerçek kullanıcılarla yürütülen ' +
+    'profesyonel tanıtım hizmetleri. Hazır paketler, KDV dahil net fiyatlar ve adım adım sipariş takibi.',
+  applicationName: 'Medya 333',
+  keywords: [
+    'sosyal medya tanıtım',
+    'instagram takipçi',
+    'youtube abone',
+    'sosyal medya büyütme',
+    'medya 333',
+  ],
+  authors: [{ name: 'Medya 333' }],
   openGraph: {
     type: 'website',
     locale: 'tr_TR',
     siteName: 'Medya 333',
+    title: 'Medya 333 | Sosyal Medya Hizmetleri',
+    description:
+      'Gerçek kullanıcılarla yürütülen sosyal medya tanıtım hizmetleri. ' +
+      'Hazır paketler, KDV dahil net fiyatlar, uçtan uca sipariş takibi.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Medya 333 | Sosyal Medya Hizmetleri',
+    description: 'Gerçek kullanıcılarla yürütülen sosyal medya tanıtım hizmetleri.',
   },
   robots: { index: true, follow: true },
+  alternates: { canonical: '/' },
 }
 
 export const viewport: Viewport = {
@@ -32,46 +57,25 @@ export const viewport: Viewport = {
   maximumScale: 5,
 }
 
-const LEGAL_LINKS = [
-  { href: '/kvkk-gizlilik', label: 'KVKK / Gizlilik' },
-  { href: '/kullanim-kosullari', label: 'Kullanım Koşulları' },
-  { href: '/satis-sozlesmesi', label: 'Hizmet / Satış Sözleşmesi' },
-  { href: '/iptal-iade', label: 'İptal ve İade' },
-  { href: '/cerez-politikasi', label: 'Çerez Politikası' },
-]
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="tr">
       <body className="flex min-h-dvh flex-col antialiased">
-        <header className="sticky top-0 z-40 border-b border-ink-200 bg-white/85 backdrop-blur-md">
-          <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-            <Logo />
-            <HeaderNav />
-          </div>
-        </header>
+        {/* Klavye kullanıcısı menüyü atlayıp içeriğe geçebilmeli */}
+        <a
+          href="#icerik"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-[--radius-control] focus:bg-white focus:px-4 focus:py-2 focus:text-small focus:shadow-[--shadow-lifted]"
+        >
+          İçeriğe geç
+        </a>
 
-        <main className="flex-1">{children}</main>
+        <SiteHeader />
 
-        <footer className="border-t border-ink-200 bg-white">
-          <div className="mx-auto max-w-6xl px-5 py-10">
-            <p className="text-small text-ink-600">
-              Medya 333 hizmetleri <strong className="font-semibold text-ink-800">gerçek kullanıcılar</strong>{' '}
-              tarafından manuel olarak gerçekleştirilir. Bot, sahte hesap veya otomatik etkileşim sistemi
-              kullanılmaz.
-            </p>
-            <nav className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-caption">
-              {LEGAL_LINKS.map((l) => (
-                <Link key={l.href} href={l.href} className="text-ink-500 hover:text-ink-800">
-                  {l.label}
-                </Link>
-              ))}
-            </nav>
-            <p className="mt-6 text-caption text-ink-400">
-              © {new Date().getFullYear()} Medya 333. Tüm fiyatlar KDV dahildir.
-            </p>
-          </div>
-        </footer>
+        <main id="icerik" className="flex-1">
+          {children}
+        </main>
+
+        <SiteFooter />
       </body>
     </html>
   )

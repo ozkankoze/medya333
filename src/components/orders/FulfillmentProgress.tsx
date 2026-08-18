@@ -147,6 +147,38 @@ export function FulfillmentProgress({
         </p>
       )}
 
+      {/* ------------------------------- Garanti ------------------------------- */}
+      {data.guaranteeDays != null && data.guaranteeDays > 0 && (
+        <div
+          className="mt-5 flex items-start gap-2.5 rounded-[--radius-control] border border-success-600/25 bg-success-100 p-3.5"
+          data-testid="guarantee-info"
+        >
+          <span className="mt-0.5 shrink-0 text-success-700" aria-hidden>
+            <ShieldIcon />
+          </span>
+          <div className="text-small text-success-700">
+            <p className="font-semibold">{data.guaranteeDays} Gün Telafi Garantisi</p>
+            {data.guaranteeEndsAt ? (
+              <p className="mt-0.5">
+                Garanti bitiş:{' '}
+                <strong className="tabular font-semibold">
+                  {new Date(data.guaranteeEndsAt).toLocaleDateString('tr-TR', {
+                    day: '2-digit',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </strong>
+                {!data.guaranteeActive && ' · süre doldu'}
+              </p>
+            ) : (
+              <p className="mt-0.5">
+                Garanti süresi, işlem tamamlandığı gün başlar.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {data.polling && (
         <p className="mt-5 text-caption text-ink-500">
           Bu sayfa otomatik güncellenir. Kapatabilirsiniz — durum değiştiğinde size e-posta
@@ -154,6 +186,15 @@ export function FulfillmentProgress({
         </p>
       )}
     </div>
+  )
+}
+
+function ShieldIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M12 3 5 6v6c0 4.4 3 8.2 7 9 4-.8 7-4.6 7-9V6l-7-3Z" strokeLinejoin="round" />
+      <path d="m9 12 2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 

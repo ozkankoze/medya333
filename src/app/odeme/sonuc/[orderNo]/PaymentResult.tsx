@@ -126,7 +126,7 @@ export function PaymentResult({
             Siparişimi Görüntüle
           </Link>
           <Link
-            href="/"
+            href="/#siparis"
             className={cn(
               buttonVariants({ variant: 'secondary', size: 'lg', block: true }),
               'sm:flex-1',
@@ -135,6 +135,14 @@ export function PaymentResult({
             Yeni Sipariş
           </Link>
         </div>
+
+        {/* Misafir kullanıcı da buraya gidebilir: giriş ekranı siparişi
+            hesaba bağlamanın yoludur. */}
+        <p className="mt-5 text-center text-small text-ink-500">
+          <Link href="/hesabim" className="text-brand-600 underline underline-offset-2">
+            Hesabıma git
+          </Link>
+        </p>
       </Shell>
     )
   }

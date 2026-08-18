@@ -59,7 +59,8 @@ export const instagramAdapter: PlatformAdapter = {
     const reason =
       targetType === 'POST'
         ? 'Instagram gönderileri için otomatik önizleme bulunmuyor. Bağlantının doğru olduğunu kontrol edip onaylayın.'
-        : 'Instagram hesap bilgileri resmî API üzerinden alınamıyor. Hedefin doğru olduğunu kontrol edip onaylayın.'
+        : // ⚠️ MÜŞTERİ METNİ — teknik terim kullanılmaz ("API", "adapter", "oEmbed").
+          'Instagram profil bilgilerini otomatik olarak alamıyoruz. Hesabın doğru olduğunu kontrol edip onaylayın.'
 
     return unverified(normalized, ctx.canonicalUrl, reason)
   },

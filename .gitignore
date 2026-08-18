@@ -43,3 +43,6 @@ yarn-error.log*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Faz 6 görsel kontrol çıktıları — depoya girmez
+/screenshots/

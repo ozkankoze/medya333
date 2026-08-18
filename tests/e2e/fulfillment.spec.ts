@@ -110,6 +110,16 @@ test.describe('fulfillment operasyonu', () => {
     await admin.goto('/yonetim/fulfillment')
 
     await expect(admin.getByRole('heading', { name: 'Operasyon' })).toBeVisible()
+
+    /**
+     * ⚠️ Kuyruk EN ESKİ işten başlar ve sayfa başına 50 kayıt gösterir.
+     * Biriken test siparişleri 50'yi aştığında yeni sipariş ilk sayfada
+     * OLMAZ; bu yüzden sipariş numarasıyla filtrelenir (gerçek operatör de
+     * böyle yapar).
+     */
+    await admin.getByPlaceholder('M333-XXXXXXXX').fill(orderNo)
+    await admin.getByRole('button', { name: 'Filtrele' }).click()
+
     const row = admin.getByRole('link', { name: orderNo })
     await expect(row).toBeVisible({ timeout: 15_000 })
     await row.click()

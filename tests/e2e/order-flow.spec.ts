@@ -63,22 +63,28 @@ test.describe('sipariş akışı', () => {
   })
 
   test('1 · site açılır ve ne yapılacağı belli', async ({ page }) => {
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(
-      'Social Media Growth, Simplified.',
-    )
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Sosyal Medyanızı Büyütün')
+    await expect(page.getByRole('link', { name: 'Şimdi Başla' }).first()).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Hizmetleri İncele' })).toBeVisible()
     await expect(page.locator('#step-platform')).toBeVisible()
     await expect(page.getByText('Gerçek kullanıcılar · Bot ve sahte hesap yok')).toBeVisible()
     // tek h1 (a11y)
     expect(await page.locator('h1').count()).toBe(1)
   })
 
-  test('boş durum: CTA pasif ve nedeni yazıyor', async ({ page }) => {
+  test('boş durum: CTA pasif ve nedeni yazıyor', async ({ page, isMobile }) => {
+    /**
+     * ⚠️ Mobilde alt fiyat çubuğu sihirbaza GİRMEDEN gösterilmez (Faz 6):
+     * ana sayfayı okurken ekranın altında pasif bir CTA durması gürültüdür.
+     * Bu yüzden mobilde önce bir platform seçilir.
+     */
+    if (isMobile) await selectPlatform(page)
+
     const cta = page.getByRole('button', { name: CREATE_CTA }).first()
     await expect(cta).toBeDisabled()
     // Neden hem masaüstü kartında hem mobil çubukta yazar; görünür olanı doğrula
-    await expect(
-      page.getByText(/Başlamak için bir platform seçin/).locator('visible=true'),
-    ).toBeVisible()
+    const reason = isMobile ? /Bir hizmet seçin/ : /Başlamak için bir platform seçin/
+    await expect(page.getByText(reason).locator('visible=true')).toBeVisible()
   })
 
   test('2 · platform seçilir', async ({ page }) => {
@@ -287,6 +293,8 @@ test.describe('mobil', () => {
 
   test('11 · sticky fiyat çubuğu ekranın altında kalır', async ({ page }) => {
     await page.goto('/')
+    // Çubuk sihirbaza girildikten SONRA belirir (bkz. Faz 6 kararı)
+    await selectPlatform(page)
     const bar = page.locator('.sticky-price-bar')
     await expect(bar).toBeVisible()
 

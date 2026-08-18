@@ -864,22 +864,134 @@ Yalnızca bileşim bilgisi ("Takipçiler Türk'tür, düşüş oranı %1-%5") ta
 
 ---
 
-## Sonraki Faz — Faz 6 (onay bekliyor)
+**Faz 5.1'den devreden teknik borç** Faz 6 listesinde birleştirildi.
 
-Faz 5.1 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+---
+
+## ADR-024 — Katalog Arayüzü Katalogdan Üretilir, Metinde Bile
+
+**Bağlam.** Ana sayfada hizmetleri tanıtmak için en kolay yol, platform ve
+hizmet adlarını JSX'e yazmaktı. Ama katalog Faz 5.1'de bir gecede 1 platformdan
+4 platforma çıktı; sabitlenmiş bir liste o gün sessizce yanlışa dönerdi.
+
+**Karar.** Müşteri yüzeyindeki HİÇBİR katalog bilgisi kodda yazılı değildir:
+
+- Hizmet keşfi (`ServiceExplorer`) tamamen `catalog/snapshot`tan render edilir.
+- Hero cümlesindeki platform adları bile katalogdan birleştirilir
+  (`"Instagram, TikTok, YouTube ve Facebook hesaplarınız için…"`).
+- Hero sayaçları (`4 Platform · 22 Hizmet`) katalogdan sayılır.
+- Garanti rozetleri `refillDays` doluysa gösterilir, null ise HİÇ gösterilmez.
+- SEO açıklaması bilinçli olarak hizmet SAYMAZ — katalog değiştiğinde meta
+  metninin yanlışa dönmesi imkânsızdır.
+
+⚠️ Kart başına ayrı API isteği YOKTUR: sayfa tek snapshot'ı sunucuda okur, hem
+keşif hem sihirbaz aynı veriyi kullanır. `ServiceExplorer` ve kabuk bileşenleri
+SUNUCU bileşenidir; aç-kapa için `<details>` kullanılır, JS bundle büyümez.
+
+---
+
+## ADR-025 — Mobil Fiyat Çubuğu Sihirbaza Girmeden Gösterilmez
+
+**Bağlam.** Alta yapışan fiyat çubuğu Faz 0'dan beri sayfa açılır açılmaz
+görünüyordu. Faz 6'da ana sayfaya keşif bölümü eklenince sorun görünür hâle
+geldi: kullanıcı hizmetleri okurken 390px'lik ekranın altında **pasif** bir
+"Siparişi Oluştur" düğmesi ve "Başlamak için bir platform seçin" uyarısı
+duruyordu — hem içerik alanını yiyor hem de ekranda ikinci bir CTA gürültüsü
+yaratıyordu.
+
+**Karar.** Çubuk yalnızca kullanıcı bir platform seçtikten SONRA belirir.
+Ana sayfada asıl çağrı zaten platform kartlarıdır.
+
+**Ek olarak** ekran görüntüsü denetiminde çıkan gerçek bir dokunma hatası
+düzeltildi: kaydırma sonrası çubuk, hedef onay kutusunu ÖRTÜYORDU — kullanıcı
+kutuyu görüyor ama dokunamıyordu. Sihirbazdaki etkileşimli öğelere
+`scroll-margin-bottom: 9rem` verildi (`.wizard-scope`), böylece
+`scrollIntoView` her zaman çubuğun üstünde bırakır.
+
+---
+
+## ADR-026 — Müşteri Yüzeyinde Teknik Dil Yok
+
+**Bağlam.** Faz 6 testleri müşteri metinlerini kelime bazlı tarayınca iki
+sızıntı çıktı:
+
+1. Hedef doğrulanamadığında gösterilen mesaj: *"Instagram hesap bilgileri
+   **resmî API** üzerinden alınamıyor."*
+2. Sipariş zaman çizelgesinde: *"**mock** ödemesi doğrulandı."* — yani ödeme
+   SAĞLAYICISININ ADI müşteriye görünüyordu.
+
+**Karar.** Müşteriye giden her metin sade Türkçedir:
+
+| Önce | Sonra |
+|---|---|
+| "resmî API üzerinden alınamıyor" | "profil bilgilerini otomatik olarak alamıyoruz" |
+| "`${provider}` ödemesi doğrulandı." | "Ödemeniz doğrulandı." |
+
+Sağlayıcı bilgisi `PaymentEvent` ve `AuditLog`'da zaten durur; operasyonel bir
+ayrıntıdır ve müşteri yüzeyine çıkmaz. Ayrıca `EVENT_LABELS` genişletildi:
+"Güncelleme" gibi anlamsız yedek etiketler yerine `PAYMENT_INITIATED`,
+`NOTE_ADDED`, `GUEST_CLAIMED` gibi olaylar kendi Türkçe adlarıyla görünür.
+
+---
+
+## Faz 6 Uygulama Özeti
+
+**Yeni bileşen ve sayfalar**
+
+| Dosya | Ne yapar |
+|---|---|
+| `components/layout/SiteHeader.tsx` | Hizmetler / Sipariş Takip / Yardım + CTA · JS'siz mobil menü (`<details>`) |
+| `components/layout/SiteFooter.tsx` | 4 kolonlu alt bilgi, yasal metinler tek kaynaktan |
+| `components/home/ServiceExplorer.tsx` | Katalogdan üretilen platform → hizmet keşfi |
+| `app/yardim/page.tsx` | SSS — garanti süreleri ve platform adları katalogdan |
+
+**Sipariş sihirbazı**
+- Adımlar `01`, `02` … biçiminde numaralanır; tamamlanan adım onay işaretine döner
+  ve ekran okuyucuya "Adım 3 — tamamlandı" olarak duyurulur.
+- Varyant kartlarında açıklama + `refillDays`'ten üretilen
+  **"365 Gün Telafi Garantisi"** rozeti.
+- Hazır paket kartlarında "Paket fiyatı · KDV dahil" ve gerçek fiyattan türetilen
+  **"En avantajlı"** işareti (birim maliyeti en düşük paket).
+- Fiyat özetinde artık **Ara toplam (matrah)** ve **KDV (%20)** satırları var;
+  KDV EKLENMEZ, brütten ayrıştırılır — toplam değişmez.
+- Derin bağlantı: `/?p=instagram&s=takipci#siparis` sihirbazı doğru adımdan açar.
+  ⚠️ İstemci tarafı gezinmede bileşen yeniden mount OLMADIĞI için adres çubuğunu
+  ilk render'da okumak yetmiyordu; `useSearchParams` ile her gezinmede uygulanır.
+
+**Müşteri ekranları**
+- `/hesabim`: karşılama, gerçek sayaçlar (aktif/tamamlanan/toplam), hesap
+  bilgileri, aktif · tamamlanan · geçmiş sipariş grupları.
+- Sipariş detayı: garanti kartı — **"365 Gün Telafi Garantisi"** ve tamamlanma
+  sonrası **"Garanti bitiş: 18 Ağustos 2027"**. Değer sipariş SNAPSHOT'ından
+  gelir; katalog sonradan değişse eski sipariş etkilenmez.
+- Ödeme başarı ekranına "Hesabıma git" bağlantısı eklendi.
+- `/siparis-takip`: "Sipariş numaranızı bulamıyor musunuz?" yardım kartı;
+  güvenlik modeli (numara TEK BAŞINA yetmez) aynen korundu.
+
+**Erişilebilirlik**
+- "İçeriğe geç" atlama bağlantısı (ilk Tab).
+- Tek `h1`, anlamlı başlık hiyerarşisi, `aria-labelledby` boşa işaret etmiyor.
+- Mobilde `sr-only` atlama bağlantısı dışında 44px altında dokunma hedefi YOK.
+- Focus ring, `aria-live`, `aria-invalid`, `prefers-reduced-motion` korundu.
+
+**SEO**
+`Medya 333 | Sosyal Medya Hizmetleri` + Türkçe açıklama, OpenGraph ve Twitter
+kartı, `tr_TR` locale, canonical. Açıklama katalog saymaz (bkz. ADR-024).
+
+---
+
+## Sonraki Faz — Faz 7 (onay bekliyor)
+
+Faz 6 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
 
 **Kalan teknik borç**
-- **Garanti süresi yalnızca Instagram Takipçi'de tanımlı.** YouTube, Facebook ve
-  TikTok hizmetlerinde `refillDays = null`; bu haliyle o ürünlerde telafi kaydı
-  açılamaz. Süreler bildirildiğinde tek alan doldurulacak.
-- SLA vaadi (`estimatedStartMinutes` / `estimatedCompleteMinutes`) hiçbir üründe
-  tanımlı değil.
-- Admin panelinde hizmet/varyant OLUŞTURMA ve fiyat kademesi ekleme/silme formu
-  yok (API'ler mevcut).
-- Kampanya/kupon yönetimi için admin arayüzü yok.
-- Türev fiyatlar ilk seed'de yazılır; Instagram fiyatı değişince "türevleri de
-  güncelle" diye bir admin aracı YOK (bilinçli — sessiz kaymayı önlüyor — ama
-  toplu güncelleme ihtiyacı doğarsa ayrı bir araç gerekir).
-- `Order.unitPriceMinor` sabit pakette 0; eski raporlar bunu birim fiyat sanarsa
-  yanılır (`pricingMode` ile ayırt edilebilir).
+- **Operatör kuyruğunda sayfalama yok.** 50'den fazla açık iş olduğunda en yeni
+  sipariş ilk sayfada görünmüyor (E2E bunu yakaladı; test artık sipariş
+  numarasıyla filtreliyor). Cursor tabanlı sayfalama + sıralama seçeneği gerekir.
+- Garanti süresi yalnızca Instagram Takipçi'de tanımlı; diğer ürünlerde
+  `refillDays = null` olduğu için rozet ve telafi akışı görünmüyor.
+- Müşteriye e-posta bildirimleri hâlâ konsola yazılıyor (gerçek SMTP yok).
+- Admin panelinde hizmet/varyant oluşturma ve fiyat kademesi ekleme formu yok.
+- OG görseli (`og:image`) üretilmedi — gerçek marka görseli bekleniyor.
+- `Logo` hâlâ wordmark; gerçek marka asset'i geldiğinde yalnızca o dosya değişir.
 - Prisma WASM şema motoru diff alamıyor; migration'lar elle yazılıyor.

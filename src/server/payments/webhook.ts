@@ -326,7 +326,14 @@ export async function processWebhook(
         orderId: payment.orderId,
         to: 'PAID',
         actorType: 'WEBHOOK',
-        reason: `${providerKey} ödemesi doğrulandı.`,
+        /**
+         * ⚠️ MÜŞTERİ ZAMAN ÇİZELGESİNDE GÖRÜNÜR.
+         * Sağlayıcı adı (iyzico/paytr/mock) müşteriye SIZDIRILMAZ — hangi
+         * ödeme kuruluşuyla çalıştığımız operasyonel bir ayrıntıdır ve
+         * Faz 4 kuralı gereği müşteri yüzeyine çıkmaz. Sağlayıcı bilgisi
+         * `PaymentEvent` ve audit kaydında zaten mevcuttur.
+         */
+        reason: 'Ödemeniz doğrulandı.',
         eventType: 'PAYMENT_RECEIVED',
       })
       orderPaid = true

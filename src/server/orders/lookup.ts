@@ -6,6 +6,7 @@ import {
   computeFulfillmentProgress,
   CUSTOMER_FULFILLMENT_VIEW,
   goalMetric,
+  isWithinGuarantee,
 } from '@/lib/fulfillment/status'
 import { db } from '@/server/db'
 import { normalizeOrderNo, safeEmailEquals, verifyAccessToken } from './order-no'
@@ -91,6 +92,13 @@ export interface PublicOrderView {
     completedAt: string | null
     /** SUPPORT+ tarafından yazılmış kontrollü müşteri notu */
     customerNote: string | null
+    /**
+     * GARANTİ — sipariş anındaki SNAPSHOT'tan gelir.
+     * Katalogdaki güncel değer değişse bile bu sipariş için değişmez.
+     */
+    guaranteeDays: number | null
+    guaranteeEndsAt: string | null
+    guaranteeActive: boolean
   } | null
 }
 
@@ -123,6 +131,9 @@ const ORDER_INCLUDE = {
       startedAt: true,
       completedAt: true,
       customerNote: true,
+      // ⚠️ Garanti SNAPSHOT'ı — katalogdaki güncel değer DEĞİL.
+      guaranteeDays: true,
+      guaranteeEndsAt: true,
     },
   },
   platform: { select: { name: true, slug: true } },
@@ -143,6 +154,7 @@ const EVENT_LABELS: Record<string, string> = {
   FULFILLMENT_COMPLETED: 'İşlem tamamlandı',
   TARGET_CONFIRMED: 'Hedef onaylandı',
   PAYMENT_PENDING: 'Ödeme bekleniyor',
+  PAYMENT_INITIATED: 'Ödeme başlatıldı',
   PAYMENT_RECEIVED: 'Ödeme alındı',
   PAYMENT_FAILED: 'Ödeme başarısız',
   PROCESSING: 'Hazırlanıyor',
@@ -151,7 +163,12 @@ const EVENT_LABELS: Record<string, string> = {
   PARTIAL: 'Kısmen tamamlandı',
   COMPLETED: 'Tamamlandı',
   CANCELLED: 'İptal edildi',
+  REFUND_REQUESTED: 'İade talebi alındı',
   REFUNDED: 'İade edildi',
+  NOTE_ADDED: 'Bilgilendirme',
+  CONSENT_ACCEPTED: 'Sözleşmeler onaylandı',
+  TRACKING_LINK_SENT: 'Takip bağlantısı gönderildi',
+  GUEST_CLAIMED: 'Sipariş hesaba bağlandı',
   STATUS_CHANGED: 'Durum güncellendi',
 }
 
@@ -230,6 +247,8 @@ function toCustomerFulfillment(
     startedAt: Date | null
     completedAt: Date | null
     customerNote: string | null
+    guaranteeDays: number | null
+    guaranteeEndsAt: Date | null
   } | null,
 ): PublicOrderView['fulfillment'] {
   if (!f) return null
@@ -253,6 +272,9 @@ function toCustomerFulfillment(
     startedAt: f.startedAt?.toISOString() ?? null,
     completedAt: f.completedAt?.toISOString() ?? null,
     customerNote: f.customerNote,
+    guaranteeDays: f.guaranteeDays,
+    guaranteeEndsAt: f.guaranteeEndsAt?.toISOString() ?? null,
+    guaranteeActive: isWithinGuarantee(f.guaranteeEndsAt, new Date()),
   }
 }
 

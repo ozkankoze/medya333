@@ -1,4 +1,4 @@
-# Medya 333 — Faz 5.1
+# Medya 333 — Faz 6
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
@@ -7,7 +7,8 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
 + **Faz 4** (fulfillment: operasyon kuyruğu, manuel ilerleme, garanti/telafi)
 + **Faz 5** (gerçek Instagram kataloğu: 8 hizmet · 12 varyant · **63 gerçek fiyat noktası**)
 + **Faz 5.1** (YouTube · Facebook · TikTok · Instagram takipçi garantisi 365 gün —
-  toplam **4 platform · 22 hizmet · 29 varyant · 199 fiyat noktası**).
+  toplam **4 platform · 22 hizmet · 29 varyant · 199 fiyat noktası**)
++ **Faz 6** (müşteri deneyimi: hizmet keşfi, premium kabuk, garanti görünümü, Yardım, SEO).
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
 > Bu sistem bot, sahte hesap veya otomatik sosyal medya etkileşimi ÜRETMEZ.
@@ -46,6 +47,7 @@ npm run dev                   # http://localhost:3000
 | `npm run verify` | typecheck + test + build (CI kapısı) |
 | `npm run db:generate` / `db:migrate` / `db:deploy` / `db:seed` / `db:reset` | Prisma |
 | `npm run db:validate-pricing` | Tüm fiyat tablolarını doğrular (boşluk/çakışma) |
+| `node scripts/screenshots.mjs <url>` | 12 ekranın görüntüsünü alır, 6 genişlikte yatay taşma ölçer |
 | `npm run migrate:wasm` | ⚠️ Engine indirilemeyen ortamlarda migration (aşağı bkz.) |
 
 ### Kısıtlı ağlarda migration
@@ -116,6 +118,13 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
     fiyatı sonradan değişirse diğer platformlar SESSİZCE kaymaz.
 23. **Katalog ile adapter ayrışamaz.** `Service.targetType`, platformun
     adapter'ının desteklediği bir tip olmalıdır (`UNSUPPORTED_TARGET_TYPE`).
+24. **ARAYÜZDE KATALOG SABİTLENMEZ.** Platform adları, hizmet listesi,
+    açıklamalar, fiyatlar ve garanti rozetleri katalog snapshot'ından üretilir —
+    hero cümlesindeki platform adları dahil.
+25. **SAHTE SOSYAL KANIT YOK.** Sayaçlar yalnızca gerçek katalog/veritabanı
+    verisinden gelir; "10.000+ mutlu müşteri", yıldız, sahte aciliyet yoktur.
+26. **Müşteri yüzeyinde teknik terim yok.** Adapter, API, sağlayıcı adı ve iç
+    enum müşteriye gösterilmez; hedef doğrulama mesajları sade Türkçedir.
 
 ---
 
@@ -174,6 +183,7 @@ fulfillment okuma `SUPPORT+`, fulfillment operasyonu `OPERATOR+` **ve atanmış 
 ### Sayfalar
 `/` sihirbaz · `/siparis-olusturuldu` başarı ekranı · `/siparis-takip` misafir takibi ·
 `/siparisler/[orderNo]` sipariş detayı · `/hesabim` müşteri paneli · `/giris` · `/kayit` ·
+`/yardim` sık sorulan sorular ·
 `/odeme/sonuc/[orderNo]` ödeme sonucu (doğrulanıyor → alındı/başarısız) ·
 `/yonetim/fulfillment` operasyon kuyruğu · `/yonetim/fulfillment/[id]` operasyon detayı ·
 `/yonetim/katalog` katalog yönetimi · `/yonetim/katalog/[id]` varyant + fiyat + simülatör
@@ -212,8 +222,9 @@ tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
 tests/e2e/api-security.spec.ts        12  API güvenlik yüzeyi
 tests/e2e/fulfillment.spec.ts          5  ödeme → READY → manuel start/progress/complete
 tests/e2e/catalog.spec.ts              7  admin katalog → fiyat → simülatör → müşteri → YouTube/TikTok
+tests/e2e/experience.spec.ts          21  ⭐ Faz 6: keşif, garanti, paket, checkout, a11y, SEO
                                       ───
-                                      142  (playwright, 2 proje · 139 passed, 3 skipped)
+                                      184  (playwright, 2 proje · 181 passed, 3 skipped)
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
@@ -272,7 +283,7 @@ beklenen değerlerle karşılaştırır.
 
 ## Sonraki Faz
 
-**Faz 6 — (onay bekliyor).** Faz 5.1 kapsamı tamamlandı; yeni faza kendiliğinden
+**Faz 7 — (onay bekliyor).** Faz 6 kapsamı tamamlandı; yeni faza kendiliğinden
 geçilmez. Detay ve kalan teknik borç: `docs/architecture-decisions.md`
 
 ### Ödeme sağlayıcısı yapılandırma

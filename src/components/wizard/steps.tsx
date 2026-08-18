@@ -30,19 +30,21 @@ export function StepHeading({
   id?: string
 }) {
   return (
-    <div className="mb-4 flex items-center gap-3">
+    <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
       <span
         className={cn(
-          'flex size-6 shrink-0 items-center justify-center rounded-full text-caption font-semibold transition-colors duration-[--duration-fast]',
+          'flex size-7 shrink-0 items-center justify-center rounded-full text-caption font-semibold tabular transition-colors duration-[--duration-fast]',
           done ? 'bg-brand-600 text-white' : 'bg-brand-50 text-brand-700',
         )}
         aria-hidden
       >
-        {done ? <CheckIcon /> : step}
+        {done ? <CheckIcon /> : String(step).padStart(2, '0')}
       </span>
       <h2 id={id} className="text-h3 text-ink-900">
         {title}
       </h2>
+      {/* Ekran okuyucu adım numarasını da duymalı */}
+      <span className="sr-only">{`Adım ${step}${done ? ' — tamamlandı' : ''}`}</span>
       {hint && <span className="text-small text-ink-500">{hint}</span>}
     </div>
   )
@@ -199,9 +201,12 @@ export function VariantPicker({
                 {formatMinor(entry.amountMinor)}
               </span>
             )}
-            {v.refillDays != null && (
-              <span className="mt-0.5 text-caption text-ink-500">
-                {v.refillDays} gün telafi garantisi
+            {/* ⚠️ Garanti rozeti HARDCODE DEĞİL: `refillDays` doluysa gösterilir,
+                null ise HİÇ gösterilmez. */}
+            {v.refillDays != null && v.refillDays > 0 && (
+              <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full bg-success-100 px-2.5 py-1 text-caption font-medium text-success-700">
+                <ShieldIcon />
+                {v.refillDays} Gün Telafi Garantisi
               </span>
             )}
           </SelectableCard>
@@ -343,6 +348,18 @@ export function StepQuantity({
       )
     }
 
+    /**
+     * "En avantajlı" rozeti: paket başına DÜŞEN birim maliyeti en düşük olan
+     * paket. ⚠️ Bu bir pazarlama iddiası değil, gerçek fiyat listesinden
+     * TÜRETİLEN bir karşılaştırma; müşteriye birim fiyat olarak GÖSTERİLMEZ.
+     */
+    const bestValue = presets.reduce<{ quantity: number; ratio: number } | null>((best, p) => {
+      const price = listPriceAtQuantity(variant.tiers, p)
+      if (price == null || p <= 0) return best
+      const ratio = price / p
+      return best === null || ratio < best.ratio ? { quantity: p, ratio } : best
+    }, null)
+
     return (
       <div className="flex flex-col gap-3">
         {variant.description && (
@@ -357,6 +374,7 @@ export function StepQuantity({
           {presets.map((p) => {
             const priceMinor = listPriceAtQuantity(variant.tiers, p)
             const selected = value === p
+            const isBest = presets.length > 2 && bestValue?.quantity === p
             return (
               <button
                 key={p}
@@ -372,12 +390,20 @@ export function StepQuantity({
                     : 'border-ink-200 bg-white hover:bg-ink-50',
                 )}
               >
-                <span className="tabular text-small font-semibold text-ink-900">
-                  {withUnit(p, unitLabel)}
+                <span className="flex w-full items-center justify-between gap-2">
+                  <span className="tabular text-small font-semibold text-ink-900">
+                    {withUnit(p, unitLabel)}
+                  </span>
+                  {isBest && (
+                    <span className="shrink-0 rounded-full bg-brand-50 px-2 py-0.5 text-caption font-medium text-brand-700">
+                      En avantajlı
+                    </span>
+                  )}
                 </span>
                 {priceMinor != null && (
                   <span className="tabular text-small text-ink-700">{formatMinor(priceMinor)}</span>
                 )}
+                <span className="text-caption text-ink-500">Paket fiyatı · KDV dahil</span>
               </button>
             )
           })}
@@ -555,6 +581,15 @@ function Spinner() {
     <svg width="16" height="16" viewBox="0 0 24 24" className="animate-spin text-ink-400" aria-hidden>
       <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" fill="none" opacity="0.25" />
       <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function ShieldIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M12 3 5 6v6c0 4.4 3 8.2 7 9 4-.8 7-4.6 7-9V6l-7-3Z" strokeLinejoin="round" />
+      <path d="m9 12 2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

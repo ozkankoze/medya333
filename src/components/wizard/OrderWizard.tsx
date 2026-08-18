@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TargetConfirmCard, type TargetPreviewData } from '@/components/primitives/TargetConfirmCard'
@@ -111,15 +111,59 @@ export function OrderWizard({
     [visibleVariants, variantId],
   )
 
+  /**
+   * --- URL'den ÖN SEÇİM (derin bağlantı) ---
+   *
+   * Ana sayfadaki hizmet keşfi `/?p=instagram&s=takipci#siparis` bağlantıları
+   * üretir. Bu istemci tarafı bir gezinmedir: sihirbaz YENİDEN MOUNT OLMAZ,
+   * dolayısıyla adres çubuğunu yalnızca ilk render'da okumak YETMEZ —
+   * `useSearchParams` ile her gezinmede yeniden uygulanır.
+   */
+  const searchParams = useSearchParams()
+  const appliedQuery = useRef<string | null>(null)
+
+  useEffect(() => {
+    const key = searchParams.toString()
+    if (appliedQuery.current === key) return
+    appliedQuery.current = key
+    if (!key) return
+
+    const q = new URLSearchParams(key)
+    const p = catalog.platforms.find((x) => x.slug === q.get('p'))
+    if (!p) return
+    setPlatformSlug(p.slug)
+
+    const svc = p.services.find((x) => x.slug === q.get('s'))
+    if (!svc) return
+    setServiceId(svc.id)
+
+    const v =
+      svc.variants.find((x) => x.slug === q.get('v')) ??
+      svc.variants.find((x) => x.isDefault) ??
+      svc.variants[0]
+    if (!v) return
+    setVariantId(v.id)
+
+    const wanted = Number(q.get('q'))
+    const valid = Number.isInteger(wanted) && v.presetQuantities.includes(wanted)
+    setQuantity(valid ? wanted : (v.presetQuantities[0] ?? v.minQuantity))
+  }, [searchParams, catalog])
+
   // --- URL senkronu (navigasyon YOK) ---
   useEffect(() => {
+    // İlk uygulama turu tamamlanmadan adres çubuğunu EZME.
+    if (appliedQuery.current === null) return
+
     const params = new URLSearchParams()
     if (platformSlug) params.set('p', platformSlug)
     if (service) params.set('s', service.slug)
     if (variant && visibleVariants.length > 1) params.set('v', variant.slug)
     if (quantity) params.set('q', String(quantity))
     const qs = params.toString()
-    window.history.replaceState(null, '', qs ? `/?${qs}` : '/')
+    // Hash KORUNUR: `#siparis` silinirse tarayıcının kaydırma hedefi kaybolur.
+    const hash = window.location.hash
+    appliedQuery.current = qs
+    window.history.replaceState(null, '', `${qs ? `/?${qs}` : '/'}${hash}`)
   }, [platformSlug, service, variant, quantity, visibleVariants.length])
 
   // --- Platform seçimi: alt seçimleri sıfırla ---
@@ -418,7 +462,7 @@ export function OrderWizard({
                 : 'Ödeme bir sonraki adımda alınacak'
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-8 px-5 pb-28 lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-20">
+    <div className="wizard-scope mx-auto grid max-w-6xl gap-8 px-5 pb-36 lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-20">
       {/* ------------------------------- SOL: adımlar ------------------------------ */}
       <div className="flex flex-col gap-10">
         <section aria-labelledby="step-platform" className="scroll-mt-20">
@@ -599,7 +643,13 @@ export function OrderWizard({
         </div>
       </aside>
 
-      {/* ----------------------------- Mobil alt çubuk ----------------------------- */}
+      {/**
+       * ----------------------------- Mobil alt çubuk -----------------------------
+       * ⚠️ Kullanıcı sihirbaza GİRMEDEN gösterilmez. Ana sayfayı okurken
+       * ekranın altında pasif bir "Siparişi Oluştur" çubuğu durması hem
+       * gereksiz CTA gürültüsü hem de 390px'lik ekranda içerik kaybıdır.
+       */}
+      {platform && (
       <MobilePriceBar
         breakdown={breakdown}
         onContinue={() => void submitOrder()}
@@ -608,6 +658,7 @@ export function OrderWizard({
         indicative={!targetReady}
         hint={continueHint}
       />
+      )}
     </div>
   )
 }
