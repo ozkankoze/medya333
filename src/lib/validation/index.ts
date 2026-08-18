@@ -186,49 +186,89 @@ export const adminServiceSchema = z.object({
   sortOrder: z.number().int().min(0).max(9999).default(0),
 })
 
-export const adminVariantSchema = z
+/**
+ * Varyantın ham alanları. `.refine()` zinciri PATCH'te `.partial()` ile
+ * kullanılabilsin diye AYRI tutulur (ZodEffects üzerinde `.partial()` yoktur).
+ * Kısmi güncellemede düşen çapraz kurallar servis katmanında tekrar uygulanır.
+ */
+export const adminVariantBaseSchema = z
   .object({
     serviceId: cuidSchema,
     slug: slugSchema,
     internalName: z.string().trim().min(2).max(120),
     customerLabel: z.string().trim().min(1).max(48),
     tagline: z.string().trim().max(120).optional().nullable(),
+    description: z.string().trim().max(600).optional().nullable(),
     badge: z.string().trim().max(32).optional().nullable(),
     isDefault: z.boolean().default(false),
     isVisible: z.boolean().default(true),
+    /** Sabit paketin içerik maddeleri — müşteriye gösterilir */
+    packageItems: z.array(z.string().trim().min(1).max(120)).max(12).default([]),
     minQuantity: z.number().int().positive(),
     maxQuantity: z.number().int().positive(),
     quantityStep: z.number().int().positive().default(1),
-    presetQuantities: z.array(z.number().int().positive()).max(8).default([]),
+    presetQuantities: z.array(z.number().int().positive()).max(32).default([]),
+    /** true ⇒ SADECE presetQuantities seçilebilir (slider kapalı) */
+    presetOnly: z.boolean().default(false),
     estimatedStartMinutes: z.number().int().min(0).optional().nullable(),
     estimatedCompleteMinutes: z.number().int().min(0).optional().nullable(),
     refillDays: z.number().int().min(0).max(365).optional().nullable(),
     isActive: z.boolean().default(true),
     sortOrder: z.number().int().min(0).max(9999).default(0),
   })
+
+export const adminVariantSchema = adminVariantBaseSchema
   .refine((v) => v.maxQuantity >= v.minQuantity, {
     message: 'Maksimum miktar minimumdan küçük olamaz.',
     path: ['maxQuantity'],
   })
+  .refine((v) => !v.presetOnly || v.presetQuantities.length > 0, {
+    message: 'Yalnızca hazır miktar seçilebilen varyantta en az bir hazır miktar tanımlanmalıdır.',
+    path: ['presetQuantities'],
+  })
 
-export const adminPricingRuleSchema = z
+export const adminVariantPatchSchema = adminVariantBaseSchema.partial()
+
+export const adminPricingRuleBaseSchema = z
   .object({
     serviceVariantId: cuidSchema,
-    mode: z.enum(['FLAT_TIER', 'GRADUATED']).default('FLAT_TIER'),
+    mode: z.enum(['FLAT_TIER', 'GRADUATED', 'PACKAGE']).default('FLAT_TIER'),
     minQuantity: z.number().int().positive(),
     maxQuantity: z.number().int().positive().optional().nullable(),
-    /** KDV DAHİL birim fiyat, kuruş. Sıfır/negatif reddedilir (parmak hatası). */
-    unitPriceMinor: z.number().int().positive('Birim fiyat sıfırdan büyük olmalıdır.'),
+    /**
+     * KDV DAHİL birim fiyat, kuruş. FLAT_TIER/GRADUATED'de sıfır/negatif
+     * reddedilir (parmak hatası). PACKAGE modunda kullanılmaz → 0 kabul edilir.
+     */
+    unitPriceMinor: z.number().int().min(0),
+    /** ⚠️ SADECE PACKAGE — KDV DAHİL sabit toplam, kuruş. */
+    packagePriceMinor: z.number().int().positive().optional().nullable(),
     setupFeeMinor: z.number().int().min(0).default(0),
     validFrom: z.coerce.date().optional(),
     validUntil: z.coerce.date().optional().nullable(),
     priority: z.number().int().min(0).max(1000).default(0),
     isActive: z.boolean().default(true),
   })
+
+export const adminPricingRuleSchema = adminPricingRuleBaseSchema
   .refine((v) => v.maxQuantity == null || v.maxQuantity >= v.minQuantity, {
     message: 'Üst sınır alt sınırdan küçük olamaz.',
     path: ['maxQuantity'],
   })
+  .refine((v) => v.mode !== 'PACKAGE' || (v.packagePriceMinor ?? 0) > 0, {
+    message: 'Sabit paket fiyatı sıfırdan büyük olmalıdır.',
+    path: ['packagePriceMinor'],
+  })
+  .refine((v) => v.mode === 'PACKAGE' || v.unitPriceMinor > 0, {
+    message: 'Birim fiyat sıfırdan büyük olmalıdır.',
+    path: ['unitPriceMinor'],
+  })
+  .refine((v) => v.mode !== 'PACKAGE' || v.maxQuantity === v.minQuantity, {
+    // Sabit paket TEK miktara kilitlidir: 500 için tanımlı fiyat 501'i kapsayamaz.
+    message: 'Sabit paket kademesinde alt ve üst sınır aynı miktar olmalıdır.',
+    path: ['maxQuantity'],
+  })
+
+export const adminPricingRulePatchSchema = adminPricingRuleBaseSchema.partial()
 
 export const adminOrderStatusSchema = z.object({
   status: z.enum([

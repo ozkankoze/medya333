@@ -610,17 +610,147 @@ yoklar ve `polling: false` (terminal durum) geldiğinde **kendini durdurur**.
 müşterinin hakkı değişmez. Pencere kapandıktan sonra sistem hiçbir otomatik
 işlem yapmaz — süre dolmuşsa telafi kaydı açılamaz.
 
+**Faz 4'ten devreden teknik borç** (Faz 5'te kapanmadı)
+- Operatör paneli sayfa yenilemesiyle çalışır; kuyrukta otomatik yenileme yok.
+- Kuyrukta sayfalama yok (limit 100).
+- Bildirim yok: müşteriye "işleminiz başladı/tamamlandı" e-postası gitmiyor.
+- SLA/gecikme alarmı yok.
+- Telafi kaydı yeni bir fulfillment üretmez; aynı kayıt üzerinde ilerler.
+
 ---
 
-## Sonraki Faz — Faz 5 (onay bekliyor)
+## ADR-018 — Sabit Paket Fiyatı: `quantity × unitPrice` Terk Edildi
 
-Faz 4 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+**Bağlam.** Gerçek satış fiyatları miktarın fonksiyonu değil, miktar–fiyat
+EŞLEŞMESİDİR: 500 takipçi 324,90 ₺, 1.000 takipçi 599,90 ₺. Bu tabloyu birim
+fiyatla ifade etmek imkânsızdır — `32490 / 500 = 64,98` kuruş tam sayı değildir
+ve para birimimiz tam sayı kuruştur (Faz 0 kuralı #1). Birim fiyatı yuvarlayıp
+miktarla çarpsaydık 500 × 65 = 325,00 ₺ çıkardı: müşteriye söz verdiğimiz
+fiyattan 10 kuruş fazla.
+
+**Karar.** `PricingMode` üçüncü bir değer kazandı: `PACKAGE`.
+
+```
+PACKAGE  →  goodsMinor = tier.packagePriceMinor          // OKUNUR
+FLAT_TIER→  goodsMinor = tier.unitPriceMinor × quantity  // hesaplanır
+```
+
+`packagePriceMinor` yeni ve **nullable** bir sütundur; mevcut kademeler
+etkilenmez. `PACKAGE` kademesinde `unitPriceMinor` 0'dır ve HİÇBİR yerde
+gösterilmez — "1 × 0,00 ₺" yazmak yanıltıcı olurdu. Kırılım satırı
+"Paket fiyatı" der, `nextTier` ipucu üretilmez (sabit pakette "biraz daha ekle,
+birim fiyat düşsün" anlamsızdır).
+
+**Sonuç.** 63 fiyat noktasının tamamı kuruşu kuruşuna doğrulanabilir hale geldi;
+`tests/unit/catalog-prices.test.ts` beklenen değerleri seed'den DEĞİL brief'ten
+elle alarak karşılaştırır — aksi halde yanlış girilmiş bir fiyat kendi kendini
+onaylardı.
+
+---
+
+## ADR-019 — Hazır Miktar Kilidi (`presetOnly`)
+
+**Bağlam.** 500 → 324,90 ₺ tanımlıysa 501 için bir fiyat YOKTUR. Slider'lı
+serbest miktar bu katalogda anlamsızdır ve `NO_PRICING_RULE` hatası üretirdi.
+
+**Karar.** `ServiceVariant.presetOnly` (varsayılan `false`, geriye dönük
+uyumlu). `true` olduğunda:
+
+1. **İstemci** — slider ve sayı kutusu HİÇ render edilmez; kullanıcı 7.342
+   yazabileceği bir alan görmez, yalnızca fiyatlı miktar kartları görür.
+2. **Sunucu** — `validateQuantity` aynı saf fonksiyonda listeyi kontrol eder ve
+   `QUANTITY_NOT_ALLOWED` fırlatır. Arayüz atlansa da API kabul etmez.
+3. **Admin doğrulayıcı** — boşluk taraması ARALIK üzerinde değil HAZIR MİKTAR
+   listesi üzerinde yapılır: 501–999 "boşluk" değildir, çünkü seçilemez.
+
+Varyant değiştiğinde miktar sıkıştırılmaz, **en yakın hazır miktara oturtulur** —
+sıkıştırmak yine geçersiz bir sayı bırakabilirdi.
+
+---
+
+## ADR-020 — Demo Katalog Silinmedi, Pasifleştirildi
+
+**Bağlam.** Faz 0-4'ün örnek hizmetleri (TikTok/YouTube/X/Facebook/Telegram
+hizmetleri, "Standart/Premium" varyantları, "Profil Tanıtımı") uydurma
+fiyatlardır ve canlıda müşteriye gösterilemez. Ama bu satırlara test ve geliştirme
+sırasında oluşmuş siparişler, ödemeler ve fulfillment kayıtları bağlıdır
+(`Order.serviceId`, `OrderItem.serviceVariantId`, `appliedPricingRuleId`).
+
+**Karar.** Seed'e `deactivateStaleCatalog` adımı eklendi: gerçek katalogda yer
+almayan platform/hizmet/varyant/fiyat kademeleri `isActive = false` yapılır,
+**silinmez**. Public snapshot ve `resolvePrice` zaten yalnızca aktif kayıtları
+görür, dolayısıyla pasif katalog ne listelenir ne sipariş edilir; geçmiş kayıtlar
+ise okunabilir kalır.
+
+Pasifleştirilen varyantların `isDefault` bayrağı da düşürülür — aksi halde aynı
+hizmette iki "varsayılan" varyant kalır ve sihirbaz hangisini açacağını kayıt
+sırasına göre seçerdi. (Bu hatayı `database.test.ts` yakaladı.)
+
+Admin katalog ekranı **varsayılan olarak pasifleri de listeler**: gizlenen bir
+kaydı geri açmak imkânsız olurdu.
+
+---
+
+## Faz 5 Uygulama Özeti
+
+**Gerçek katalog — yalnızca Instagram**
+
+| Hizmet | Varyant(lar) | Fiyat noktası | Model |
+|---|---|---|---|
+| Takipçi | Yabancı Takipçi · Türk Takipçi | 10 + 8 | preset paket |
+| Beğeni | Türk Beğeni | 10 | preset paket |
+| Görüntülenme | Video İzlenme | 9 | preset paket |
+| Yorum | Türk Yorum | 7 | preset paket |
+| Kaydetme | Kaydetme | 7 | preset paket |
+| Paylaşım | Paylaşım | 7 | preset paket |
+| Keşfet Paketi | Instagram Keşfet Paketi | 1 | sabit paket |
+| Aylık Türk Beğeni + Yorum | Paket 1 · 2 · 3 · 4 | 4 | sabit paket |
+| | **TOPLAM** | **63** | |
+
+Kaydetme ve Paylaşım fiyatları birebir aynıdır ve tek sabitten (`PAYLASIM_KAYDETME`)
+okunur — iki kopya zamanla ayrışırdı. `1.000.000` TÜRK takipçi paketi YOKTUR;
+bir birim testi bunun eklenmediğini ayrıca doğrular.
+
+**Şema değişikliği (migration 5, tamamen eklemeli)**
+- `PricingMode` += `PACKAGE`
+- `PricingRule.packagePriceMinor Int?`
+- `ServiceVariant.description`, `.packageItems String[]`, `.presetOnly Boolean`
+- `Order.pricingMode` — sipariş anındaki fiyat modeli snapshot'ı
+
+**KDV.** Değişmedi. Tüm fiyatlar KDV DAHİL girilir, vergi brütten geriye
+ayrıştırılır. 249,00 ₺ → 207,50 matrah + 41,50 KDV. 63 fiyat noktasının
+tamamında `matrah + KDV = toplam` özdeşliği test edilir.
+
+**Müşteri arayüzü**
+- `presetOnly` varyantta fiyatlı miktar kartları (slider yok)
+- tek seçenekli sabit pakette miktar seçici yerine **paket kartı** + içerik listesi
+- varyant açıklaması ve paket içeriği DB'den gelir; hiçbir metin arayüzde sabit değil
+
+**Admin**
+- `/yonetim/katalog` — platform → hizmet → varyant zinciri, aktif/pasif anahtarı
+- `/yonetim/katalog/[id]` — fiyat düzenleme (TL girişi → tam sayı kuruş),
+  doğrulama raporu, fiyat simülatörü, **kim/ne zaman/eski→yeni** denetim listesi
+- Simülatör müşteri motorunun BİREBİR aynısını çağırır; ayrı bir "admin hesabı"
+  yoktur, olsaydı panelde doğru görünen fiyat müşteride farklı çıkabilirdi.
+
+---
+
+## Sonraki Faz — Faz 6 (onay bekliyor)
+
+Faz 5 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
 
 **Kalan teknik borç**
-- Operatör paneli sayfa yenilemesiyle çalışır; kuyrukta otomatik yenileme yok.
-- Kuyrukta sayfalama yok (limit 100). Hacim arttığında cursor tabanlı sayfalama gerekir.
-- Bildirim yok: müşteriye "işleminiz başladı/tamamlandı" e-postası gitmiyor.
-- SLA/gecikme uyarısı yok — `READY`'de bekleyen iş için eşik alarmı kurulmadı.
-- Telafi kaydı yeni bir fulfillment üretmez; aynı kayıt üzerinde ilerler.
-- Prisma WASM şema motoru mevcut veritabanına karşı diff alamıyor
-  (`Column type 'char' could not be deserialized`); migration'lar elle yazılıyor.
+- **Garanti süresi tanımsız.** Takipçi açıklamaları "düşüş olursa aynı gün
+  yüklenir" diyor ama brief bir GÜN SAYISI vermedi. Uydurmamak için tüm
+  varyantlarda `refillDays = null` bırakıldı; bu haliyle Faz 4 telafi akışı
+  bu ürünlerde açılamaz. Sayı verildiğinde tek alan doldurulacak.
+- **SLA vaadi yok.** `estimatedStartMinutes` / `estimatedCompleteMinutes`
+  boş; "0-6 saat içinde başlar" gibi ifadeler demo veriydi, kaldırıldı.
+- Admin panelinde hizmet/varyant OLUŞTURMA formu yok — API mevcut, arayüz
+  yalnızca düzenleme ve aktif/pasif yapıyor.
+- Fiyat kademesi ekleme/silme arayüzü yok (API mevcut).
+- Kampanya ve kupon yönetimi için admin arayüzü hâlâ yok.
+- `Order.unitPriceMinor` sabit pakette 0'dır; eski raporlar bu alanı birim fiyat
+  sanarsa yanılır. `pricingMode` snapshot'ı ile ayırt edilebilir.
+- Prisma WASM şema motoru mevcut veritabanına karşı diff alamıyor; migration'lar
+  elle yazılmaya devam ediyor.

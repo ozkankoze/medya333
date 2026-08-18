@@ -126,15 +126,46 @@ function findVariant(platformSlug: string, serviceSlug: string, variantSlug?: st
 
 describe('GET /api/v1/catalog/snapshot', () => {
   it('katalog zinciri eksiksiz: Platform → Service → Variant → PricingRule → target config', () => {
-    expect(catalog.platforms).toHaveLength(6)
-    const { service, variant } = findVariant('instagram', 'takipci', 'standart')
+    // ⚠️ Faz 5: gerçek katalogda YALNIZCA Instagram aktiftir.
+    expect(catalog.platforms).toHaveLength(1)
+    expect(catalog.platforms[0].slug).toBe('instagram')
+    const { service, variant } = findVariant('instagram', 'takipci', 'turk')
     expect(service.targetType).toBe('PROFILE')
     expect(service.inputLabel).toBeTruthy()
     expect(service.inputPlaceholder).toBeTruthy()
     expect(service.inputExample).toBeTruthy()
-    expect(service.unitLabel).toBe('adet')
-    expect(variant.tiers).toHaveLength(4)
-    expect(variant.minQuantity).toBe(100)
+    expect(service.unitLabel).toBe('takipçi')
+    expect(variant.tiers).toHaveLength(8)
+    expect(variant.minQuantity).toBe(500)
+    expect(variant.presetOnly).toBe(true)
+    expect(variant.presetQuantities).toEqual([500, 1000, 2500, 5000, 10_000, 25_000, 50_000, 100_000])
+  })
+
+  it('⚠️ demo katalog müşteriye GÖRÜNMEZ', () => {
+    const raw = JSON.stringify(catalog)
+    for (const demo of ['tiktok', 'youtube', 'facebook', 'telegram', 'profil-tanitimi', 'Premium', 'Standart']) {
+      expect(raw, `demo katalog kalıntısı: ${demo}`).not.toContain(demo)
+    }
+  })
+
+  it('8 gerçek hizmet listelenir', () => {
+    const names = catalog.platforms[0].services.map((s: Json) => s.name)
+    expect(names).toEqual([
+      'Takipçi',
+      'Beğeni',
+      'Görüntülenme',
+      'Yorum',
+      'Kaydetme',
+      'Paylaşım',
+      'Keşfet Paketi',
+      'Aylık Türk Beğeni + Yorum Paketi',
+    ])
+  })
+
+  it('katalogdaki toplam fiyat noktası sayısı 63', () => {
+    const total = catalog.platforms.flatMap((p: Json) => p.services).flatMap((s: Json) => s.variants)
+      .reduce((n: number, v: Json) => n + v.tiers.length, 0)
+    expect(total).toBe(63)
   })
 
   it('KDV dahil bayrağı ve oranı', () => {
@@ -147,7 +178,7 @@ describe('GET /api/v1/catalog/snapshot', () => {
     const raw = JSON.stringify(catalog)
     for (const forbidden of [
       'internalName',
-      'Havuz', // internalName içeriği
+      'IG-Takipci', // internalName içeriği
       'adminNote',
       'adapterKey',
       'adapterConfig',
@@ -170,11 +201,11 @@ describe('GET /api/v1/catalog/snapshot', () => {
   })
 
   it('🔒 varyantta yalnızca müşteriye açık alanlar var', () => {
-    const { variant } = findVariant('instagram', 'takipci', 'premium')
+    const { variant } = findVariant('instagram', 'takipci', 'yabanci')
     const allowed = new Set([
-      'id', 'slug', 'customerLabel', 'tagline', 'badge', 'isDefault',
-      'minQuantity', 'maxQuantity', 'quantityStep', 'presetQuantities',
-      'estimatedStartMinutes', 'estimatedCompleteMinutes', 'refillDays', 'tiers',
+      'id', 'slug', 'customerLabel', 'tagline', 'description', 'badge', 'isDefault',
+      'packageItems', 'minQuantity', 'maxQuantity', 'quantityStep', 'presetQuantities',
+      'presetOnly', 'estimatedStartMinutes', 'estimatedCompleteMinutes', 'refillDays', 'tiers',
     ])
     for (const key of Object.keys(variant)) {
       expect(allowed.has(key), `Beklenmeyen varyant alanı: ${key}`).toBe(true)
@@ -189,7 +220,7 @@ describe('GET /api/v1/catalog/snapshot', () => {
 
 describe('POST /api/v1/pricing/quote', () => {
   it('istenen alanların tamamını döndürür', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const res = await quotePOST(
       makeReq('http://localhost/api/v1/pricing/quote', {
         serviceVariantId: variant.id,
@@ -200,20 +231,22 @@ describe('POST /api/v1/pricing/quote', () => {
     const j = await res.json()
 
     expect(j.quantity).toBe(1000)
-    expect(j.unitPrice).toBe(30)
-    expect(j.unitLabel).toBe('adet')
-    expect(j.total).toBe(30_000)
+    // ⚠️ 1.000 Türk takipçi = 1.349,90 ₺ (gerçek satış fiyatı, KDV dahil)
+    expect(j.total).toBe(134_990)
+    expect(j.pricingMode).toBe('PACKAGE')
+    expect(j.packagePrice).toBe(134_990)
+    expect(j.unitPrice).toBe(0) // sabit pakette birim fiyat YOKTUR
+    expect(j.unitLabel).toBe('takipçi')
     expect(j.taxRate).toBe(2000)
-    expect(j.taxAmount).toBe(5000)
-    expect(j.subtotal).toBe(25_000)
     expect(j.currency).toBe('TRY')
-    expect(j.appliedTier).toMatchObject({ minQuantity: 1000, maxQuantity: 4999, unitPrice: 30 })
+    expect(j.appliedTier).toMatchObject({ mode: 'PACKAGE', minQuantity: 1000, maxQuantity: 1000 })
+    expect(j.nextTier).toBeNull()
     // KDV DAHİL değişmezi
     expect(j.subtotal + j.taxAmount).toBe(j.total)
   })
 
   it('🔒 istemciden gelen fiyat alanları YOK SAYILIR', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const res = await quotePOST(
       makeReq('http://localhost/api/v1/pricing/quote', {
         serviceVariantId: variant.id,
@@ -228,74 +261,84 @@ describe('POST /api/v1/pricing/quote', () => {
       }),
     )
     const j = await res.json()
-    expect(j.total).toBe(30_000) // istemcinin 1 kuruşu dikkate alınmadı
-    expect(j.unitPrice).toBe(30)
+    expect(j.total).toBe(134_990) // istemcinin 1 kuruşu dikkate alınmadı
+    expect(j.packagePrice).toBe(134_990)
   })
 
-  it('unitLabel "hafta" olan hizmette doğru döner', async () => {
-    const { variant } = findVariant('instagram', 'profil-tanitimi')
+  it('unitLabel "ay" olan sabit pakette doğru döner', async () => {
+    const { variant } = findVariant('instagram', 'aylik-begeni-yorum-paketi', 'paket-1')
     const res = await quotePOST(
       makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: 1 }),
     )
     const j = await res.json()
-    expect(j.unitLabel).toBe('hafta')
-    expect(j.total).toBe(29_900)
+    expect(j.unitLabel).toBe('ay')
+    expect(j.total).toBe(125_000) // 1.250,00 ₺
   })
 
-  it('kademe geçişleri doğru', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
-    // quantityStep=10, minQuantity=100 → yalnızca 100,110,...,N geçerlidir.
-    // Kademe üst sınırları (499/999/4999) adım kuralıyla ERİŞİLEMEZ; sınıra en
-    // yakın geçerli miktarlar kullanılır.
+  it('her hazır miktar KENDİ gerçek fiyatını döner', async () => {
+    const { variant } = findVariant('instagram', 'takipci', 'yabanci')
+    // ⚠️ Brief'teki Yabancı Takipçi listesi — birebir.
     const cases: Array<[number, number]> = [
-      [100, 45], [490, 45], [500, 38], [990, 38], [1000, 30], [4990, 30], [5000, 24],
+      [500, 32_490], [1000, 59_990], [2500, 134_990], [5000, 249_990], [10_000, 449_990],
+      [25_000, 999_990], [50_000, 1_749_990], [100_000, 3_249_990], [250_000, 7_499_990],
+      [1_000_000, 24_999_990],
     ]
-    for (const [qty, unit] of cases) {
+    for (const [qty, total] of cases) {
       const res = await quotePOST(
         makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: qty }),
       )
       const j = await res.json()
-      expect(j.unitPrice, `${qty} adet`).toBe(unit)
-      expect(j.total).toBe(unit * qty)
+      expect(j.total, `${qty} takipçi`).toBe(total)
     }
   })
 
-  it('minimum altı miktar 400 + anlaşılır mesaj', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+  it('⚠️ hazır listede OLMAYAN miktar reddedilir (7.342)', async () => {
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const res = await quotePOST(
-      makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: 5 }),
+      makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: 7342 }),
     )
     expect(res.status).toBe(400)
     const j = await res.json()
-    expect(j.error.code).toBe('BELOW_MINIMUM')
-    expect(j.error.message).toContain('en az')
+    expect(j.error.code).toBe('QUANTITY_NOT_ALLOWED')
+    expect(j.error.message).toContain('hazır paket')
   })
 
-  it('adım ihlali reddedilir', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+  it('⚠️ hazır miktarın 1 fazlası bile reddedilir (501)', async () => {
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const res = await quotePOST(
-      makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: 105 }),
+      makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: 501 }),
     )
     expect(res.status).toBe(400)
-    expect((await res.json()).error.code).toBe('INVALID_STEP')
+    expect((await res.json()).error.code).toBe('QUANTITY_NOT_ALLOWED')
+  })
+
+  it('⚠️ Türk takipçide 1.000.000 paketi YOKTUR', async () => {
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
+    const res = await quotePOST(
+      makeReq('http://localhost/api/v1/pricing/quote', {
+        serviceVariantId: variant.id,
+        quantity: 1_000_000,
+      }),
+    )
+    expect(res.status).toBe(400)
   })
 
   it('olmayan varyant 404', async () => {
     const res = await quotePOST(
       makeReq('http://localhost/api/v1/pricing/quote', {
         serviceVariantId: 'clyokyokyokyokyokyokyok01',
-        quantity: 100,
+        quantity: 500,
       }),
     )
     expect(res.status).toBe(404)
   })
 
   it('🔒 çok büyük gövde 413 ile reddedilir', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const res = await quotePOST(
       makeReq('http://localhost/api/v1/pricing/quote', {
         serviceVariantId: variant.id,
-        quantity: 100,
+        quantity: 500,
         junk: 'x'.repeat(100_000),
       }),
     )
@@ -310,12 +353,12 @@ describe('POST /api/v1/pricing/quote', () => {
   })
 
   it('🔒 rate limit uygulanır (30/dk/IP)', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const fixed = { 'x-forwarded-for': '198.51.100.44' }
     let limited = 0
     for (let i = 0; i < 33; i++) {
       const res = await quotePOST(
-        makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: 100 }, fixed),
+        makeReq('http://localhost/api/v1/pricing/quote', { serviceVariantId: variant.id, quantity: 500 }, fixed),
       )
       if (res.status === 429) limited++
     }
@@ -325,29 +368,30 @@ describe('POST /api/v1/pricing/quote', () => {
 
 describe('POST /api/v1/coupons/validate', () => {
   it('geçerli kupon indirimi SUNUCUDA hesaplanır', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    // 250 Türk Beğeni = 109,90 ₺ · %10 = 10,99 ₺ (tavanın altında)
+    const { variant } = findVariant('instagram', 'begeni', 'turk')
     const res = await couponPOST(
       makeReq('http://localhost/api/v1/coupons/validate', {
         code: 'HOSGELDIN10',
         serviceVariantId: variant.id,
-        quantity: 1000,
+        quantity: 250,
       }),
     )
     const j = await res.json()
     expect(j.valid).toBe(true)
-    expect(j.discount).toBe(3000) // 30.000 * %10
-    expect(j.total).toBe(27_000)
-    expect(j.totalBeforeCoupon).toBe(30_000)
+    expect(j.totalBeforeCoupon).toBe(10_990)
+    expect(j.discount).toBe(1099)
+    expect(j.total).toBe(9891)
     expect(j.subtotal + j.taxAmount).toBe(j.total)
   })
 
   it('indirim tavanı uygulanır', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const res = await couponPOST(
       makeReq('http://localhost/api/v1/coupons/validate', {
         code: 'HOSGELDIN10',
         serviceVariantId: variant.id,
-        quantity: 100_000, // %10 = 240.000 kuruş ama tavan 15.000
+        quantity: 100_000, // 74.999,90 ₺ · %10 = 7.499,99 ₺ ama tavan 150 ₺
       }),
     )
     const j = await res.json()
@@ -356,12 +400,12 @@ describe('POST /api/v1/coupons/validate', () => {
   })
 
   it('minimum sipariş tutarı altında indirim yok', async () => {
-    const { variant } = findVariant('instagram', 'begeni')
+    const { variant } = findVariant('instagram', 'yorum', 'turk')
     const res = await couponPOST(
       makeReq('http://localhost/api/v1/coupons/validate', {
         code: 'HOSGELDIN10',
         serviceVariantId: variant.id,
-        quantity: 50, // 50 × 22 = 1100 kuruş < 5000 minimum
+        quantity: 10, // 49,90 ₺ < 50 ₺ minimum sepet
       }),
     )
     const j = await res.json()
@@ -370,7 +414,7 @@ describe('POST /api/v1/coupons/validate', () => {
   })
 
   it('olmayan kupon valid:false döner (500 DEĞİL)', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     const res = await couponPOST(
       makeReq('http://localhost/api/v1/coupons/validate', {
         code: 'YOKBOYLEKUPON',
@@ -385,7 +429,7 @@ describe('POST /api/v1/coupons/validate', () => {
   })
 
   it('süresi dolmuş kupon reddedilir', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     await db.coupon.create({
       data: {
         code: 'GECMIS',
@@ -409,7 +453,7 @@ describe('POST /api/v1/coupons/validate', () => {
   })
 
   it('pasif kupon reddedilir', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     await db.coupon.create({
       data: { code: 'PASIF', discountType: 'FIXED_AMOUNT', discountValue: 1000, isActive: false },
     })
@@ -425,7 +469,7 @@ describe('POST /api/v1/coupons/validate', () => {
   })
 
   it('kullanım limiti dolmuş kupon reddedilir', async () => {
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     await db.coupon.create({
       data: {
         code: 'DOLU',
@@ -449,8 +493,9 @@ describe('POST /api/v1/coupons/validate', () => {
   })
 
   it('kapsam dışı platformda kupon reddedilir', async () => {
-    const tiktok = catalog.platforms.find((p: Json) => p.slug === 'tiktok')
-    const { variant } = findVariant('instagram', 'takipci', 'standart')
+    // TikTok artık PASİF katalogdadır; kapsam kontrolü yine de kimliğe bakar.
+    const tiktok = await db.platform.findUniqueOrThrow({ where: { slug: 'tiktok' } })
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
     await db.coupon.create({
       data: {
         code: 'SADECETIKTOK',
@@ -612,37 +657,77 @@ describe('Admin pricing validation', () => {
 
   it('boşluk, çakışma, negatif fiyat ve duplicate tespit edilir', async () => {
     session.user = { id: 'u3', email: 'a@x.com', name: null, role: 'ADMIN', isGuest: false }
-    const { variant } = findVariant('telegram', 'uye')
 
-    // Boşluk yarat: 100-999 kademesini kaldır
-    const rules = await db.pricingRule.findMany({ where: { serviceVariantId: variant.id } })
-    const first = rules.find((r) => r.minQuantity === 100)!
-    await db.pricingRule.update({ where: { id: first.id }, data: { isActive: false } })
-
-    // Çakışma + duplicate yarat
-    await db.pricingRule.create({
-      data: { serviceVariantId: variant.id, minQuantity: 1000, maxQuantity: 5000, unitPriceMinor: 39 },
+    /**
+     * ⚠️ GERÇEK KATALOG BOZULMAZ.
+     * Doğrulayıcıyı sınamak için gerçek fiyatları bozmak yerine, yalnızca bu
+     * teste ait GEÇİCİ bir varyant oluşturulur (klasik kademeli fiyatlandırma).
+     */
+    const service = await db.service.findFirstOrThrow({
+      where: { slug: 'takipci', platform: { slug: 'instagram' } },
     })
-    await db.pricingRule.create({
-      data: { serviceVariantId: variant.id, minQuantity: 1000, maxQuantity: 5000, unitPriceMinor: 37 },
+    const temp = await db.serviceVariant.create({
+      data: {
+        serviceId: service.id,
+        slug: 'gecici-dogrulama',
+        internalName: 'Gecici-Dogrulama',
+        customerLabel: 'Geçici',
+        isVisible: false,
+        minQuantity: 100,
+        maxQuantity: 10_000,
+        quantityStep: 1,
+        pricingRules: {
+          create: [
+            { minQuantity: 100, maxQuantity: 999, unitPriceMinor: 45 },
+            { minQuantity: 1000, maxQuantity: 5000, unitPriceMinor: 39 },
+            { minQuantity: 1000, maxQuantity: 5000, unitPriceMinor: 37 },
+          ],
+        },
+      },
     })
 
     const res = await adminValidateGET(
-      makeReq(`http://localhost/api/v1/admin/pricing/validate?variantId=${variant.id}`),
+      makeReq(`http://localhost/api/v1/admin/pricing/validate?variantId=${temp.id}`),
     )
     const j = await res.json()
     const codes = j.results[0].issues.map((i: Json) => i.code)
-    expect(codes).toContain('GAP')
+    expect(codes).toContain('GAP') // 5001–10.000 tanımsız
     expect(codes).toContain('OVERLAP')
     expect(codes).toContain('DUPLICATE_TIER')
     expect(j.results[0].ok).toBe(false)
     // Mesajlar admin için anlaşılır olmalı
     for (const issue of j.results[0].issues) expect(issue.message.length).toBeGreaterThan(15)
 
-    // Temizle
-    await db.pricingRule.deleteMany({
-      where: { serviceVariantId: variant.id, minQuantity: 1000, maxQuantity: 5000 },
+    await db.serviceVariant.delete({ where: { id: temp.id } })
+  })
+
+  it('⚠️ hazır miktarlı varyantta ARALIK boşluğu hata sayılmaz', async () => {
+    session.user = { id: 'u3', email: 'a@x.com', name: null, role: 'ADMIN', isGuest: false }
+    const { variant } = findVariant('instagram', 'takipci', 'turk')
+    const res = await adminValidateGET(
+      makeReq(`http://localhost/api/v1/admin/pricing/validate?variantId=${variant.id}`),
+    )
+    const j = await res.json()
+    // 501–999 arası "boşluk" değildir: o miktarlar zaten seçilemez.
+    expect(j.results[0]?.issues ?? []).toEqual([])
+  })
+
+  it('⚠️ hazır miktarın fiyatı yoksa GAP raporlanır', async () => {
+    session.user = { id: 'u3', email: 'a@x.com', name: null, role: 'ADMIN', isGuest: false }
+    const { variant } = findVariant('instagram', 'begeni', 'turk')
+    const rule = await db.pricingRule.findFirstOrThrow({
+      where: { serviceVariantId: variant.id, minQuantity: 2500 },
     })
-    await db.pricingRule.update({ where: { id: first.id }, data: { isActive: true } })
+    await db.pricingRule.update({ where: { id: rule.id }, data: { isActive: false } })
+
+    const res = await adminValidateGET(
+      makeReq(`http://localhost/api/v1/admin/pricing/validate?variantId=${variant.id}`),
+    )
+    const j = await res.json()
+    const gap = j.results[0].issues.find((i: Json) => i.code === 'GAP')
+    expect(gap).toBeTruthy()
+    expect(gap.range.from).toBe(2500)
+
+    await db.pricingRule.update({ where: { id: rule.id }, data: { isActive: true } })
   })
 })

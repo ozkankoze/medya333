@@ -59,6 +59,12 @@ enum TargetStatus {
 enum PricingMode {
   FLAT_TIER /// tüm miktar, düşülen kademenin birim fiyatıyla
   GRADUATED /// her kademe kendi fiyatıyla (progressive)
+  /// ⚠️ SABİT PAKET FİYATI. `quantity × unitPrice` YAPILMAZ.
+  /// Gerçek satış fiyatı (örn. 500 takipçi = 324,90 ₺) kuruşu kuruşuna
+  /// `packagePriceMinor` alanından okunur. 32490 / 500 = 64,98 kuruş gibi
+  /// tam sayı olmayan birim fiyatlar yuvarlama hatası üretmesin diye
+  /// birim fiyata HİÇ dönüştürülmez.
+  PACKAGE
 }
 
 enum DiscountType {
@@ -378,15 +384,26 @@ model ServiceVariant {
   // --- Müşteriye gösterilen alanlar ---
   customerLabel String /// "Premium"
   tagline       String? /// "Daha hızlı başlar, telafi garantili"
+  /// Müşteriye gösterilen uzun açıklama ("Takipçiler Türk'tür, düşüş oranı …")
+  description   String?
   badge         String? /// "EN ÇOK TERCİH EDİLEN"
   isDefault     Boolean @default(false)
   isVisible     Boolean @default(true) /// false = sadece admin/manuel sipariş
+
+  /// Sabit paketin müşteriye gösterilen içerik maddeleri.
+  /// ⚠️ Bunlar SATILAN ŞEYİN TARİFİDİR; ayrı ayrı fiyatlandırılmaz.
+  packageItems String[] @default([])
 
   // --- Miktar sınırları (frontend slider'ına dönüşür, ham sayı gösterilmez) ---
   minQuantity      Int
   maxQuantity      Int
   quantityStep     Int   @default(1)
   presetQuantities Int[] @default([])
+
+  /// ⚠️ true ⇒ SADECE `presetQuantities` listesindeki miktarlar seçilebilir.
+  /// Slider gösterilmez; 7.342 gibi serbest miktarlar hem istemcide hem
+  /// sunucuda reddedilir (QUANTITY_NOT_ALLOWED).
+  presetOnly Boolean @default(false)
 
   // --- SLA / vaat ---
   estimatedStartMinutes    Int?
@@ -423,7 +440,11 @@ model PricingRule {
   minQuantity Int /// dahil
   maxQuantity Int? /// dahil; null = sınırsız
 
-  unitPriceMinor Int /// KDV DAHİL, 1 adet, kuruş
+  /// KDV DAHİL, 1 adet, kuruş. `mode = PACKAGE` ise KULLANILMAZ (0 yazılır).
+  unitPriceMinor Int
+  /// ⚠️ SADECE `mode = PACKAGE`. KDV DAHİL SABİT TOPLAM, kuruş.
+  /// Gerçek satış fiyatının tek kaynağı; birim fiyata bölünüp yuvarlanmaz.
+  packagePriceMinor Int?
   setupFeeMinor  Int @default(0) /// KDV DAHİL sabit ek ücret
 
   validFrom  DateTime  @default(now())
@@ -550,6 +571,9 @@ model Order {
   // --- PARA (hepsi kuruş; KDV DAHİL mantığı) -------------------------------
   currency String @default("TRY")
 
+  /// Sipariş anındaki fiyat modeli — SNAPSHOT. `PACKAGE` ise `unitPriceMinor`
+  /// anlamsızdır (0) ve müşteri arayüzünde birim fiyat satırı gösterilmez.
+  pricingMode       PricingMode @default(FLAT_TIER)
   unitPriceMinor    Int /// KDV dahil brüt birim fiyat (snapshot)
   listSubtotalMinor Int /// unitPrice * quantity + setupFee — indirim öncesi, KDV dahil
   discountMinor     Int @default(0) /// KDV dahil indirim

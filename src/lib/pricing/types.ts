@@ -1,6 +1,13 @@
 import type { DiscountType, PricingMode } from '@/lib/enums'
 
-/** Bir fiyat kademesi. `unitPriceMinor` KDV DAHİL brüt birim fiyattır. */
+/**
+ * Bir fiyat kademesi. `unitPriceMinor` KDV DAHİL brüt birim fiyattır.
+ *
+ * `mode === 'PACKAGE'` ise `unitPriceMinor` ANLAMSIZDIR (0) ve tutar
+ * `packagePriceMinor` alanından OLDUĞU GİBİ okunur. Gerçek satış fiyatları
+ * (500 takipçi = 324,90 ₺) birim fiyata bölünebilir değildir:
+ * 32490 / 500 = 64,98 kuruş. Bölüp çarpmak kuruş kaybı demektir.
+ */
 export interface PricingTier {
   id: string
   mode: PricingMode
@@ -8,6 +15,8 @@ export interface PricingTier {
   /** null = sınırsız */
   maxQuantity: number | null
   unitPriceMinor: number
+  /** SADECE `mode === 'PACKAGE'` — KDV DAHİL sabit toplam, kuruş */
+  packagePriceMinor?: number | null
   setupFeeMinor: number
   priority: number
 }
@@ -16,6 +25,10 @@ export interface QuantityConstraints {
   minQuantity: number
   maxQuantity: number
   quantityStep: number
+  /** Hazır miktar seçenekleri. `presetOnly` ile birlikte KISITLAYICIDIR. */
+  presetQuantities?: readonly number[]
+  /** true ⇒ yalnızca `presetQuantities` içindeki miktarlar kabul edilir. */
+  presetOnly?: boolean
 }
 
 export interface DiscountSpec {
@@ -73,6 +86,11 @@ export interface PriceBreakdown {
   currency: string
   quantity: number
 
+  /** Uygulanan fiyat modeli — `PACKAGE` ise birim fiyat gösterilmez. */
+  pricingMode: PricingMode
+  /** SADECE `PACKAGE` — uygulanan sabit paket fiyatı (KDV dahil, kuruş) */
+  packagePriceMinor: number | null
+
   tierId: string
   tierMinQuantity: number
   tierMaxQuantity: number | null
@@ -100,6 +118,10 @@ export type PricingErrorCode =
   | 'NO_PRICING_RULE'
   | 'INVALID_QUANTITY'
   | 'INVALID_TAX_RATE'
+  /** Hazır miktar listesi dışında bir miktar seçildi (7.342 gibi) */
+  | 'QUANTITY_NOT_ALLOWED'
+  /** `mode = PACKAGE` ama `packagePriceMinor` yok/geçersiz — veri hatası */
+  | 'INVALID_PACKAGE_PRICE'
 
 export class PricingError extends Error {
   readonly code: PricingErrorCode

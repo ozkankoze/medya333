@@ -40,7 +40,9 @@ test.describe('public katalog API', () => {
 
   test('katalog zinciri ve KDV bayrağı doğru', async ({ request }) => {
     const json = await (await request.get('/api/v1/catalog/snapshot')).json()
-    expect(json.platforms).toHaveLength(6)
+    // ⚠️ Faz 5: gerçek katalogda yalnızca Instagram aktiftir.
+    expect(json.platforms).toHaveLength(1)
+    expect(json.platforms[0].slug).toBe('instagram')
     expect(json.pricesTaxInclusive).toBe(true)
     expect(json.taxRateBp).toBe(2000)
     const svc = json.platforms[0].services[0]
@@ -68,11 +70,11 @@ test.describe('pricing API', () => {
     const catalog = await (await request.get('/api/v1/catalog/snapshot')).json()
     const ig = catalog.platforms.find((p: any) => p.slug === 'instagram')
     const takipci = ig.services.find((s: any) => s.slug === 'takipci')
-    const standart = takipci.variants.find((v: any) => v.slug === 'standart')
+    const turk = takipci.variants.find((v: any) => v.slug === 'turk')
 
     const res = await request.post('/api/v1/pricing/quote', {
       data: {
-        serviceVariantId: standart.id,
+        serviceVariantId: turk.id,
         quantity: 1000,
         unitPrice: 1,
         subtotal: 1,
@@ -82,11 +84,25 @@ test.describe('pricing API', () => {
     })
     expect(res.status()).toBe(200)
     const j = await res.json()
-    expect(j.total).toBe(30_000)
-    expect(j.unitPrice).toBe(30)
-    expect(j.unitLabel).toBe('adet')
+    // ⚠️ 1.000 Türk Takipçi = 1.349,90 ₺ — gerçek satış fiyatı
+    expect(j.total).toBe(134_990)
+    expect(j.pricingMode).toBe('PACKAGE')
+    expect(j.unitLabel).toBe('takipçi')
     expect(j.subtotal + j.taxAmount).toBe(j.total)
     expect(j.appliedTier.minQuantity).toBe(1000)
+  })
+
+  test('⚠️ hazır listede olmayan miktar 400 döner', async ({ request }) => {
+    const catalog = await (await request.get('/api/v1/catalog/snapshot')).json()
+    const ig = catalog.platforms.find((p: any) => p.slug === 'instagram')
+    const takipci = ig.services.find((s: any) => s.slug === 'takipci')
+    const turk = takipci.variants.find((v: any) => v.slug === 'turk')
+
+    const res = await request.post('/api/v1/pricing/quote', {
+      data: { serviceVariantId: turk.id, quantity: 7342 },
+    })
+    expect(res.status()).toBe(400)
+    expect((await res.json()).error.code).toBe('QUANTITY_NOT_ALLOWED')
   })
 
   test('🔒 aşırı büyük gövde 413', async ({ request }) => {

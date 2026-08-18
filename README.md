@@ -1,10 +1,11 @@
-# Medya 333 — Faz 4
+# Medya 333 — Faz 5
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
 + **Faz 2** (sipariş oluşturma, misafir takibi, hesap, admin sipariş yönetimi)
 + **Faz 3** (ödeme altyapısı: iyzico/PayTR adapter, webhook, iade)
-+ **Faz 4** (fulfillment: operasyon kuyruğu, manuel ilerleme, garanti/telafi).
++ **Faz 4** (fulfillment: operasyon kuyruğu, manuel ilerleme, garanti/telafi)
++ **Faz 5** (gerçek Instagram kataloğu: 8 hizmet · 12 varyant · **63 gerçek fiyat noktası**).
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
 > Bu sistem bot, sahte hesap veya otomatik sosyal medya etkileşimi ÜRETMEZ.
@@ -93,6 +94,17 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
     teslim sayısı geri alınmaz, operasyon durmaz.
 16. **Telafi (replacement) tamamen manueldir.** `DROP_DETECTED → REVIEW_REQUIRED
     → APPROVED` zincirinde onay `ADMIN+` ister; otomatik telafi yoktur.
+17. **FİYAT UYDURULMAZ.** Katalogdaki fiyatlar gerçek satış fiyatlarıdır;
+    yuvarlanmaz, birim fiyata çevrilmez, yeniden hesaplanmaz. Listede olmayan
+    miktar/paket ÜRETİLMEZ.
+18. **Sabit pakette `quantity × unitPrice` YAPILMAZ.** `PricingMode.PACKAGE`
+    kademesinde tutar `packagePriceMinor` alanından olduğu gibi okunur
+    (32490 / 500 = 64,98 kuruş — bölmek kuruş kaybıdır).
+19. **Hazır miktar kilidi.** `presetOnly` varyantta yalnızca
+    `presetQuantities` içindeki miktarlar seçilebilir; 7.342 hem arayüzde
+    seçilemez hem sunucuda `QUANTITY_NOT_ALLOWED` ile reddedilir.
+20. **Pasif katalog satılmaz ama SİLİNMEZ.** Pasif kayıt public katalogda
+    görünmez ve sipariş edilemez; geçmiş sipariş/ödeme/fulfillment bozulmaz.
 
 ---
 
@@ -124,6 +136,10 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
 `/pricing-rules` · `/pricing-rules/[id]` · `/pricing/validate` · `/pricing/simulate` ·
 `/orders` · `/orders/[orderNo]` · `/orders/[orderNo]/status` · `/orders/[orderNo]/refund`
 
+**Katalog (Faz 5)** — mevcut admin uçları `packagePriceMinor`, `presetOnly`,
+`packageItems` ve `description` alanlarını kabul eder; fiyat modeli
+`FLAT_TIER | GRADUATED | PACKAGE`.
+
 **Fulfillment (Faz 4)**
 
 | Metod | Yol | Rol |
@@ -148,7 +164,8 @@ fulfillment okuma `SUPPORT+`, fulfillment operasyonu `OPERATOR+` **ve atanmış 
 `/` sihirbaz · `/siparis-olusturuldu` başarı ekranı · `/siparis-takip` misafir takibi ·
 `/siparisler/[orderNo]` sipariş detayı · `/hesabim` müşteri paneli · `/giris` · `/kayit` ·
 `/odeme/sonuc/[orderNo]` ödeme sonucu (doğrulanıyor → alındı/başarısız) ·
-`/yonetim/fulfillment` operasyon kuyruğu · `/yonetim/fulfillment/[id]` operasyon detayı
+`/yonetim/fulfillment` operasyon kuyruğu · `/yonetim/fulfillment/[id]` operasyon detayı ·
+`/yonetim/katalog` katalog yönetimi · `/yonetim/katalog/[id]` varyant + fiyat + simülatör
 
 ---
 
@@ -164,6 +181,7 @@ tests/unit/payment-status.test.ts     20  ödeme state machine + yapılandırma 
 tests/unit/payment-contracts.test.ts  23  iyzico/PayTR imza ve istek SÖZLEŞMESİ
 tests/unit/payment-redact.test.ts     10  kart/secret arındırma
 tests/unit/fulfillment-status.test.ts 36  fulfillment state machine, progress, garanti
+tests/unit/catalog-prices.test.ts     94  ⭐ 63 GERÇEK fiyat noktası birebir + paket modeli
 tests/integration/database.test.ts    28  migration, seed, FK, unique, cascade
 tests/integration/api.test.ts         34  katalog, pricing, kupon, admin
 tests/integration/orders.test.ts      31  sipariş, idempotency, fulfillment kapısı
@@ -172,16 +190,18 @@ tests/integration/payments.test.ts    36  webhook doğrulama, yarış, iade, PII
 tests/integration/payments-api.test.ts 26 ödeme uçları: sahiplik, CSRF, yetki
 tests/integration/fulfillment.test.ts 57  otomatik READY, manuel geçişler, yarış, telafi
 tests/integration/fulfillment-api.test.ts 21 fulfillment uçları: yetki matrisi
+tests/integration/catalog.test.ts     18  katalog CRUD, cache, sızıntı, pasif katalog
 tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
                                       ───
-                                      464  (vitest)
+                                      584  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
 tests/e2e/api-security.spec.ts        12  API güvenlik yüzeyi
 tests/e2e/fulfillment.spec.ts          5  ödeme → READY → manuel start/progress/complete
+tests/e2e/catalog.spec.ts              5  admin katalog → fiyat → simülatör → müşteri → pasifleştirme
                                       ───
-                                      122  (playwright, 2 proje · 119 passed, 3 skipped)
+                                      138  (playwright, 2 proje · 135 passed, 3 skipped)
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
@@ -189,9 +209,32 @@ Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
 
 ---
 
+## Gerçek Katalog (Faz 5)
+
+Yalnızca **Instagram** aktiftir. Diğer platformlar ve Faz 0-4'ün demo hizmetleri
+**pasifleştirilmiştir** (silinmemiştir).
+
+| # | Hizmet | Varyant | Fiyat noktası | Hedef |
+|---|---|---|---|---|
+| 1 | Takipçi | Yabancı Takipçi | 10 | profil |
+| 1 | Takipçi | Türk Takipçi | 8 | profil |
+| 2 | Beğeni | Türk Beğeni | 10 | gönderi |
+| 3 | Görüntülenme | Video İzlenme | 9 | video/reel |
+| 4 | Yorum | Türk Yorum | 7 | gönderi |
+| 5 | Kaydetme | Kaydetme | 7 | gönderi |
+| 6 | Paylaşım | Paylaşım | 7 | gönderi |
+| 7 | Keşfet Paketi | Instagram Keşfet Paketi | 1 | gönderi |
+| 8 | Aylık Türk Beğeni + Yorum | Paket 1-4 | 4 | profil |
+|   | | **TOPLAM** | **63** | |
+
+Fiyatların tek kaynağı `prisma/seed/services.ts`; `tests/unit/catalog-prices.test.ts`
+63 noktanın tamamını brief'ten ELLE yazılmış beklenen değerlerle karşılaştırır.
+
+---
+
 ## Sonraki Faz
 
-**Faz 5 — (onay bekliyor).** Faz 4 kapsamı tamamlandı; yeni faza kendiliğinden
+**Faz 6 — (onay bekliyor).** Faz 5 kapsamı tamamlandı; yeni faza kendiliğinden
 geçilmez. Detay ve kalan teknik borç: `docs/architecture-decisions.md`
 
 ### Ödeme sağlayıcısı yapılandırma

@@ -44,7 +44,7 @@ async function createOrder(page: Page, email: string): Promise<string> {
   await expect(targetCheckbox).toBeVisible({ timeout: 15_000 })
   await targetCheckbox.check()
 
-  await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
+  await page.getByTestId('preset-1000').click()
   await expect(page.locator('#step-customer')).toBeVisible()
 
   await page.getByLabel('Ad', { exact: true }).fill('Ayşe')

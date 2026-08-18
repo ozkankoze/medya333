@@ -229,6 +229,9 @@ export async function createOrder(
         quantity: b.quantity,
 
         currency: b.currency,
+        // Fiyat modeli SNAPSHOT'lanır: sabit pakette birim fiyat yoktur ve
+        // sipariş detayında "birim fiyat" satırı gösterilmemelidir.
+        pricingMode: b.pricingMode,
         unitPriceMinor: b.unitPriceMinor,
         listSubtotalMinor: b.listSubtotalMinor,
         discountMinor: b.discountMinor,

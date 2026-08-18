@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server'
-import { adminPricingRuleSchema } from '@/lib/validation'
+import { adminPricingRulePatchSchema } from '@/lib/validation'
 import { adminHandler } from '../../_handler'
 import { deletePricingRule, updatePricingRule } from '@/server/catalog/admin'
 
@@ -10,7 +10,7 @@ type Ctx = { params: Promise<{ id: string }> }
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params
   return adminHandler(
-    { schema: adminPricingRuleSchema.innerType().partial() },
+    { schema: adminPricingRulePatchSchema },
     ({ input, actor }) => updatePricingRule(id, input, actor),
   )(req)
 }

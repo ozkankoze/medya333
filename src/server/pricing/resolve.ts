@@ -89,6 +89,7 @@ export async function resolvePrice(input: ResolvePriceInput): Promise<ResolvedPr
     minQuantity: r.minQuantity,
     maxQuantity: r.maxQuantity,
     unitPriceMinor: r.unitPriceMinor,
+    packagePriceMinor: r.packagePriceMinor,
     setupFeeMinor: r.setupFeeMinor,
     priority: r.priority,
   }))
@@ -165,6 +166,10 @@ export async function resolvePrice(input: ResolvePriceInput): Promise<ResolvedPr
       minQuantity: variant.minQuantity,
       maxQuantity: variant.maxQuantity,
       quantityStep: variant.quantityStep,
+      // ⚠️ Hazır miktar kilidi SUNUCUDA da uygulanır: istemci 7.342 gönderse
+      // bile buradan geçemez.
+      presetQuantities: variant.presetQuantities,
+      presetOnly: variant.presetOnly,
     },
     taxRateBp,
     campaign: campaignSpec,

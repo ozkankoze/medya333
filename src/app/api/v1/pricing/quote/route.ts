@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         quantity: breakdown.quantity,
+        /** ⚠️ PACKAGE modunda birim fiyat YOKTUR (0) — `packagePrice` kullanılır. */
+        pricingMode: breakdown.pricingMode,
+        packagePrice: breakdown.packagePriceMinor,
         unitPrice: breakdown.unitPriceMinor,
         unitLabel: variant.unitLabel,
 
@@ -73,9 +76,11 @@ export async function POST(req: NextRequest) {
 
         appliedTier: {
           id: breakdown.tierId,
+          mode: breakdown.pricingMode,
           minQuantity: breakdown.tierMinQuantity,
           maxQuantity: breakdown.tierMaxQuantity,
           unitPrice: breakdown.unitPriceMinor,
+          packagePrice: breakdown.packagePriceMinor,
         },
         nextTier: breakdown.nextTier,
 

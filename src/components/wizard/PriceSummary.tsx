@@ -28,7 +28,8 @@ export function PriceRows({
           Tek birimlik siparişte çarpım da anlamsız olduğu için gizlenir. */}
       <Row
         label={
-          breakdown.quantity === 1
+          // Sabit pakette birim fiyat yoktur; "1 × 0,00 ₺" yazmak yanıltıcı olur.
+          breakdown.pricingMode === 'PACKAGE' || breakdown.quantity === 1
             ? withUnit(breakdown.quantity, unitLabel)
             : `${withUnit(breakdown.quantity, unitLabel)} × ${formatUnitPriceMinor(breakdown.unitPriceMinor)}`
         }

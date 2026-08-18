@@ -26,12 +26,18 @@ export interface CatalogVariant {
   /** Müşteriye gösterilen etiket — internalName ASLA gönderilmez */
   customerLabel: string
   tagline: string | null
+  /** Müşteriye gösterilen uzun açıklama */
+  description: string | null
   badge: string | null
   isDefault: boolean
+  /** Sabit paketin içerik maddeleri — ayrı ayrı fiyatlandırılmaz */
+  packageItems: string[]
   minQuantity: number
   maxQuantity: number
   quantityStep: number
   presetQuantities: number[]
+  /** true ⇒ slider yok; yalnızca hazır miktarlar seçilebilir */
+  presetOnly: boolean
   estimatedStartMinutes: number | null
   estimatedCompleteMinutes: number | null
   refillDays: number | null
@@ -150,12 +156,15 @@ export async function buildCatalogSnapshot(defaultTaxRateBp: number): Promise<Ca
                 slug: v.slug,
                 customerLabel: v.customerLabel,
                 tagline: v.tagline,
+                description: v.description,
                 badge: v.badge,
                 isDefault: v.isDefault,
+                packageItems: v.packageItems,
                 minQuantity: v.minQuantity,
                 maxQuantity: v.maxQuantity,
                 quantityStep: v.quantityStep,
                 presetQuantities: v.presetQuantities,
+                presetOnly: v.presetOnly,
                 estimatedStartMinutes: v.estimatedStartMinutes,
                 estimatedCompleteMinutes: v.estimatedCompleteMinutes,
                 refillDays: v.refillDays,
@@ -166,6 +175,7 @@ export async function buildCatalogSnapshot(defaultTaxRateBp: number): Promise<Ca
                     minQuantity: r.minQuantity,
                     maxQuantity: r.maxQuantity,
                     unitPriceMinor: r.unitPriceMinor,
+                    packagePriceMinor: r.packagePriceMinor,
                     setupFeeMinor: r.setupFeeMinor,
                     priority: r.priority,
                   }),

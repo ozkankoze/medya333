@@ -28,13 +28,44 @@ import {
 
 export function validateQuantity(
   quantity: number,
-  c: { minQuantity: number; maxQuantity: number; quantityStep: number },
+  c: {
+    minQuantity: number
+    maxQuantity: number
+    quantityStep: number
+    presetQuantities?: readonly number[]
+    presetOnly?: boolean
+  },
 ): void {
   if (!Number.isInteger(quantity)) {
     throw new PricingError('INVALID_QUANTITY', 'Miktar tam sayı olmalıdır.', { quantity })
   }
   if (quantity <= 0) {
     throw new PricingError('INVALID_QUANTITY', 'Miktar sıfırdan büyük olmalıdır.', { quantity })
+  }
+
+  /**
+   * ⚠️ HAZIR MİKTAR KİLİDİ
+   *
+   * Gerçek katalogda fiyat, miktarın FONKSİYONU DEĞİL; miktar–fiyat
+   * eşleşmesidir. 500 → 324,90 ₺ tanımlıysa 501 için bir fiyat YOKTUR.
+   * Bu kontrol istemcide ve sunucuda AYNI saf fonksiyondan geçer; UI'daki
+   * kartlar atlansa bile sunucu reddeder.
+   */
+  if (c.presetOnly) {
+    const presets = c.presetQuantities ?? []
+    if (presets.length === 0) {
+      throw new PricingError('NO_PRICING_RULE', 'Bu hizmet için seçilebilir bir paket yok.', {
+        quantity,
+      })
+    }
+    if (!presets.includes(quantity)) {
+      throw new PricingError(
+        'QUANTITY_NOT_ALLOWED',
+        'Bu hizmette yalnızca hazır paketlerden biri seçilebilir.',
+        { quantity, presetQuantities: [...presets] },
+      )
+    }
+    return
   }
   if (quantity < c.minQuantity) {
     throw new PricingError(
@@ -111,6 +142,31 @@ function graduatedTotal(tiers: PricingTier[], quantity: number): number {
   return total
 }
 
+/**
+ * ⭐ SABİT PAKET TUTARI
+ *
+ * `PACKAGE` modunda tutar HESAPLANMAZ, OKUNUR. Miktarla çarpma yoktur:
+ * 500 takipçi = 32490 kuruş. `32490 / 500 = 64,98` kuruş olduğu için
+ * birim fiyat üzerinden geri hesaplamak kuruş kaybı üretirdi.
+ */
+function packageTotal(tier: PricingTier): number {
+  const price = tier.packagePriceMinor
+  if (price == null || !Number.isInteger(price) || price <= 0) {
+    throw new PricingError(
+      'INVALID_PACKAGE_PRICE',
+      'Bu paket için geçerli bir fiyat tanımlı değil.',
+      { tierId: tier.id, packagePriceMinor: price ?? null },
+    )
+  }
+  return price
+}
+
+function goodsTotalFor(tier: PricingTier, tiers: PricingTier[], quantity: number): number {
+  if (tier.mode === 'PACKAGE') return packageTotal(tier)
+  if (tier.mode === 'GRADUATED') return graduatedTotal(tiers, quantity)
+  return tier.unitPriceMinor * quantity
+}
+
 // ---------------------------------------------------------------------------
 // İndirimler
 // ---------------------------------------------------------------------------
@@ -180,8 +236,7 @@ export function calculatePrice(input: CalculatePriceInput): PriceBreakdown {
   const tier = selectTier(tiers, quantity)
 
   // 3) Taban tutar (KDV DAHİL)
-  const goodsMinor =
-    tier.mode === 'GRADUATED' ? graduatedTotal(tiers, quantity) : tier.unitPriceMinor * quantity
+  const goodsMinor = goodsTotalFor(tier, tiers, quantity)
   const listSubtotalMinor = goodsMinor + tier.setupFeeMinor
 
   // 4) İndirimler — kampanya önce, kupon sonra
@@ -203,10 +258,12 @@ export function calculatePrice(input: CalculatePriceInput): PriceBreakdown {
   const { taxAmountMinor, netMinor } = extractTaxFromGross(totalMinor, taxRateBp)
 
   // 6) Kırılım satırları
+  const isPackage = tier.mode === 'PACKAGE'
   const lines: BreakdownLine[] = [
     {
       key: 'goods',
-      label: `${quantity} × birim fiyat`,
+      // Sabit pakette "1 × birim fiyat" yazmak yanıltıcıdır: birim fiyat yoktur.
+      label: isPackage ? 'Paket fiyatı' : `${quantity} × birim fiyat`,
       amountMinor: goodsMinor,
     },
   ]
@@ -238,6 +295,8 @@ export function calculatePrice(input: CalculatePriceInput): PriceBreakdown {
   return {
     currency,
     quantity,
+    pricingMode: tier.mode,
+    packagePriceMinor: isPackage ? goodsMinor : null,
     tierId: tier.id,
     tierMinQuantity: tier.minQuantity,
     tierMaxQuantity: tier.maxQuantity,
@@ -251,7 +310,8 @@ export function calculatePrice(input: CalculatePriceInput): PriceBreakdown {
     taxRateBp,
     taxAmountMinor,
     subtotalMinor: netMinor,
-    nextTier: findNextTier(tiers, quantity, tier.unitPriceMinor),
+    // Sabit pakette "biraz daha ekle, birim fiyat düşsün" ipucu ANLAMSIZDIR.
+    nextTier: isPackage ? null : findNextTier(tiers, quantity, tier.unitPriceMinor),
     lines,
   }
 }

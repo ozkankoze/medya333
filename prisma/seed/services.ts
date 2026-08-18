@@ -1,26 +1,32 @@
 /**
- * HİZMET + VARYANT TOHUM VERİSİ
+ * ⭐ GERÇEK KATALOG — MEDYA 333 (Faz 5)
  *
- * Sistem "takipçi satın alma" mantığına SABİTLENMEMİŞTİR. Her platformun
- * hizmetleri burada tanımlanır ve admin panelden serbestçe eklenip
- * düzenlenebilir. Frontend bu satırlardaki `inputLabel/Placeholder/Help/Example`
- * alanlarını render eder — yeni hizmet eklemek FRONTEND DEĞİŞİKLİĞİ GEREKTİRMEZ.
+ * ⚠️ BURADAKİ FİYATLAR GERÇEK SATIŞ FİYATLARIDIR.
+ *    • Kuruşu kuruşuna müşteriye gösterilen, KDV DAHİL tutarlardır.
+ *    • Yuvarlanmaz, birim fiyata çevrilmez, yeniden hesaplanmaz.
+ *    • Listede olmayan hiçbir miktar/paket üretilmez.
+ *
+ * Fiyat modeli: `PACKAGE`. Her hazır miktarın KENDİ sabit toplamı vardır ve
+ * `quantity × unitPrice` HİÇ çalıştırılmaz — 32490 / 500 = 64,98 kuruş olduğu
+ * için birim fiyat üzerinden geri hesap kuruş kaybı üretirdi.
  *
  * `measurementMode`:
- *   METRIC       → sayılabilir (takipçi, beğeni, görüntülenme, abone)
- *   MANUAL_COUNT → sayılamaz (yorum, profil tanıtımı) — operatör adet girer
- *
- * FİYATLAR KDV DAHİL, KURUŞ cinsindendir.
+ *   METRIC       → sayılabilir (takipçi, beğeni, izlenme, kaydetme, paylaşım)
+ *   MANUAL_COUNT → sayılamaz (yorum, keşfet paketi, aylık paket)
  */
 
 export type TargetTypeSeed = 'PROFILE' | 'POST' | 'VIDEO' | 'CHANNEL' | 'GROUP'
 export type MeasurementModeSeed = 'METRIC' | 'MANUAL_COUNT'
+export type PricingModeSeed = 'FLAT_TIER' | 'GRADUATED' | 'PACKAGE'
 
 export interface TierSeed {
+  mode: PricingModeSeed
   minQuantity: number
   maxQuantity: number | null
-  /** KDV DAHİL birim fiyat, kuruş */
+  /** KDV DAHİL birim fiyat, kuruş. PACKAGE modunda 0 (kullanılmaz). */
   unitPriceMinor: number
+  /** KDV DAHİL sabit paket fiyatı, kuruş. SADECE PACKAGE modunda. */
+  packagePriceMinor?: number | null
   setupFeeMinor?: number
 }
 
@@ -29,12 +35,15 @@ export interface VariantSeed {
   internalName: string
   customerLabel: string
   tagline?: string
+  description?: string
   badge?: string
   isDefault?: boolean
+  packageItems?: string[]
   minQuantity: number
   maxQuantity: number
   quantityStep: number
   presetQuantities: number[]
+  presetOnly: boolean
   estimatedStartMinutes?: number
   estimatedCompleteMinutes?: number
   refillDays?: number
@@ -57,7 +66,7 @@ export interface ServiceSeed {
 }
 
 // ---------------------------------------------------------------------------
-// Yeniden kullanılabilir girdi tanımları
+// Hedef girdisi tanımları — hangi hizmetin neyi istediği DB'den sürülür
 // ---------------------------------------------------------------------------
 
 const IG_PROFILE_INPUT = {
@@ -70,455 +79,417 @@ const IG_PROFILE_INPUT = {
 const IG_POST_INPUT = {
   inputLabel: 'Gönderi bağlantısı',
   inputPlaceholder: 'instagram.com/p/... veya /reel/...',
-  inputHelpText: 'Tarayıcıdaki tam adresi yapıştırın.',
+  inputHelpText: 'Tarayıcıdaki tam adresi yapıştırın. Gönderinin herkese açık olması gerekir.',
   inputExample: 'instagram.com/p/CxYzAbCdEfG/',
 } as const
 
+const IG_VIDEO_INPUT = {
+  inputLabel: 'Video / Reel bağlantısı',
+  inputPlaceholder: 'instagram.com/reel/... veya /p/...',
+  inputHelpText: 'Tarayıcıdaki tam adresi yapıştırın. Videonun herkese açık olması gerekir.',
+  inputExample: 'instagram.com/reel/CxYzAbCdEfG/',
+} as const
+
 // ---------------------------------------------------------------------------
-// Varyant fabrikaları — kademeler kolay okunsun diye ayrıldı
+// Fabrikalar
 // ---------------------------------------------------------------------------
 
-function standardVariant(tiers: TierSeed[], o: Partial<VariantSeed> = {}): VariantSeed {
+/** [miktar, KDV dahil toplam kuruş] çiftleri — GERÇEK fiyat listesi. */
+type PricePoint = readonly [quantity: number, priceMinor: number]
+
+function packageTier([quantity, priceMinor]: PricePoint): TierSeed {
   return {
-    slug: 'standart',
-    internalName: 'Standart-Havuz-A',
-    customerLabel: 'Standart',
-    tagline: '0-6 saat içinde başlar',
-    isDefault: true,
-    minQuantity: 100,
-    maxQuantity: 100_000,
-    quantityStep: 10,
-    presetQuantities: [100, 500, 1000, 5000],
-    estimatedStartMinutes: 360,
-    estimatedCompleteMinutes: 2880,
-    tiers,
-    ...o,
+    mode: 'PACKAGE',
+    // Kademe TEK miktara kilitlenir: 500 için tanımlı fiyat 501'i kapsamaz.
+    minQuantity: quantity,
+    maxQuantity: quantity,
+    unitPriceMinor: 0, // PACKAGE modunda kullanılmaz
+    packagePriceMinor: priceMinor,
   }
 }
 
-function premiumVariant(tiers: TierSeed[], o: Partial<VariantSeed> = {}): VariantSeed {
+/**
+ * HAZIR MİKTARLI varyant (preset package pricing).
+ * Müşteri yalnızca listedeki miktarlardan birini seçebilir; slider yoktur.
+ */
+function presetVariant(v: {
+  slug: string
+  internalName: string
+  customerLabel: string
+  description?: string
+  tagline?: string
+  badge?: string
+  isDefault?: boolean
+  prices: readonly PricePoint[]
+}): VariantSeed {
+  const quantities = v.prices.map(([q]) => q)
   return {
-    slug: 'premium',
-    internalName: 'Premium-TR-Havuz-v2',
-    customerLabel: 'Premium',
-    tagline: '0-1 saat içinde başlar, telafi garantili',
-    badge: 'EN ÇOK TERCİH EDİLEN',
-    isDefault: false,
-    minQuantity: 100,
-    maxQuantity: 50_000,
-    quantityStep: 10,
-    presetQuantities: [100, 500, 1000, 5000],
-    estimatedStartMinutes: 60,
-    estimatedCompleteMinutes: 1440,
-    refillDays: 30,
-    tiers,
-    ...o,
+    slug: v.slug,
+    internalName: v.internalName,
+    customerLabel: v.customerLabel,
+    description: v.description,
+    tagline: v.tagline,
+    badge: v.badge,
+    isDefault: v.isDefault ?? false,
+    minQuantity: Math.min(...quantities),
+    maxQuantity: Math.max(...quantities),
+    quantityStep: 1,
+    presetQuantities: quantities,
+    presetOnly: true,
+    tiers: v.prices.map(packageTier),
+  }
+}
+
+/**
+ * SABİT PAKET varyantı (fixed package).
+ * Miktar her zaman 1'dir; içerik `packageItems` ile anlatılır ve içindeki
+ * hizmetler AYRI AYRI fiyatlandırılmaz.
+ */
+function fixedPackageVariant(v: {
+  slug: string
+  internalName: string
+  customerLabel: string
+  description?: string
+  badge?: string
+  isDefault?: boolean
+  packageItems: string[]
+  priceMinor: number
+}): VariantSeed {
+  return {
+    slug: v.slug,
+    internalName: v.internalName,
+    customerLabel: v.customerLabel,
+    description: v.description,
+    badge: v.badge,
+    isDefault: v.isDefault ?? false,
+    packageItems: v.packageItems,
+    minQuantity: 1,
+    maxQuantity: 1,
+    quantityStep: 1,
+    presetQuantities: [1],
+    presetOnly: true,
+    tiers: [packageTier([1, v.priceMinor])],
   }
 }
 
 // ---------------------------------------------------------------------------
-// KATALOG
+// GERÇEK FİYAT LİSTELERİ  (KDV DAHİL, kuruş)
+// ---------------------------------------------------------------------------
+
+/** 10 fiyat noktası */
+const YABANCI_TAKIPCI: readonly PricePoint[] = [
+  [500, 32_490], // 324,90 ₺
+  [1_000, 59_990], // 599,90 ₺
+  [2_500, 134_990], // 1.349,90 ₺
+  [5_000, 249_990], // 2.499,90 ₺
+  [10_000, 449_990], // 4.499,90 ₺
+  [25_000, 999_990], // 9.999,90 ₺
+  [50_000, 1_749_990], // 17.499,90 ₺
+  [100_000, 3_249_990], // 32.499,90 ₺
+  [250_000, 7_499_990], // 74.999,90 ₺
+  [1_000_000, 24_999_990], // 249.999,90 ₺
+]
+
+/** 8 fiyat noktası — ⚠️ 1.000.000 TÜRK takipçi paketi YOKTUR. */
+const TURK_TAKIPCI: readonly PricePoint[] = [
+  [500, 69_990], // 699,90 ₺
+  [1_000, 134_990], // 1.349,90 ₺
+  [2_500, 299_990], // 2.999,90 ₺
+  [5_000, 574_990], // 5.749,90 ₺
+  [10_000, 999_990], // 9.999,90 ₺
+  [25_000, 2_249_990], // 22.499,90 ₺
+  [50_000, 3_999_990], // 39.999,90 ₺
+  [100_000, 7_499_990], // 74.999,90 ₺
+]
+
+/** 10 fiyat noktası */
+const TURK_BEGENI: readonly PricePoint[] = [
+  [100, 4_990], // 49,90 ₺
+  [250, 10_990], // 109,90 ₺
+  [500, 19_990], // 199,90 ₺
+  [1_000, 34_990], // 349,90 ₺
+  [2_500, 79_990], // 799,90 ₺
+  [5_000, 139_990], // 1.399,90 ₺
+  [10_000, 249_990], // 2.499,90 ₺
+  [25_000, 549_990], // 5.499,90 ₺
+  [50_000, 999_990], // 9.999,90 ₺
+  [100_000, 1_849_990], // 18.499,90 ₺
+]
+
+/** 9 fiyat noktası */
+const VIDEO_IZLENME: readonly PricePoint[] = [
+  [1_000, 4_990], // 49,90 ₺
+  [2_500, 9_990], // 99,90 ₺
+  [5_000, 17_490], // 174,90 ₺
+  [10_000, 29_990], // 299,90 ₺
+  [25_000, 59_990], // 599,90 ₺
+  [50_000, 99_990], // 999,90 ₺
+  [100_000, 174_990], // 1.749,90 ₺
+  [250_000, 349_990], // 3.499,90 ₺
+  [500_000, 599_990], // 5.999,90 ₺
+]
+
+/** 7 fiyat noktası */
+const TURK_YORUM: readonly PricePoint[] = [
+  [10, 4_990], // 49,90 ₺
+  [25, 9_990], // 99,90 ₺
+  [50, 19_990], // 199,90 ₺
+  [100, 39_990], // 399,90 ₺
+  [250, 99_990], // 999,90 ₺
+  [500, 199_990], // 1.999,90 ₺
+  [1_000, 399_990], // 3.999,90 ₺
+]
+
+/**
+ * 7 fiyat noktası. ⚠️ KAYDETME ve PAYLAŞIM fiyatları BİREBİR AYNIDIR;
+ * ikisi de bu listeyi kullanır (kopyalanıp ayrışmasın diye tek sabit).
+ */
+const PAYLASIM_KAYDETME: readonly PricePoint[] = [
+  [100, 5_000], // 50,00 ₺
+  [250, 10_000], // 100,00 ₺
+  [500, 17_500], // 175,00 ₺
+  [1_000, 30_000], // 300,00 ₺
+  [2_500, 60_000], // 600,00 ₺
+  [5_000, 90_000], // 900,00 ₺
+  [10_000, 150_000], // 1.500,00 ₺
+]
+
+// ---------------------------------------------------------------------------
+// KATALOG — YALNIZCA INSTAGRAM
 // ---------------------------------------------------------------------------
 
 export const SERVICES: Record<string, ServiceSeed[]> = {
   instagram: [
+    // -- 1 · TAKİPÇİ ---------------------------------------------------------
     {
       slug: 'takipci',
       name: 'Takipçi',
-      shortDescription: 'Profilinizi gerçek kullanıcılara tanıtarak takipçi kazanın.',
+      shortDescription: 'Profilinize gerçek kullanıcı takipçisi kazandırın.',
       targetType: 'PROFILE',
       measurementMode: 'METRIC',
-      unitLabel: 'adet',
+      unitLabel: 'takipçi',
       ...IG_PROFILE_INPUT,
       variants: [
-        standardVariant([
-          { minQuantity: 100, maxQuantity: 499, unitPriceMinor: 45 },
-          { minQuantity: 500, maxQuantity: 999, unitPriceMinor: 38 },
-          { minQuantity: 1000, maxQuantity: 4999, unitPriceMinor: 30 },
-          { minQuantity: 5000, maxQuantity: null, unitPriceMinor: 24 },
-        ]),
-        premiumVariant([
-          { minQuantity: 100, maxQuantity: 499, unitPriceMinor: 62 },
-          { minQuantity: 500, maxQuantity: 999, unitPriceMinor: 54 },
-          { minQuantity: 1000, maxQuantity: 4999, unitPriceMinor: 44 },
-          { minQuantity: 5000, maxQuantity: null, unitPriceMinor: 36 },
-        ]),
+        presetVariant({
+          slug: 'yabanci',
+          internalName: 'IG-Takipci-Yabanci',
+          customerLabel: 'Yabancı Takipçi',
+          description:
+            'Takipçiler yabancıdır, düşüş oranı %1 - %5 aralığındadır. Profiliniz her gün takip edilir ve herhangi bir düşüş yaşanmışsa aynı gün tekrardan yüklenir.',
+          isDefault: true,
+          prices: YABANCI_TAKIPCI,
+        }),
+        presetVariant({
+          slug: 'turk',
+          internalName: 'IG-Takipci-Turk',
+          customerLabel: 'Türk Takipçi',
+          description:
+            'Takipçiler Türk’tür, düşüş oranı %1 - %5 aralığındadır. Profiliniz her gün takip edilir ve herhangi bir düşüş yaşanmışsa aynı gün tekrardan yüklenir.',
+          prices: TURK_TAKIPCI,
+        }),
       ],
     },
+
+    // -- 2 · BEĞENİ ----------------------------------------------------------
     {
       slug: 'begeni',
       name: 'Beğeni',
-      shortDescription: 'Gönderinizin etkileşimini gerçek kullanıcılarla artırın.',
+      shortDescription: 'Gönderinize Türk hesaplardan beğeni gelsin.',
       targetType: 'POST',
       measurementMode: 'METRIC',
-      unitLabel: 'adet',
+      unitLabel: 'beğeni',
       ...IG_POST_INPUT,
       variants: [
-        standardVariant(
-          [
-            { minQuantity: 50, maxQuantity: 499, unitPriceMinor: 22 },
-            { minQuantity: 500, maxQuantity: 4999, unitPriceMinor: 17 },
-            { minQuantity: 5000, maxQuantity: null, unitPriceMinor: 13 },
-          ],
-          { minQuantity: 50, quantityStep: 10, presetQuantities: [50, 250, 1000, 5000] },
-        ),
+        presetVariant({
+          slug: 'turk',
+          internalName: 'IG-Begeni-Turk',
+          customerLabel: 'Türk Beğeni',
+          description: 'Beğeniler tamamen Türk hesaplardan gelir.',
+          isDefault: true,
+          prices: TURK_BEGENI,
+        }),
       ],
     },
+
+    // -- 3 · GÖRÜNTÜLENME ----------------------------------------------------
     {
       slug: 'goruntulenme',
       name: 'Görüntülenme',
-      shortDescription: 'Reel ve video gönderilerinizin izlenme sayısını artırın.',
-      targetType: 'POST',
+      shortDescription: 'Video ve reel içeriklerinizin izlenme sayısını artırın.',
+      targetType: 'VIDEO',
       measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      ...IG_POST_INPUT,
+      unitLabel: 'izlenme',
+      ...IG_VIDEO_INPUT,
       variants: [
-        standardVariant(
-          [
-            { minQuantity: 500, maxQuantity: 9999, unitPriceMinor: 4 },
-            { minQuantity: 10_000, maxQuantity: 99_999, unitPriceMinor: 3 },
-            { minQuantity: 100_000, maxQuantity: null, unitPriceMinor: 2 },
-          ],
-          {
-            minQuantity: 500,
-            maxQuantity: 1_000_000,
-            quantityStep: 100,
-            presetQuantities: [1000, 10_000, 50_000, 100_000],
-          },
-        ),
+        presetVariant({
+          slug: 'video',
+          internalName: 'IG-Izlenme-Video',
+          customerLabel: 'Video İzlenme',
+          isDefault: true,
+          prices: VIDEO_IZLENME,
+        }),
       ],
     },
+
+    // -- 4 · YORUM -----------------------------------------------------------
     {
       slug: 'yorum',
       name: 'Yorum',
-      shortDescription: 'Gönderinize gerçek kullanıcılardan Türkçe yorum kazandırın.',
+      shortDescription: 'Gönderinize Türk hesaplardan yorum gelsin.',
       targetType: 'POST',
-      // Yorum sayısı güvenilir ölçülemez → operatör teslim adedini elle girer
       measurementMode: 'MANUAL_COUNT',
       unitLabel: 'yorum',
       ...IG_POST_INPUT,
       variants: [
-        standardVariant(
-          [
-            { minQuantity: 5, maxQuantity: 49, unitPriceMinor: 480 },
-            { minQuantity: 50, maxQuantity: null, unitPriceMinor: 390 },
-          ],
-          {
-            slug: 'turkce',
-            internalName: 'Yorum-TR-Manuel',
-            customerLabel: 'Türkçe yorum',
-            tagline: 'Gerçek kullanıcılar tarafından yazılır',
-            minQuantity: 5,
-            maxQuantity: 500,
-            quantityStep: 5,
-            presetQuantities: [5, 25, 50, 100],
-            estimatedStartMinutes: 720,
-            estimatedCompleteMinutes: 4320,
-          },
-        ),
+        presetVariant({
+          slug: 'turk',
+          internalName: 'IG-Yorum-Turk',
+          customerLabel: 'Türk Yorum',
+          isDefault: true,
+          prices: TURK_YORUM,
+        }),
       ],
     },
+
+    // -- 5 · KAYDETME --------------------------------------------------------
     {
-      slug: 'profil-tanitimi',
-      name: 'Profil Tanıtımı',
-      shortDescription: 'Hedef kitlenize yönelik manuel profil tanıtım çalışması.',
+      slug: 'kaydetme',
+      name: 'Kaydetme',
+      shortDescription: 'Gönderinizin kaydedilme sayısını artırın.',
+      targetType: 'POST',
+      measurementMode: 'METRIC',
+      unitLabel: 'kaydetme',
+      ...IG_POST_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'standart',
+          internalName: 'IG-Kaydetme',
+          customerLabel: 'Kaydetme',
+          isDefault: true,
+          prices: PAYLASIM_KAYDETME,
+        }),
+      ],
+    },
+
+    // -- 6 · PAYLAŞIM --------------------------------------------------------
+    {
+      slug: 'paylasim',
+      name: 'Paylaşım',
+      shortDescription: 'Gönderinizin paylaşılma sayısını artırın.',
+      targetType: 'POST',
+      measurementMode: 'METRIC',
+      unitLabel: 'paylaşım',
+      ...IG_POST_INPUT,
+      variants: [
+        presetVariant({
+          slug: 'standart',
+          internalName: 'IG-Paylasim',
+          customerLabel: 'Paylaşım',
+          isDefault: true,
+          prices: PAYLASIM_KAYDETME,
+        }),
+      ],
+    },
+
+    // -- 7 · KEŞFET PAKETİ ---------------------------------------------------
+    {
+      slug: 'kesfet-paketi',
+      name: 'Keşfet Paketi',
+      shortDescription: 'Tek gönderi için hazırlanmış karma etkileşim paketi.',
+      targetType: 'POST',
+      measurementMode: 'MANUAL_COUNT',
+      unitLabel: 'paket',
+      ...IG_POST_INPUT,
+      variants: [
+        fixedPackageVariant({
+          slug: 'kesfet',
+          internalName: 'IG-Kesfet-Paketi',
+          customerLabel: 'Instagram Keşfet Paketi',
+          isDefault: true,
+          packageItems: [
+            '500 - 1.500 Türk Beğeni',
+            '10 - 35 Türk Yorum',
+            '10.000 - 25.000 Görüntülenme',
+            '250 - 500 Kaydetme',
+            '50 - 150 Paylaşım',
+          ],
+          priceMinor: 100_000, // 1.000,00 ₺
+        }),
+      ],
+    },
+
+    // -- 8 · AYLIK TÜRK BEĞENİ + YORUM PAKETİ --------------------------------
+    {
+      slug: 'aylik-begeni-yorum-paketi',
+      name: 'Aylık Türk Beğeni + Yorum Paketi',
+      shortDescription:
+        'Bu pakette 1 ayda maksimum 20 paylaşım yapma hakkınız vardır. Her paylaşımınıza ayrı ayrı belirtilen miktarlarda beğeni, yorum ve görüntülenme gelir.',
       targetType: 'PROFILE',
       measurementMode: 'MANUAL_COUNT',
-      // Paket başına 1 haftalık çalışma → miktar birimi "hafta"
-      unitLabel: 'hafta',
+      unitLabel: 'ay',
       ...IG_PROFILE_INPUT,
       variants: [
-        standardVariant(
-          [
-            { minQuantity: 1, maxQuantity: 4, unitPriceMinor: 29_900, setupFeeMinor: 0 },
-            { minQuantity: 5, maxQuantity: null, unitPriceMinor: 24_900 },
+        fixedPackageVariant({
+          slug: 'paket-1',
+          internalName: 'IG-Aylik-Paket-1',
+          customerLabel: 'Paket 1',
+          description: '1 kere ödeme yapar ve 1 ay kullanırsınız.',
+          isDefault: true,
+          packageItems: ['100 Beğeni', '1.000 Görüntülenme', '1-5 Yorum', 'Ayda en fazla 20 paylaşım'],
+          priceMinor: 125_000, // 1.250,00 ₺
+        }),
+        fixedPackageVariant({
+          slug: 'paket-2',
+          internalName: 'IG-Aylik-Paket-2',
+          customerLabel: 'Paket 2',
+          description: '1 kere ödeme yapar ve 1 ay kullanırsınız.',
+          packageItems: ['250 Beğeni', '2.500 Görüntülenme', '5-10 Yorum', 'Ayda en fazla 20 paylaşım'],
+          priceMinor: 200_000, // 2.000,00 ₺
+        }),
+        fixedPackageVariant({
+          slug: 'paket-3',
+          internalName: 'IG-Aylik-Paket-3',
+          customerLabel: 'Paket 3',
+          description: '1 kere ödeme yapar ve 1 ay kullanırsınız.',
+          packageItems: ['500 Beğeni', '5.000 Görüntülenme', '10-20 Yorum', 'Ayda en fazla 20 paylaşım'],
+          priceMinor: 275_000, // 2.750,00 ₺
+        }),
+        fixedPackageVariant({
+          slug: 'paket-4',
+          internalName: 'IG-Aylik-Paket-4',
+          customerLabel: 'Paket 4',
+          description: '1 kere ödeme yapar ve 1 ay kullanırsınız.',
+          packageItems: [
+            '1.000 Beğeni',
+            '10.000 Görüntülenme',
+            '20-50 Yorum',
+            'Ayda en fazla 20 paylaşım',
           ],
-          {
-            slug: 'haftalik',
-            internalName: 'Profil-Tanitim-Haftalik',
-            customerLabel: 'Haftalık tanıtım',
-            tagline: 'Her paket 1 haftalık manuel tanıtım çalışmasıdır',
-            minQuantity: 1,
-            maxQuantity: 52,
-            quantityStep: 1,
-            presetQuantities: [1, 2, 4, 8],
-            estimatedStartMinutes: 1440,
-            estimatedCompleteMinutes: 10_080,
-          },
-        ),
-      ],
-    },
-  ],
-
-  tiktok: [
-    {
-      slug: 'takipci',
-      name: 'Takipçi',
-      shortDescription: 'TikTok profilinizi gerçek kullanıcılara tanıtın.',
-      targetType: 'PROFILE',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'TikTok kullanıcı adınız',
-      inputPlaceholder: '@medya333 veya profil bağlantısı',
-      inputHelpText: 'Hesabınızın herkese açık olması gerekir.',
-      inputExample: 'tiktok.com/@medya333',
-      variants: [
-        standardVariant([
-          { minQuantity: 100, maxQuantity: 999, unitPriceMinor: 40 },
-          { minQuantity: 1000, maxQuantity: 9999, unitPriceMinor: 32 },
-          { minQuantity: 10_000, maxQuantity: null, unitPriceMinor: 26 },
-        ]),
-      ],
-    },
-    {
-      slug: 'begeni',
-      name: 'Beğeni',
-      shortDescription: 'Videolarınızın beğeni sayısını artırın.',
-      targetType: 'VIDEO',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Video bağlantısı',
-      inputPlaceholder: 'tiktok.com/@kullanici/video/...',
-      inputHelpText: 'Videonun herkese açık olması gerekir.',
-      inputExample: 'tiktok.com/@medya333/video/7301234567890123456',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 50, maxQuantity: 999, unitPriceMinor: 18 },
-            { minQuantity: 1000, maxQuantity: null, unitPriceMinor: 13 },
-          ],
-          { minQuantity: 50, quantityStep: 10, presetQuantities: [50, 250, 1000, 5000] },
-        ),
-      ],
-    },
-    {
-      slug: 'goruntulenme',
-      name: 'Görüntülenme',
-      shortDescription: 'Videolarınızın izlenme sayısını artırın.',
-      targetType: 'VIDEO',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Video bağlantısı',
-      inputPlaceholder: 'tiktok.com/@kullanici/video/...',
-      inputHelpText: 'Videonun herkese açık olması gerekir.',
-      inputExample: 'tiktok.com/@medya333/video/7301234567890123456',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 1000, maxQuantity: 49_999, unitPriceMinor: 3 },
-            { minQuantity: 50_000, maxQuantity: null, unitPriceMinor: 2 },
-          ],
-          {
-            minQuantity: 1000,
-            maxQuantity: 5_000_000,
-            quantityStep: 500,
-            presetQuantities: [1000, 10_000, 100_000, 500_000],
-          },
-        ),
-      ],
-    },
-  ],
-
-  youtube: [
-    {
-      slug: 'abone',
-      name: 'Abone',
-      shortDescription: 'Kanalınızı gerçek izleyicilere tanıtarak abone kazanın.',
-      targetType: 'CHANNEL',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Kanal bağlantısı veya @handle',
-      inputPlaceholder: '@medya333 veya youtube.com/@medya333',
-      inputHelpText: 'Kanalınızın herkese açık olması gerekir.',
-      inputExample: 'youtube.com/@medya333',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 50, maxQuantity: 499, unitPriceMinor: 220 },
-            { minQuantity: 500, maxQuantity: 4999, unitPriceMinor: 180 },
-            { minQuantity: 5000, maxQuantity: null, unitPriceMinor: 150 },
-          ],
-          { minQuantity: 50, quantityStep: 10, presetQuantities: [50, 250, 1000, 5000] },
-        ),
-      ],
-    },
-    {
-      slug: 'goruntulenme',
-      name: 'Görüntülenme',
-      shortDescription: 'Videolarınızın izlenme sayısını artırın.',
-      targetType: 'VIDEO',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Video bağlantısı',
-      inputPlaceholder: 'youtube.com/watch?v=... veya youtu.be/...',
-      inputHelpText: 'Video herkese açık veya liste dışı olabilir.',
-      inputExample: 'youtube.com/watch?v=dQw4w9WgXcQ',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 1000, maxQuantity: 24_999, unitPriceMinor: 9 },
-            { minQuantity: 25_000, maxQuantity: null, unitPriceMinor: 7 },
-          ],
-          {
-            minQuantity: 1000,
-            maxQuantity: 1_000_000,
-            quantityStep: 500,
-            presetQuantities: [1000, 5000, 25_000, 100_000],
-          },
-        ),
-      ],
-    },
-    {
-      slug: 'begeni',
-      name: 'Beğeni',
-      shortDescription: 'Videolarınızın beğeni sayısını artırın.',
-      targetType: 'VIDEO',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Video bağlantısı',
-      inputPlaceholder: 'youtube.com/watch?v=...',
-      inputHelpText: 'Videonun beğenilere açık olması gerekir.',
-      inputExample: 'youtube.com/watch?v=dQw4w9WgXcQ',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 50, maxQuantity: 999, unitPriceMinor: 32 },
-            { minQuantity: 1000, maxQuantity: null, unitPriceMinor: 25 },
-          ],
-          { minQuantity: 50, quantityStep: 10, presetQuantities: [50, 250, 1000, 5000] },
-        ),
-      ],
-    },
-  ],
-
-  x: [
-    {
-      slug: 'takipci',
-      name: 'Takipçi',
-      shortDescription: 'X hesabınızı gerçek kullanıcılara tanıtın.',
-      targetType: 'PROFILE',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'X kullanıcı adınız',
-      inputPlaceholder: '@medya333 veya x.com/medya333',
-      inputHelpText: 'Hesabınızın herkese açık olması gerekir.',
-      inputExample: 'x.com/medya333',
-      variants: [
-        standardVariant([
-          { minQuantity: 100, maxQuantity: 999, unitPriceMinor: 58 },
-          { minQuantity: 1000, maxQuantity: null, unitPriceMinor: 46 },
-        ]),
-      ],
-    },
-    {
-      slug: 'begeni',
-      name: 'Beğeni',
-      shortDescription: 'Gönderilerinizin etkileşimini artırın.',
-      targetType: 'POST',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Gönderi bağlantısı',
-      inputPlaceholder: 'x.com/kullanici/status/...',
-      inputHelpText: 'Gönderinin herkese açık olması gerekir.',
-      inputExample: 'x.com/medya333/status/1730000000000000000',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 50, maxQuantity: 999, unitPriceMinor: 26 },
-            { minQuantity: 1000, maxQuantity: null, unitPriceMinor: 20 },
-          ],
-          { minQuantity: 50, quantityStep: 10, presetQuantities: [50, 250, 1000, 5000] },
-        ),
-      ],
-    },
-  ],
-
-  facebook: [
-    {
-      slug: 'takipci',
-      name: 'Takipçi',
-      shortDescription: 'Facebook sayfanızın takipçi sayısını artırın.',
-      targetType: 'PROFILE',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Sayfa bağlantısı',
-      inputPlaceholder: 'facebook.com/sayfaadi',
-      inputHelpText: 'Sayfanın herkese açık olması gerekir.',
-      inputExample: 'facebook.com/medya333',
-      variants: [
-        standardVariant([
-          { minQuantity: 100, maxQuantity: 999, unitPriceMinor: 48 },
-          { minQuantity: 1000, maxQuantity: null, unitPriceMinor: 38 },
-        ]),
-      ],
-    },
-    {
-      slug: 'begeni',
-      name: 'Beğeni',
-      shortDescription: 'Gönderilerinizin beğeni sayısını artırın.',
-      targetType: 'POST',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Gönderi bağlantısı',
-      inputPlaceholder: 'facebook.com/sayfaadi/posts/...',
-      inputHelpText: 'Gönderinin herkese açık olması gerekir.',
-      inputExample: 'facebook.com/medya333/posts/123456789',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 50, maxQuantity: 999, unitPriceMinor: 24 },
-            { minQuantity: 1000, maxQuantity: null, unitPriceMinor: 19 },
-          ],
-          { minQuantity: 50, quantityStep: 10, presetQuantities: [50, 250, 1000, 5000] },
-        ),
-      ],
-    },
-  ],
-
-  telegram: [
-    {
-      slug: 'uye',
-      name: 'Kanal Üyesi',
-      shortDescription: 'Telegram kanalınıza gerçek kullanıcı katılımı sağlayın.',
-      targetType: 'CHANNEL',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Kanal bağlantısı',
-      inputPlaceholder: 't.me/kanaladi',
-      inputHelpText: 'Kanalın herkese açık olması gerekir.',
-      inputExample: 't.me/medya333',
-      variants: [
-        standardVariant([
-          { minQuantity: 100, maxQuantity: 999, unitPriceMinor: 52 },
-          { minQuantity: 1000, maxQuantity: null, unitPriceMinor: 41 },
-        ]),
-      ],
-    },
-    {
-      slug: 'goruntulenme',
-      name: 'Gönderi Görüntülenme',
-      shortDescription: 'Kanal gönderilerinizin görüntülenme sayısını artırın.',
-      targetType: 'POST',
-      measurementMode: 'METRIC',
-      unitLabel: 'adet',
-      inputLabel: 'Gönderi bağlantısı',
-      inputPlaceholder: 't.me/kanaladi/145',
-      inputHelpText: 'Gönderinin herkese açık olması gerekir.',
-      inputExample: 't.me/medya333/145',
-      variants: [
-        standardVariant(
-          [
-            { minQuantity: 500, maxQuantity: 9999, unitPriceMinor: 5 },
-            { minQuantity: 10_000, maxQuantity: null, unitPriceMinor: 3 },
-          ],
-          {
-            minQuantity: 500,
-            maxQuantity: 500_000,
-            quantityStep: 100,
-            presetQuantities: [500, 2500, 10_000, 50_000],
-          },
-        ),
+          priceMinor: 500_000, // 5.000,00 ₺
+        }),
       ],
     },
   ],
 }
+
+/**
+ * Fiyat noktası sayıları — testler ve seed özeti bu tablodan doğrulanır.
+ * Toplam 63. Buradaki hiçbir sayı elle değiştirilmemeli; katalog değişirse
+ * testler kırılmalıdır.
+ */
+export const EXPECTED_PRICE_POINTS = {
+  'takipci/yabanci': 10,
+  'takipci/turk': 8,
+  'begeni/turk': 10,
+  'goruntulenme/video': 9,
+  'yorum/turk': 7,
+  'kaydetme/standart': 7,
+  'paylasim/standart': 7,
+  'kesfet-paketi/kesfet': 1,
+  'aylik-begeni-yorum-paketi/paket-1': 1,
+  'aylik-begeni-yorum-paketi/paket-2': 1,
+  'aylik-begeni-yorum-paketi/paket-3': 1,
+  'aylik-begeni-yorum-paketi/paket-4': 1,
+} as const
+
+export const TOTAL_PRICE_POINTS = 63

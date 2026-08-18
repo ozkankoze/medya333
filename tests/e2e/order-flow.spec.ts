@@ -95,10 +95,11 @@ test.describe('sipariş akışı', () => {
 
     // Takipçi'nin 2 görünür varyantı var → paket seçici görünür
     await expect(page.getByText('Paket', { exact: true })).toBeVisible()
-    const premium = page.getByRole('button', { name: /Premium/ })
-    await premium.click()
-    await expect(premium).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.getByText('EN ÇOK TERCİH EDİLEN')).toBeVisible()
+    const turk = page.getByRole('button', { name: /Türk Takipçi/ })
+    await turk.click()
+    await expect(turk).toHaveAttribute('aria-pressed', 'true')
+    // Varyant açıklaması müşteriye gösterilir
+    await expect(page.getByText(/Takipçiler Türk’tür/)).toBeVisible()
   })
 
   test('tek varyantlı hizmette paket seçici GÖSTERİLMEZ', async ({ page }) => {
@@ -127,7 +128,7 @@ test.describe('sipariş akışı', () => {
     await confirmTarget(page)
   })
 
-  test('7-8 · miktar değişince fiyat anında güncellenir', async ({ page }) => {
+  test('7-8 · hazır miktar seçilince GERÇEK fiyat gelir', async ({ page }) => {
     await selectPlatform(page)
     await selectService(page)
     await enterTarget(page)
@@ -135,43 +136,70 @@ test.describe('sipariş akışı', () => {
 
     const total = page.locator('aside').getByText(/₺/).last()
 
-    await page.getByRole('button', { name: '100 adet', exact: true }).click()
-    await expect(total).toHaveText(/45,00\s*₺/)
+    // ⚠️ Yabancı Takipçi — brief'teki gerçek satış fiyatları
+    await page.getByTestId('preset-500').click()
+    await expect(total).toHaveText(/324,90\s*₺/)
 
-    await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
-    await expect(total).toHaveText(/300,00\s*₺/)
+    await page.getByTestId('preset-1000').click()
+    await expect(total).toHaveText(/599,90\s*₺/)
 
-    await page.getByRole('button', { name: '5.000 adet', exact: true }).click()
-    await expect(total).toHaveText(/1\.200,00\s*₺/)
+    await page.getByTestId('preset-2500').click()
+    await expect(total).toHaveText(/1\.349,90\s*₺/)
   })
 
-  test('kademe ipucu gösterilir, toptan fiyat TABLOSU gösterilmez', async ({ page }) => {
+  test('⚠️ serbest miktar girilemez: slider ve sayı kutusu YOK', async ({ page }) => {
     await selectPlatform(page)
     await selectService(page)
     await enterTarget(page)
     await confirmTarget(page)
 
-    await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
-    await expect(page.getByText(/daha ekleyerek bir sonraki fiyat seviyesine/)).toBeVisible()
-    await expect(page.getByText(/Yeni birim fiyat:/)).toBeVisible()
+    await expect(page.getByTestId('preset-quantities')).toBeVisible()
+    await expect(page.locator('input[type="range"]')).toHaveCount(0)
+    await expect(page.locator('#step-quantity input[type="number"]')).toHaveCount(0)
+    await expect(page.getByText('yalnızca hazır paketlerden biri')).toBeVisible()
+  })
+
+  test('hazır miktar kartlarında fiyat yazar', async ({ page }) => {
+    await selectPlatform(page)
+    await selectService(page)
+    await enterTarget(page)
+    await confirmTarget(page)
+
+    await expect(page.getByTestId('preset-500')).toContainText('324,90')
+    await expect(page.getByTestId('preset-1000')).toContainText('599,90')
+    await expect(page.getByTestId('preset-1000')).toContainText('1.000 takipçi')
+  })
+
+  test('⚠️ sabit pakette birim fiyat ipucu GÖSTERİLMEZ', async ({ page }) => {
+    await selectPlatform(page)
+    await selectService(page)
+    await enterTarget(page)
+    await confirmTarget(page)
+
+    await page.getByTestId('preset-1000').click()
+    // Sabit pakette "biraz daha ekle, birim fiyat düşsün" anlamsızdır.
+    await expect(page.getByText(/daha ekleyerek bir sonraki fiyat seviyesine/)).toHaveCount(0)
+    await expect(page.getByText(/Yeni birim fiyat:/)).toHaveCount(0)
     expect(await page.locator('table').count()).toBe(0)
   })
 
-  test('unitLabel: "adet" ve "hafta" doğru gösterilir', async ({ page }) => {
+  test('unitLabel: "takipçi" ve "ay" doğru gösterilir', async ({ page }) => {
     await selectPlatform(page)
     await selectService(page)
     await enterTarget(page)
     await confirmTarget(page)
-    await expect(page.getByText('en az 100 adet')).toBeVisible()
+    await expect(page.getByTestId('preset-500')).toContainText('500 takipçi')
 
     await page.goto('/')
     await selectPlatform(page)
-    await page.getByRole('button', { name: /Profil Tanıtımı/ }).click()
+    await page.getByRole('button', { name: /Aylık Türk Beğeni \+ Yorum Paketi/ }).first().click()
     await expect(page.locator('#step-target')).toBeVisible()
     await enterTarget(page)
     await confirmTarget(page)
-    await expect(page.getByText('en az 1 hafta')).toBeVisible()
-    await expect(page.getByRole('button', { name: '1 hafta', exact: true })).toBeVisible()
+    // Tek seçenekli sabit paket → miktar seçici değil, paket kartı
+    await expect(page.getByTestId('package-card')).toContainText('1 ay')
+    await expect(page.getByTestId('package-price')).toContainText('1.250,00')
+    await expect(page.getByTestId('package-card')).toContainText('100 Beğeni')
   })
 
   test('9 · sipariş özeti oluşur', async ({ page }) => {
@@ -179,14 +207,14 @@ test.describe('sipariş akışı', () => {
     await selectService(page)
     await enterTarget(page)
     await confirmTarget(page)
-    await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
+    await page.getByTestId('preset-1000').click()
 
     const summary = page.locator('#step-review')
     await expect(summary).toBeVisible()
     const section = page.getByRole('region', { name: 'Sipariş özeti' })
     await expect(section).toContainText('Instagram · Takipçi')
     await expect(section).toContainText('@medya333')
-    await expect(section).toContainText('1.000 adet')
+    await expect(section).toContainText('1.000 takipçi')
     await expect(section).toContainText('Kullanıcı onayladı')
 
     // Bilgiler girilmeden CTA hâlâ pasif — özet tek başına yeterli değil
@@ -215,14 +243,15 @@ test.describe('sipariş akışı', () => {
     await selectService(page)
     await enterTarget(page)
     await confirmTarget(page)
-    await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
+    await page.getByTestId('preset-1000').click()
 
     const aside = page.locator('aside')
     await expect(aside).toContainText('KDV dahil')
     await expect(aside.getByText(/₺/).last()).toHaveText(/^\d[\d.]*,\d{2}\s*₺$/)
-    // "1.000 adet × 0,30 ₺" — birim adı TEKRAR ETMEZ
-    await expect(aside).toContainText('1.000 adet × 0,30 ₺')
-    await expect(aside).not.toContainText('₺ / adet')
+    // ⚠️ Sabit pakette "1.000 × birim fiyat" YAZILMAZ — birim fiyat yoktur.
+    await expect(aside).toContainText('1.000 takipçi')
+    await expect(aside).not.toContainText('×')
+    await expect(aside).not.toContainText('₺ / takipçi')
   })
 
   test('a11y: focus görünür, aria-labelledby boşa işaret etmiyor', async ({ page }) => {
@@ -295,8 +324,8 @@ test.describe('mobil', () => {
     await selectService(page)
     await enterTarget(page)
     await confirmTarget(page)
-    await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
-    await expect(page.locator('.sticky-price-bar')).toContainText(/300,00\s*₺/)
+    await page.getByTestId('preset-1000').click()
+    await expect(page.locator('.sticky-price-bar')).toContainText(/599,90\s*₺/)
     await fillCustomer(page, 'e2e-mobil@ornek.test')
     await expect(page.getByRole('button', { name: CREATE_CTA })).toBeEnabled()
   })

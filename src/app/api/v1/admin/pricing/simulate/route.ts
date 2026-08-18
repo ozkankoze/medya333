@@ -29,6 +29,8 @@ export const POST = adminHandler({ schema, minimumRole: 'SUPPORT' }, async ({ in
       results.push({
         quantity,
         ok: true,
+        pricingMode: breakdown.pricingMode,
+        packagePrice: breakdown.packagePriceMinor,
         unitPrice: breakdown.unitPriceMinor,
         unitLabel: variant.unitLabel,
         subtotal: breakdown.subtotalMinor,
@@ -42,7 +44,14 @@ export const POST = adminHandler({ schema, minimumRole: 'SUPPORT' }, async ({ in
         },
       })
     } catch (e) {
-      results.push({ quantity, ok: false, error: (e as Error).message })
+      // ⚠️ Hazır miktar dışı istekler burada da reddedilir; simülatör
+      // müşterinin göreceğinden FARKLI bir sonuç üretemez.
+      results.push({
+        quantity,
+        ok: false,
+        code: (e as { code?: string }).code ?? 'ERROR',
+        error: (e as Error).message,
+      })
     }
   }
   return { results, pricesTaxInclusive: true }

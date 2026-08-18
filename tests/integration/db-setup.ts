@@ -113,3 +113,69 @@ export async function truncateTransactional(db: PrismaClient): Promise<void> {
     RESTART IDENTITY CASCADE
   `)
 }
+
+// ---------------------------------------------------------------------------
+// GERÇEK KATALOG FIXTURE'I (Faz 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Testlerin sipariş açmak için kullandığı varyant.
+ *
+ * ⚠️ Faz 5'ten sonra katalogdaki TÜM varyantlar hazır miktar kilitlidir:
+ * `minQuantity + k · step` ile miktar üretmek artık geçersiz bir miktar
+ * doğurur (QUANTITY_NOT_ALLOWED). Miktar HER ZAMAN hazır listeden seçilir.
+ *
+ * Seçim deterministiktir (`orderBy: slug`) — sırasız `findFirst` daha önce
+ * koşuma göre farklı varyant getirip garanti testlerini kararsız yapmıştı.
+ */
+export interface CatalogFixture {
+  variantId: string
+  serviceId: string
+  platformId: string
+  /** Katalogda GERÇEKTEN tanımlı, sipariş edilebilir bir miktar */
+  quantity: number
+  /** Aynı varyantın ikinci geçerli miktarı (fiyat değişimi senaryoları için) */
+  otherQuantity: number
+  presetQuantities: number[]
+  unitLabel: string
+  targetType: string
+}
+
+export async function pickCatalogVariant(
+  db: PrismaClient,
+  opts: { targetType?: 'PROFILE' | 'POST' | 'VIDEO'; atLeast?: number } = {},
+): Promise<CatalogFixture> {
+  const variant = await db.serviceVariant.findFirstOrThrow({
+    where: {
+      isActive: true,
+      isVisible: true,
+      service: {
+        isActive: true,
+        targetType: opts.targetType ?? 'PROFILE',
+        platform: { slug: 'instagram', isActive: true },
+      },
+    },
+    orderBy: [{ service: { sortOrder: 'asc' } }, { slug: 'asc' }],
+    include: { service: true },
+  })
+
+  const presets = [...variant.presetQuantities].sort((a, b) => a - b)
+  if (presets.length === 0) {
+    throw new Error(`Varyantın hazır miktarı yok: ${variant.slug}`)
+  }
+
+  // İstenen ölçeğin ALTINDA kalmayan ilk hazır miktar (örn. "en az 1.000").
+  const index = opts.atLeast ? Math.max(0, presets.findIndex((q) => q >= opts.atLeast!)) : 0
+  const quantity = presets[index] ?? presets[0]!
+
+  return {
+    variantId: variant.id,
+    serviceId: variant.serviceId,
+    platformId: variant.service.platformId,
+    quantity,
+    otherQuantity: presets.find((q) => q !== quantity) ?? quantity,
+    presetQuantities: presets,
+    unitLabel: variant.service.unitLabel,
+    targetType: variant.service.targetType,
+  }
+}

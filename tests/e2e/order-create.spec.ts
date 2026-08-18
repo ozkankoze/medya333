@@ -38,7 +38,7 @@ async function goThroughWizard(page: Page, email: string) {
   await expect(targetCheckbox).toBeVisible({ timeout: 15_000 })
   await targetCheckbox.check()
 
-  await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
+  await page.getByTestId('preset-1000').click()
   await expect(page.locator('#step-review')).toBeVisible()
 
   await expect(page.locator('#step-customer')).toBeVisible()
@@ -154,7 +154,7 @@ test.describe('sipariş oluşturma', () => {
     const targetCheckbox = page.getByRole('checkbox').first()
     await expect(targetCheckbox).toBeVisible({ timeout: 15_000 })
     await targetCheckbox.check()
-    await page.getByRole('button', { name: '1.000 adet', exact: true }).click()
+    await page.getByTestId('preset-1000').click()
 
     await page.getByLabel('Ad', { exact: true }).fill('Ayşe')
     await page.getByLabel('Soyad', { exact: true }).fill('Yılmaz')

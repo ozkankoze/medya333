@@ -119,22 +119,37 @@ describe('migration', () => {
 })
 
 describe('seed', () => {
-  it('beklenen kayıt sayıları oluştu', async () => {
+  it('beklenen AKTİF kayıt sayıları oluştu', async () => {
     const [platforms, services, variants, tiers, taxRates, coupons] = await Promise.all([
-      db.platform.count(),
-      db.service.count(),
-      db.serviceVariant.count(),
-      db.pricingRule.count(),
+      db.platform.count({ where: { isActive: true } }),
+      db.service.count({ where: { isActive: true } }),
+      db.serviceVariant.count({ where: { isActive: true } }),
+      db.pricingRule.count({ where: { isActive: true } }),
       db.taxRate.count(),
       db.coupon.count(),
     ])
-    expect(platforms).toBe(PLATFORMS.length)
-    expect(platforms).toBe(6)
+    // ⚠️ Faz 5: gerçek katalogda YALNIZCA Instagram aktiftir.
+    expect(platforms).toBe(1)
     expect(services).toBe(EXPECTED_SERVICES)
+    expect(services).toBe(8)
     expect(variants).toBe(EXPECTED_VARIANTS)
+    expect(variants).toBe(12)
     expect(tiers).toBe(EXPECTED_TIERS)
+    expect(tiers).toBe(63)
     expect(taxRates).toBe(2)
     expect(coupons).toBe(1)
+  })
+
+  it('⚠️ demo katalog SİLİNMEDİ, yalnızca pasifleştirildi', async () => {
+    // Geçmiş siparişler bu satırlara bağlı; silinirse muhasebe bozulur.
+    expect(await db.platform.count()).toBe(PLATFORMS.length)
+    expect(await db.service.count({ where: { isActive: false } })).toBeGreaterThan(0)
+    expect(await db.pricingRule.count({ where: { isActive: false } })).toBeGreaterThan(0)
+  })
+
+  it('⚠️ pasif demo varyantlar VARSAYILAN kalmaz', async () => {
+    const stale = await db.serviceVariant.count({ where: { isActive: false, isDefault: true } })
+    expect(stale).toBe(0)
   })
 
   it('varsayılan KDV oranı %20 ve tek tane', async () => {
@@ -149,14 +164,21 @@ describe('seed', () => {
       include: { services: true },
     })
     const byslug = new Map(ig.services.map((s) => [s.slug, s.unitLabel]))
-    expect(byslug.get('takipci')).toBe('adet')
-    expect(byslug.get('begeni')).toBe('adet')
+    expect(byslug.get('takipci')).toBe('takipçi')
+    expect(byslug.get('begeni')).toBe('beğeni')
+    expect(byslug.get('goruntulenme')).toBe('izlenme')
     expect(byslug.get('yorum')).toBe('yorum')
-    expect(byslug.get('profil-tanitimi')).toBe('hafta')
+    expect(byslug.get('kaydetme')).toBe('kaydetme')
+    expect(byslug.get('paylasim')).toBe('paylaşım')
+    expect(byslug.get('kesfet-paketi')).toBe('paket')
+    expect(byslug.get('aylik-begeni-yorum-paketi')).toBe('ay')
   })
 
-  it('her platformun adapterKey\'i ve hizmetleri var', async () => {
-    const platforms = await db.platform.findMany({ include: { services: true } })
+  it('her AKTİF platformun adapterKey\'i ve aktif hizmeti var', async () => {
+    const platforms = await db.platform.findMany({
+      where: { isActive: true },
+      include: { services: { where: { isActive: true } } },
+    })
     for (const p of platforms) {
       expect(p.adapterKey, `${p.slug} adapterKey`).toBeTruthy()
       expect(p.services.length, `${p.slug} hizmetsiz`).toBeGreaterThan(0)
@@ -395,19 +417,38 @@ describe('katalog ilişkileri', () => {
       where: { slug: 'instagram' },
       include: {
         services: {
+          where: { isActive: true },
           orderBy: { sortOrder: 'asc' },
-          include: { variants: { include: { pricingRules: true } } },
+          include: {
+            variants: {
+              where: { isActive: true },
+              include: { pricingRules: { where: { isActive: true } } },
+            },
+          },
         },
       },
     })
     expect(platform.services.length).toBe(SERVICES.instagram!.length)
     const takipci = platform.services.find((s) => s.slug === 'takipci')!
     expect(takipci.variants).toHaveLength(2)
-    const standart = takipci.variants.find((v) => v.slug === 'standart')!
-    expect(standart.pricingRules).toHaveLength(4)
-    expect(standart.pricingRules.map((r) => r.unitPriceMinor).sort((a, b) => b - a)).toEqual([
-      45, 38, 30, 24,
+    const turk = takipci.variants.find((v) => v.slug === 'turk')!
+    expect(turk.pricingRules).toHaveLength(8)
+    // ⚠️ Gerçek Türk Takipçi fiyatları (KDV dahil, kuruş) — birebir.
+    expect(
+      turk.pricingRules
+        .sort((a, b) => a.minQuantity - b.minQuantity)
+        .map((r) => [r.minQuantity, r.packagePriceMinor]),
+    ).toEqual([
+      [500, 69_990],
+      [1000, 134_990],
+      [2500, 299_990],
+      [5000, 574_990],
+      [10_000, 999_990],
+      [25_000, 2_249_990],
+      [50_000, 3_999_990],
+      [100_000, 7_499_990],
     ])
+    for (const r of turk.pricingRules) expect(r.mode).toBe('PACKAGE')
   })
 
   it('hedef girdi yapılandırması DB\'den geliyor (frontend değişikliği gerektirmeden)', async () => {
@@ -557,7 +598,7 @@ describe('sipariş için gerekli relation\'lar', () => {
     expect(order.events).toHaveLength(2)
     expect(order.payments).toHaveLength(1)
     expect(order.platform.slug).toBe('instagram')
-    expect(order.service.unitLabel).toBe('adet')
+    expect(order.service.unitLabel).toBeTruthy()
     expect(order.target.userConfirmed).toBe(true)
     // KDV değişmezi DB'de de korunuyor
     expect(order.subtotalMinor + order.taxAmountMinor).toBe(order.totalMinor)

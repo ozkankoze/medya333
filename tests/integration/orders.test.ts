@@ -27,7 +27,12 @@ delete process.env.REDIS_URL
 
 import type { PrismaClient } from '@/generated/prisma/client'
 import { seedAll } from '../../prisma/seed/index'
-import { setupTestDatabase, truncateTransactional, type TestDatabase } from './db-setup'
+import {
+  pickCatalogVariant,
+  setupTestDatabase,
+  truncateTransactional,
+  type TestDatabase,
+} from './db-setup'
 
 import { createOrder, IdempotencyConflictError, PriceChangedError } from '@/server/orders/create'
 import {
@@ -100,26 +105,12 @@ beforeAll(async () => {
   db = ctx.db
   await seedAll(db)
 
-  const variant = await db.serviceVariant.findFirstOrThrow({
-    where: {
-      isActive: true,
-      isVisible: true,
-      minQuantity: { lte: 100 },
-      maxQuantity: { gte: 1000 },
-      service: { targetType: 'PROFILE', platform: { slug: 'instagram' } },
-    },
-    // ⚠️ Deterministik seçim: sırasız `findFirst` bazen garantili (Premium),
-    // bazen garantisiz (Standart) varyantı getiriyordu ve garanti testleri
-    // koşuma göre değişiyordu.
-    orderBy: { slug: 'asc' },
-    include: { service: true },
-  })
-  variantId = variant.id
-  platformId = variant.service.platformId
-  // minQuantity'den başlayıp step'e uyan ilk >= 100 miktar
-  const step = variant.quantityStep > 0 ? variant.quantityStep : 1
-  qty = variant.minQuantity
-  while (qty < 100) qty += step
+  // ⚠️ Faz 5: katalogdaki tüm varyantlar HAZIR MİKTAR kilitlidir.
+  // Miktar `min + k·step` ile ÜRETİLEMEZ; katalogdan seçilir.
+  const fixture = await pickCatalogVariant(db, {})
+  variantId = fixture.variantId
+  platformId = fixture.platformId
+  qty = fixture.quantity
 
   const admin = await db.user.upsert({
     where: { email: 'faz2-admin@roles.test' },

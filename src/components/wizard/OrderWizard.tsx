@@ -157,7 +157,16 @@ export function OrderWizard({
       const v = visibleVariants.find((x) => x.id === id)
       setVariantId(id)
       if (v && quantity != null) {
-        setQuantity(Math.min(v.maxQuantity, Math.max(v.minQuantity, quantity)))
+        // ⚠️ Hazır miktarlı varyantta sıkıştırmak YETMEZ: 7.342 sonucu yine
+        // seçilemez bir miktar olurdu. En yakın hazır miktara oturtulur.
+        if (v.presetOnly && v.presetQuantities.length > 0) {
+          const nearest = v.presetQuantities.reduce((best, p) =>
+            Math.abs(p - quantity) < Math.abs(best - quantity) ? p : best,
+          )
+          setQuantity(nearest)
+        } else {
+          setQuantity(Math.min(v.maxQuantity, Math.max(v.minQuantity, quantity)))
+        }
       }
     },
     [visibleVariants, quantity],
@@ -238,6 +247,8 @@ export function OrderWizard({
             minQuantity: variant.minQuantity,
             maxQuantity: variant.maxQuantity,
             quantityStep: variant.quantityStep,
+          presetQuantities: variant.presetQuantities,
+          presetOnly: variant.presetOnly,
           },
           taxRateBp: catalog.taxRateBp,
         }),
@@ -380,9 +391,14 @@ export function OrderWizard({
     if (targetReady) scrollToStep(quantityRef.current)
   }, [targetReady, scrollToStep])
 
+  /**
+   * Varyant kartlarındaki "+%x" farkı için taban birim fiyat.
+   * Sabit paket kademelerinde birim fiyat olmadığından 0 döner ve fark
+   * gösterilmez (bkz. VariantPicker).
+   */
   const baselineUnit = useMemo(() => {
-    if (visibleVariants.length === 0) return 0
-    return Math.min(...visibleVariants.flatMap((v) => v.tiers.map((t) => t.unitPriceMinor)))
+    const units = visibleVariants.flatMap((v) => v.tiers.map((t) => t.unitPriceMinor)).filter((u) => u > 0)
+    return units.length > 0 ? Math.min(...units) : 0
   }, [visibleVariants])
 
   const continueHint = !platform

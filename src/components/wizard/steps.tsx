@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { FieldError, FieldHint, Input, Label } from '@/components/ui/input'
 import { SelectableCard } from '@/components/ui/card'
 import { formatMinor, formatQuantity, formatUnitPriceMinor } from '@/lib/money'
+import { entryPriceOf, listPriceAtQuantity } from '@/lib/pricing'
 import { perUnit, unitOf, withUnit } from '@/lib/units'
 import { cn, formatDuration } from '@/lib/utils'
 import type { CatalogPlatform, CatalogService, CatalogVariant } from '@/server/catalog/snapshot'
@@ -102,7 +103,9 @@ export function StepService({
     <div className="grid gap-3 sm:grid-cols-2">
       {services.map((s) => {
         const selected = s.id === value
-        const cheapest = Math.min(...s.variants.flatMap((v) => v.tiers.map((t) => t.unitPriceMinor)))
+        // ⚠️ Sabit paket kademelerinde birim fiyat YOKTUR (0). "0,00 ₺/adet'ten
+        // başlar" yazmamak için giriş fiyatı kademe tipine göre seçilir.
+        const entry = entryPriceOf(s.variants.flatMap((v) => v.tiers))
         return (
           <SelectableCard key={s.id} selected={selected} onClick={() => onChange(s.id)} className="h-full gap-1.5">
             <div className="flex w-full items-start justify-between gap-3">
@@ -116,9 +119,13 @@ export function StepService({
             {s.shortDescription && (
               <span className="text-small leading-snug text-ink-600">{s.shortDescription}</span>
             )}
-            <span className="mt-auto pt-2 text-caption text-ink-500">
-              {perUnit(formatUnitPriceMinor(cheapest), s.unitLabel)}&apos;den başlar
-            </span>
+            {entry && (
+              <span className="mt-auto pt-2 text-caption text-ink-500">
+                {entry.kind === 'package'
+                  ? `${formatMinor(entry.amountMinor)}'den başlar`
+                  : `${perUnit(formatUnitPriceMinor(entry.amountMinor), s.unitLabel)}'den başlar`}
+              </span>
+            )}
           </SelectableCard>
         )
       })}
@@ -146,8 +153,12 @@ export function VariantPicker({
     <div className="grid gap-2.5 sm:grid-cols-2">
       {variants.map((v) => {
         const selected = v.id === value
-        const unit = Math.min(...v.tiers.map((t) => t.unitPriceMinor))
-        const deltaPct = baselineUnitPrice > 0 ? Math.round(((unit - baselineUnitPrice) / baselineUnitPrice) * 100) : 0
+        const entry = entryPriceOf(v.tiers)
+        const isPackage = entry?.kind === 'package'
+        const deltaPct =
+          !isPackage && baselineUnitPrice > 0 && entry
+            ? Math.round(((entry.amountMinor - baselineUnitPrice) / baselineUnitPrice) * 100)
+            : 0
 
         return (
           <SelectableCard
@@ -168,7 +179,26 @@ export function VariantPicker({
                 )}
               </span>
             </div>
-            {v.tagline && <span className="text-caption leading-snug text-ink-600">{v.tagline}</span>}
+            {v.description ? (
+              <span className="text-caption leading-snug text-ink-600">{v.description}</span>
+            ) : v.tagline ? (
+              <span className="text-caption leading-snug text-ink-600">{v.tagline}</span>
+            ) : null}
+            {v.packageItems.length > 0 && (
+              <ul className="mt-1 flex flex-col gap-0.5 text-caption text-ink-600">
+                {v.packageItems.map((item) => (
+                  <li key={item} className="flex items-start gap-1.5">
+                    <span className="mt-[7px] size-1 shrink-0 rounded-full bg-ink-400" aria-hidden />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {isPackage && entry && (
+              <span className="tabular mt-1 text-small font-semibold text-ink-900">
+                {formatMinor(entry.amountMinor)}
+              </span>
+            )}
             {v.refillDays != null && (
               <span className="mt-0.5 text-caption text-ink-500">
                 {v.refillDays} gün telafi garantisi
@@ -267,6 +297,97 @@ export function StepQuantity({
   const presets = variant.presetQuantities.filter(
     (p) => p >= variant.minQuantity && p <= variant.maxQuantity,
   )
+
+  /**
+   * ⚠️ HAZIR MİKTAR KİLİDİ (Faz 5)
+   *
+   * Gerçek katalogda fiyat, miktarın fonksiyonu değil; miktar–fiyat
+   * EŞLEŞMESİDİR. 500 → 324,90 ₺ tanımlıysa 501 için fiyat YOKTUR. Bu yüzden
+   * bu varyantlarda slider ve serbest sayı girişi HİÇ RENDER EDİLMEZ —
+   * kullanıcı 7.342 yazabileceği bir alan görmez. (Sunucu da aynı kuralı
+   * bağımsız olarak uygular: `presetOnly` → QUANTITY_NOT_ALLOWED.)
+   */
+  if (variant.presetOnly) {
+    // Tek seçenekli sabit paket: seçilecek bir şey yok, paket anlatılır.
+    if (presets.length <= 1) {
+      const only = presets[0] ?? variant.minQuantity
+      const priceMinor = listPriceAtQuantity(variant.tiers, only)
+      return (
+        <div
+          data-testid="package-card"
+          className="flex flex-col gap-3 rounded-[--radius-card] border border-ink-200 bg-white p-4"
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-body font-semibold text-ink-900">{variant.customerLabel}</span>
+            {priceMinor != null && (
+              <span className="tabular text-body font-semibold text-ink-900" data-testid="package-price">
+                {formatMinor(priceMinor)}
+              </span>
+            )}
+          </div>
+          {variant.description && (
+            <p className="text-small leading-snug text-ink-600">{variant.description}</p>
+          )}
+          {variant.packageItems.length > 0 && (
+            <ul className="flex flex-col gap-1 text-small text-ink-700">
+              {variant.packageItems.map((item) => (
+                <li key={item} className="flex items-start gap-2">
+                  <span className="mt-[9px] size-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-caption text-ink-500">{withUnit(only, unitLabel)}</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex flex-col gap-3">
+        {variant.description && (
+          <p className="text-small leading-snug text-ink-600">{variant.description}</p>
+        )}
+        <div
+          role="radiogroup"
+          aria-label="Miktar"
+          data-testid="preset-quantities"
+          className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {presets.map((p) => {
+            const priceMinor = listPriceAtQuantity(variant.tiers, p)
+            const selected = value === p
+            return (
+              <button
+                key={p}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                data-testid={`preset-${p}`}
+                onClick={() => onChange(p)}
+                className={cn(
+                  'flex flex-col items-start gap-0.5 rounded-[--radius-control] border px-4 py-3 text-left transition-colors duration-[--duration-fast]',
+                  selected
+                    ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-500'
+                    : 'border-ink-200 bg-white hover:bg-ink-50',
+                )}
+              >
+                <span className="tabular text-small font-semibold text-ink-900">
+                  {withUnit(p, unitLabel)}
+                </span>
+                {priceMinor != null && (
+                  <span className="tabular text-small text-ink-700">{formatMinor(priceMinor)}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <p className="text-caption text-ink-500">
+          Bu hizmette yalnızca hazır paketlerden biri seçilebilir.
+        </p>
+      </div>
+    )
+  }
 
   const snap = (n: number) => {
     const step = variant.quantityStep || 1

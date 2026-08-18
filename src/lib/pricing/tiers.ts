@@ -35,6 +35,10 @@ function upper(t: PricingTier): number {
   return t.maxQuantity ?? Number.MAX_SAFE_INTEGER
 }
 
+function tierCoversQuantity(t: PricingTier, quantity: number): boolean {
+  return quantity >= t.minQuantity && (t.maxQuantity === null || quantity <= t.maxQuantity)
+}
+
 function winnerOf(a: PricingTier, b: PricingTier): string {
   if (a.priority !== b.priority) return a.priority > b.priority ? a.id : b.id
   return a.minQuantity > b.minQuantity ? a.id : b.id
@@ -46,12 +50,24 @@ function winnerOf(a: PricingTier, b: PricingTier): string {
  */
 export function validateTiers(
   tiers: PricingTier[],
-  constraints: { minQuantity: number; maxQuantity: number },
+  constraints: {
+    minQuantity: number
+    maxQuantity: number
+    /** Hazır miktar listesi — `presetOnly` ile birlikte boşluk taraması bu liste üzerinde yapılır */
+    presetQuantities?: readonly number[]
+    presetOnly?: boolean
+  },
 ): TierValidationReport {
   const invalid: TierValidationReport['invalid'] = []
 
   for (const t of tiers) {
-    if (t.unitPriceMinor <= 0) {
+    if (t.mode === 'PACKAGE') {
+      // Sabit pakette birim fiyat yoktur; kontrol edilen şey paket fiyatıdır.
+      const pkg = t.packagePriceMinor
+      if (pkg == null || !Number.isInteger(pkg) || pkg <= 0) {
+        invalid.push({ id: t.id, reason: 'Paket fiyatı sıfır veya negatif olamaz.' })
+      }
+    } else if (t.unitPriceMinor <= 0) {
       invalid.push({ id: t.id, reason: 'Birim fiyat sıfır veya negatif olamaz.' })
     }
     if (t.setupFeeMinor < 0) {
@@ -87,7 +103,27 @@ export function validateTiers(
     }
   }
 
-  // --- Boşluk (varyantın min-max aralığında kapsanmayan miktar) ---
+  /**
+   * --- Boşluk ---
+   *
+   * HAZIR MİKTARLI (preset) varyantta aralık taraması ANLAMSIZDIR: 500 ile
+   * 1.000 arasındaki 501–999 miktarları zaten seçilemez, dolayısıyla oradaki
+   * "boşluk" bir hata değildir. Boşluk = fiyatı olmayan HAZIR MİKTAR.
+   */
+  if (constraints.presetOnly) {
+    const presetGaps: TierGap[] = []
+    for (const q of constraints.presetQuantities ?? []) {
+      const covered = tiers.some((t) => tierCoversQuantity(t, q))
+      if (!covered) presetGaps.push({ fromQuantity: q, toQuantity: q })
+    }
+    return {
+      ok: overlaps.length === 0 && presetGaps.length === 0 && invalid.length === 0,
+      overlaps,
+      gaps: presetGaps,
+      invalid,
+    }
+  }
+
   const gaps: TierGap[] = []
   let cursor = constraints.minQuantity
   for (const t of sorted) {
@@ -212,4 +248,68 @@ export function findStepBoundaryIssues(
 /** Fiyat tablosunu müşteriye şeffaf göstermek için sıralı, okunabilir hale getirir. */
 export function sortTiersForDisplay(tiers: PricingTier[]): PricingTier[] {
   return [...tiers].sort((a, b) => a.minQuantity - b.minQuantity)
+}
+
+// ---------------------------------------------------------------------------
+// GİRİŞ FİYATI ("…'den başlar")
+// ---------------------------------------------------------------------------
+
+export interface EntryPrice {
+  /** 'package' → gösterilecek tutar bir PAKET TOPLAMIDIR, birim fiyat DEĞİL */
+  kind: 'unit' | 'package'
+  amountMinor: number
+  /** Paket fiyatının hangi miktara ait olduğu (kind === 'package') */
+  quantity: number | null
+}
+
+/**
+ * Kartlarda gösterilen "…'den başlar" tutarı.
+ *
+ * ⚠️ Sabit paket kademelerinde birim fiyat YOKTUR (0'dır). Birim fiyat
+ * üzerinden "0,00 ₺'den başlar" yazmak müşteriye yanlış bilgi olurdu;
+ * bu yüzden paket modunda EN DÜŞÜK PAKET TOPLAMI gösterilir.
+ */
+export function entryPriceOf(tiers: readonly PricingTier[]): EntryPrice | null {
+  const packages = tiers.filter((t) => t.mode === 'PACKAGE' && (t.packagePriceMinor ?? 0) > 0)
+  if (packages.length > 0) {
+    const cheapest = packages.reduce((best, t) =>
+      (t.packagePriceMinor ?? 0) < (best.packagePriceMinor ?? 0) ? t : best,
+    )
+    return {
+      kind: 'package',
+      amountMinor: cheapest.packagePriceMinor ?? 0,
+      quantity: cheapest.minQuantity,
+    }
+  }
+
+  const units = tiers.filter((t) => t.unitPriceMinor > 0)
+  if (units.length === 0) return null
+  return {
+    kind: 'unit',
+    amountMinor: Math.min(...units.map((t) => t.unitPriceMinor)),
+    quantity: null,
+  }
+}
+
+/**
+ * Belirli bir HAZIR MİKTARIN müşteriye gösterilecek toplam tutarı.
+ *
+ * Sabit paket kademelerinde tutar okunur; birim fiyatlı kademelerde
+ * `birim × miktar` ile hesaplanır. Kupon/kampanya BURAYA GİRMEZ — bunlar
+ * kart üzerindeki liste fiyatlarıdır; ödenecek tutarın otoritesi
+ * `calculatePrice`'tır.
+ */
+export function listPriceAtQuantity(
+  tiers: readonly PricingTier[],
+  quantity: number,
+): number | null {
+  const covering = tiers.filter((t) => tierCoversQuantity(t, quantity))
+  if (covering.length === 0) return null
+  const tier = covering.reduce((best, t) => {
+    if (t.priority !== best.priority) return t.priority > best.priority ? t : best
+    return t.minQuantity > best.minQuantity ? t : best
+  })
+  const goods =
+    tier.mode === 'PACKAGE' ? (tier.packagePriceMinor ?? 0) : tier.unitPriceMinor * quantity
+  return goods + tier.setupFeeMinor
 }

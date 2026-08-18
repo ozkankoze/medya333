@@ -15,6 +15,13 @@ export interface SeedResult {
   services: number
   variants: number
   pricingRules: number
+  /** Gerçek katalogda yer almadığı için pasifleştirilen kayıt sayıları */
+  deactivated?: {
+    platforms: number
+    services: number
+    variants: number
+    pricingRules: number
+  }
 }
 
 async function seedTaxRates(db: PrismaClient) {
@@ -40,6 +47,7 @@ async function seedCatalog(db: PrismaClient): Promise<SeedResult> {
     const platform = await db.platform.upsert({
       where: { slug: p.slug },
       update: {
+        isActive: (SERVICES[p.slug]?.length ?? 0) > 0,
         name: p.name,
         adapterKey: p.adapterKey,
         iconSlug: p.iconSlug,
@@ -57,7 +65,7 @@ async function seedCatalog(db: PrismaClient): Promise<SeedResult> {
         sortOrder: p.sortOrder,
         seoTitle: p.seoTitle,
         seoDescription: p.seoDescription,
-        isActive: true,
+        isActive: (SERVICES[p.slug]?.length ?? 0) > 0,
       },
     })
 
@@ -76,6 +84,7 @@ async function seedCatalog(db: PrismaClient): Promise<SeedResult> {
           inputHelpText: s.inputHelpText,
           inputExample: s.inputExample,
           sortOrder: (sIdx + 1) * 10,
+          isActive: true,
         },
         create: {
           platformId: platform.id,
@@ -102,16 +111,21 @@ async function seedCatalog(db: PrismaClient): Promise<SeedResult> {
             internalName: v.internalName,
             customerLabel: v.customerLabel,
             tagline: v.tagline ?? null,
+            description: v.description ?? null,
             badge: v.badge ?? null,
             isDefault: v.isDefault ?? false,
+            packageItems: v.packageItems ?? [],
             minQuantity: v.minQuantity,
             maxQuantity: v.maxQuantity,
             quantityStep: v.quantityStep,
             presetQuantities: v.presetQuantities,
+            presetOnly: v.presetOnly,
             estimatedStartMinutes: v.estimatedStartMinutes ?? null,
             estimatedCompleteMinutes: v.estimatedCompleteMinutes ?? null,
             refillDays: v.refillDays ?? null,
             sortOrder: (vIdx + 1) * 10,
+            isActive: true,
+            isVisible: true,
           },
           create: {
             serviceId: service.id,
@@ -119,13 +133,16 @@ async function seedCatalog(db: PrismaClient): Promise<SeedResult> {
             internalName: v.internalName,
             customerLabel: v.customerLabel,
             tagline: v.tagline ?? null,
+            description: v.description ?? null,
             badge: v.badge ?? null,
             isDefault: v.isDefault ?? false,
             isVisible: true,
+            packageItems: v.packageItems ?? [],
             minQuantity: v.minQuantity,
             maxQuantity: v.maxQuantity,
             quantityStep: v.quantityStep,
             presetQuantities: v.presetQuantities,
+            presetOnly: v.presetOnly,
             estimatedStartMinutes: v.estimatedStartMinutes ?? null,
             estimatedCompleteMinutes: v.estimatedCompleteMinutes ?? null,
             refillDays: v.refillDays ?? null,
@@ -135,23 +152,57 @@ async function seedCatalog(db: PrismaClient): Promise<SeedResult> {
         })
         variantCount++
 
-        // Admin panelden yapılan fiyat değişiklikleri EZİLMEZ.
-        const existing = await db.pricingRule.count({ where: { serviceVariantId: variant.id } })
-        if (existing === 0) {
-          await db.pricingRule.createMany({
-            data: v.tiers.map((t) => ({
+        /**
+         * ⚠️ GERÇEK FİYAT LİSTESİ OTORİTEDİR.
+         *
+         * Faz 5'te fiyatlar müşteriye gösterilen gerçek satış fiyatlarıdır;
+         * demo verisinden kalan bir kademe hayatta kalırsa yanlış fiyattan
+         * satış demektir. Bu yüzden varyantın kademeleri BİREBİR listeye
+         * eşitlenir: fazlalıklar pasifleştirilir (silinmez — geçmiş
+         * siparişler `appliedPricingRuleId` ile bu satırlara bakar).
+         */
+        const wanted = new Map(v.tiers.map((t) => [`${t.minQuantity}:${t.maxQuantity ?? 'inf'}`, t]))
+        const current = await db.pricingRule.findMany({ where: { serviceVariantId: variant.id } })
+
+        for (const rule of current) {
+          const key = `${rule.minQuantity}:${rule.maxQuantity ?? 'inf'}`
+          const want = wanted.get(key)
+          if (!want) {
+            if (rule.isActive) {
+              await db.pricingRule.update({ where: { id: rule.id }, data: { isActive: false } })
+            }
+            continue
+          }
+          wanted.delete(key)
+          await db.pricingRule.update({
+            where: { id: rule.id },
+            data: {
+              mode: want.mode,
+              unitPriceMinor: want.unitPriceMinor,
+              packagePriceMinor: want.packagePriceMinor ?? null,
+              setupFeeMinor: want.setupFeeMinor ?? 0,
+              isActive: true,
+            },
+          })
+          tierCount++
+        }
+
+        for (const t of wanted.values()) {
+          await db.pricingRule.create({
+            data: {
               serviceVariantId: variant.id,
-              mode: 'FLAT_TIER' as const,
+              mode: t.mode,
               currency: 'TRY',
               minQuantity: t.minQuantity,
               maxQuantity: t.maxQuantity,
               unitPriceMinor: t.unitPriceMinor,
+              packagePriceMinor: t.packagePriceMinor ?? null,
               setupFeeMinor: t.setupFeeMinor ?? 0,
               priority: 0,
               isActive: true,
-            })),
+            },
           })
-          tierCount += v.tiers.length
+          tierCount++
         }
       }
     }
@@ -166,6 +217,86 @@ async function seedCatalog(db: PrismaClient): Promise<SeedResult> {
     variants: variantCount,
     pricingRules: tierCount,
   }
+}
+
+/**
+ * ⚠️ DEMO KATALOG TEMİZLİĞİ (Faz 5)
+ *
+ * Faz 0-4'te kullanılan örnek hizmetler/fiyatlar GERÇEK katalog değildir ve
+ * canlıda müşteriye gösterilirse uydurma fiyattan satış demektir.
+ *
+ * SİLİNMEZ, PASİFLEŞTİRİLİR: bu kayıtlara geçmiş siparişler
+ * (`Order.serviceId`, `OrderItem.serviceVariantId`, `appliedPricingRuleId`)
+ * bağlıdır. Silmek geçmişi ve muhasebeyi bozardı.
+ */
+async function deactivateStaleCatalog(db: PrismaClient): Promise<{
+  platforms: number
+  services: number
+  variants: number
+  pricingRules: number
+}> {
+  const stale = { platforms: 0, services: 0, variants: 0, pricingRules: 0 }
+
+  const platforms = await db.platform.findMany({
+    include: { services: { include: { variants: true } } },
+  })
+
+  for (const platform of platforms) {
+    const realServices = SERVICES[platform.slug] ?? []
+    const realServiceSlugs = new Set(realServices.map((s) => s.slug))
+
+    for (const service of platform.services) {
+      const realService = realServices.find((s) => s.slug === service.slug)
+      const serviceIsReal = realServiceSlugs.has(service.slug)
+
+      if (!serviceIsReal && service.isActive) {
+        await db.service.update({ where: { id: service.id }, data: { isActive: false } })
+        stale.services++
+      }
+
+      const realVariantSlugs = new Set((realService?.variants ?? []).map((v) => v.slug))
+      for (const variant of service.variants) {
+        const variantIsReal = serviceIsReal && realVariantSlugs.has(variant.slug)
+        if (variantIsReal) continue
+
+        if (variant.isActive || variant.isDefault) {
+          await db.serviceVariant.update({
+            where: { id: variant.id },
+            data: {
+              isActive: false,
+              /**
+               * ⚠️ `isDefault` DA DÜŞÜRÜLÜR.
+               * Demo varyant "varsayılan" kalırsa aynı hizmette İKİ varsayılan
+               * olur; sihirbaz hangisini açacağını kayıt sırasına göre seçer ve
+               * müşteri yanlış varyantla karşılaşabilir.
+               */
+              isDefault: false,
+            },
+          })
+          if (variant.isActive) stale.variants++
+        }
+        const { count } = await db.pricingRule.updateMany({
+          where: { serviceVariantId: variant.id, isActive: true },
+          data: { isActive: false },
+        })
+        stale.pricingRules += count
+      }
+    }
+
+    if (realServices.length === 0 && platform.isActive) {
+      await db.platform.update({ where: { id: platform.id }, data: { isActive: false } })
+      stale.platforms++
+    }
+  }
+
+  if (stale.platforms + stale.services + stale.variants + stale.pricingRules > 0) {
+    console.log(
+      `  ✓ Gerçek katalogda olmayan kayıtlar pasifleştirildi: ` +
+        `${stale.platforms} platform · ${stale.services} hizmet · ` +
+        `${stale.variants} varyant · ${stale.pricingRules} fiyat kademesi`,
+    )
+  }
+  return stale
 }
 
 async function seedAdmin(db: PrismaClient) {
@@ -219,7 +350,8 @@ async function seedCoupon(db: PrismaClient) {
 export async function seedAll(db: PrismaClient): Promise<SeedResult> {
   await seedTaxRates(db)
   const result = await seedCatalog(db)
+  const deactivated = await deactivateStaleCatalog(db)
   await seedCoupon(db)
   await seedAdmin(db)
-  return result
+  return { ...result, deactivated }
 }

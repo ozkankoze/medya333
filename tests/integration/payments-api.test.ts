@@ -49,7 +49,12 @@ vi.mock('@/server/auth', async () => {
 
 import type { PrismaClient } from '@/generated/prisma/client'
 import { seedAll } from '../../prisma/seed/index'
-import { setupTestDatabase, truncateTransactional, type TestDatabase } from './db-setup'
+import {
+  pickCatalogVariant,
+  setupTestDatabase,
+  truncateTransactional,
+  type TestDatabase,
+} from './db-setup'
 import { resetMemoryRateLimits } from '@/server/ratelimit'
 import { createOrder } from '@/server/orders/create'
 import { computeMockSignature } from '@/server/payments/providers/mock'
@@ -130,25 +135,12 @@ beforeAll(async () => {
   db = ctx.db
   await seedAll(db)
 
-  const variant = await db.serviceVariant.findFirstOrThrow({
-    where: {
-      isActive: true,
-      isVisible: true,
-      minQuantity: { lte: 100 },
-      maxQuantity: { gte: 1000 },
-      service: { targetType: 'PROFILE', platform: { slug: 'instagram' } },
-    },
-    // ⚠️ Deterministik seçim: sırasız `findFirst` bazen garantili (Premium),
-    // bazen garantisiz (Standart) varyantı getiriyordu ve garanti testleri
-    // koşuma göre değişiyordu.
-    orderBy: { slug: 'asc' },
-    include: { service: true },
-  })
-  variantId = variant.id
-  platformId = variant.service.platformId
-  const step = variant.quantityStep > 0 ? variant.quantityStep : 1
-  qty = variant.minQuantity
-  while (qty < 100) qty += step
+  // ⚠️ Faz 5: katalogdaki tüm varyantlar HAZIR MİKTAR kilitlidir.
+  // Miktar `min + k·step` ile ÜRETİLEMEZ; katalogdan seçilir.
+  const fixture = await pickCatalogVariant(db, {})
+  variantId = fixture.variantId
+  platformId = fixture.platformId
+  qty = fixture.quantity
 
   for (const [email, role] of [
     ['faz3api-support@roles.test', 'SUPPORT'],

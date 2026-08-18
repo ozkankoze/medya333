@@ -68,7 +68,7 @@ export const TARGET_STATUS = [
 ] as const
 export type TargetStatus = (typeof TARGET_STATUS)[number]
 
-export const PRICING_MODE = ['FLAT_TIER', 'GRADUATED'] as const
+export const PRICING_MODE = ['FLAT_TIER', 'GRADUATED', 'PACKAGE'] as const
 export type PricingMode = (typeof PRICING_MODE)[number]
 
 export const DISCOUNT_TYPE = ['PERCENTAGE', 'FIXED_AMOUNT'] as const

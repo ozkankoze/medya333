@@ -36,6 +36,12 @@ export default async function OperationsLayout({ children }: { children: React.R
             İş Kuyruğu
           </Link>
           <Link
+            href="/yonetim/katalog"
+            className="rounded-[--radius-control] px-3 py-2 text-ink-700 hover:bg-ink-100"
+          >
+            Katalog
+          </Link>
+          <Link
             href="/hesabim"
             className="rounded-[--radius-control] px-3 py-2 text-ink-600 hover:bg-ink-100"
           >

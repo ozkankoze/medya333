@@ -284,7 +284,19 @@ export async function updatePricingRule(id: string, input: Partial<PricingRuleIn
   if (maxQ != null && maxQ < minQ) {
     throw new CatalogAdminError('INVALID_RANGE', 'Üst sınır alt sınırdan küçük olamaz.')
   }
-  if (input.unitPriceMinor != null && input.unitPriceMinor <= 0) {
+  const mode = input.mode ?? before.mode
+  if (mode === 'PACKAGE') {
+    const pkg = input.packagePriceMinor !== undefined ? input.packagePriceMinor : before.packagePriceMinor
+    if (pkg == null || pkg <= 0) {
+      throw new CatalogAdminError('INVALID_PRICE', 'Sabit paket fiyatı sıfırdan büyük olmalıdır.')
+    }
+    if (maxQ !== minQ) {
+      throw new CatalogAdminError(
+        'INVALID_RANGE',
+        'Sabit paket kademesinde alt ve üst sınır aynı miktar olmalıdır.',
+      )
+    }
+  } else if (input.unitPriceMinor != null && input.unitPriceMinor <= 0) {
     throw new CatalogAdminError('INVALID_PRICE', 'Birim fiyat sıfırdan büyük olmalıdır.')
   }
 
@@ -385,6 +397,7 @@ export async function validatePricingTable(variantId: string): Promise<PricingVa
     minQuantity: r.minQuantity,
     maxQuantity: r.maxQuantity,
     unitPriceMinor: r.unitPriceMinor,
+    packagePriceMinor: r.packagePriceMinor,
     setupFeeMinor: r.setupFeeMinor,
     priority: r.priority,
   }))
@@ -402,13 +415,19 @@ export async function validatePricingTable(variantId: string): Promise<PricingVa
   const report = validateTiers(tiers, {
     minQuantity: variant.minQuantity,
     maxQuantity: variant.maxQuantity,
+    // ⚠️ Hazır miktarlı varyantta boşluk taraması ARALIK üzerinde değil,
+    // HAZIR MİKTAR LİSTESİ üzerinde yapılır: 501–999 zaten seçilemez.
+    presetQuantities: variant.presetQuantities,
+    presetOnly: variant.presetOnly,
   })
 
   for (const gap of report.gaps) {
     issues.push({
       severity: 'error',
       code: 'GAP',
-      message: `${gap.fromQuantity}–${gap.toQuantity} aralığı için fiyat tanımlı değil. Bu miktarlarda sipariş verilemez.`,
+      message: variant.presetOnly
+        ? `${gap.fromQuantity} hazır miktarı için fiyat tanımlı değil. Bu paket sipariş edilemez.`
+        : `${gap.fromQuantity}–${gap.toQuantity} aralığı için fiyat tanımlı değil. Bu miktarlarda sipariş verilemez.`,
       range: { from: gap.fromQuantity, to: gap.toQuantity },
     })
   }
@@ -420,7 +439,7 @@ export async function validatePricingTable(variantId: string): Promise<PricingVa
       code: 'OVERLAP',
       message:
         `${ov.fromQuantity}–${ov.toQuantity ?? '∞'} aralığında iki kademe çakışıyor. ` +
-        `Uygulanacak birim fiyat: ${((winner?.unitPriceMinor ?? 0) / 100).toFixed(2)} ₺.`,
+        `Uygulanacak fiyat: ${(((winner?.mode === 'PACKAGE' ? winner?.packagePriceMinor : winner?.unitPriceMinor) ?? 0) / 100).toFixed(2)} ₺.`,
       tierIds: [ov.aId, ov.bId],
       range: { from: ov.fromQuantity, to: ov.toQuantity },
     })
@@ -429,7 +448,7 @@ export async function validatePricingTable(variantId: string): Promise<PricingVa
   for (const inv of report.invalid) {
     issues.push({
       severity: 'error',
-      code: inv.reason.includes('fiyat') ? 'INVALID_PRICE' : 'INVALID_RANGE',
+      code: inv.reason.toLowerCase().includes('fiyat') ? 'INVALID_PRICE' : 'INVALID_RANGE',
       message: inv.reason,
       tierIds: [inv.id],
     })

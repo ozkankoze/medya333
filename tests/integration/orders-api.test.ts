@@ -54,7 +54,12 @@ vi.mock('@/server/auth', async () => {
 
 import type { PrismaClient } from '@/generated/prisma/client'
 import { seedAll } from '../../prisma/seed/index'
-import { setupTestDatabase, truncateTransactional, type TestDatabase } from './db-setup'
+import {
+  pickCatalogVariant,
+  setupTestDatabase,
+  truncateTransactional,
+  type TestDatabase,
+} from './db-setup'
 import { resetMemoryRateLimits } from '@/server/ratelimit'
 
 let ctx: TestDatabase
@@ -130,25 +135,12 @@ beforeAll(async () => {
   db = ctx.db
   await seedAll(db)
 
-  const variant = await db.serviceVariant.findFirstOrThrow({
-    where: {
-      isActive: true,
-      isVisible: true,
-      minQuantity: { lte: 100 },
-      maxQuantity: { gte: 1000 },
-      service: { targetType: 'PROFILE', platform: { slug: 'instagram' } },
-    },
-    // ⚠️ Deterministik seçim: sırasız `findFirst` bazen garantili (Premium),
-    // bazen garantisiz (Standart) varyantı getiriyordu ve garanti testleri
-    // koşuma göre değişiyordu.
-    orderBy: { slug: 'asc' },
-    include: { service: true },
-  })
-  variantId = variant.id
-  platformId = variant.service.platformId
-  const step = variant.quantityStep > 0 ? variant.quantityStep : 1
-  qty = variant.minQuantity
-  while (qty < 100) qty += step
+  // ⚠️ Faz 5: katalogdaki tüm varyantlar HAZIR MİKTAR kilitlidir.
+  // Miktar `min + k·step` ile ÜRETİLEMEZ; katalogdan seçilir.
+  const fixture = await pickCatalogVariant(db, {})
+  variantId = fixture.variantId
+  platformId = fixture.platformId
+  qty = fixture.quantity
 
   for (const [email, role] of [
     ['faz2-support@roles.test', 'SUPPORT'],
@@ -285,8 +277,13 @@ describe('POST /api/v1/orders', () => {
     })
     expect(res.status).toBe(201)
     const order = await db.order.findUniqueOrThrow({ where: { orderNo: json.orderNo } })
+    // Tutar katalogdan gelir; istemcinin gönderdiği 1 kuruş hiçbir alana yazılmaz.
     expect(order.totalMinor).toBeGreaterThan(1)
-    expect(order.unitPriceMinor).toBeGreaterThan(1)
+    expect(order.subtotalMinor).toBeGreaterThan(1)
+    expect(order.taxAmountMinor).toBeGreaterThan(0)
+    // ⚠️ Sabit pakette birim fiyat YOKTUR (0) — ama bu istemciden gelen 1 DEĞİLDİR.
+    expect(order.pricingMode).toBe('PACKAGE')
+    expect(order.unitPriceMinor).toBe(0)
   })
 
   it('CSRF: yabancı Origin reddedilir', async () => {
