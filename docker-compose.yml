@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: medya333-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medya333
+      POSTGRES_PASSWORD: medya333
+      POSTGRES_DB: medya333
+    ports:
+      - '5432:5432'
+    volumes:
+      - medya333-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U medya333 -d medya333']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: medya333-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - '6379:6379'
+    volumes:
+      - medya333-redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  medya333-pgdata:
+  medya333-redisdata:

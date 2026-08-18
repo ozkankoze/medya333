@@ -1,0 +1,139 @@
+import 'server-only'
+
+import { NextResponse, type NextRequest } from 'next/server'
+import { ZodError } from 'zod'
+import { env } from '@/env'
+import { AuthError } from '@/server/auth/errors'
+import { RedisRequiredError } from '@/server/redis'
+
+/**
+ * ORTAK HTTP KATMANI
+ *
+ * Tüm API cevapları buradan geçer. Amaç:
+ *   • Tek tip hata gövdesi: { error: { code, message, details? } }
+ *   • İSTEK BOYUT SINIRI — gövdeyi parse etmeden önce reddet
+ *   • İç hata detaylarının (stack, SQL, dosya yolu) DIŞARI SIZMAMASI
+ */
+
+/** Public endpoint'ler için gövde üst sınırı. 64 KB fazlasıyla yeterli. */
+export const MAX_BODY_BYTES = 64 * 1024
+/** Admin endpoint'lerinde ikon/uzun metin olabileceği için biraz daha geniş. */
+export const MAX_ADMIN_BODY_BYTES = 256 * 1024
+
+export interface ApiErrorOptions {
+  details?: unknown
+  headers?: Record<string, string>
+}
+
+export function apiError(
+  code: string,
+  message: string,
+  status: number,
+  opts: ApiErrorOptions = {},
+): NextResponse {
+  return NextResponse.json(
+    { error: { code, message, ...(opts.details !== undefined ? { details: opts.details } : {}) } },
+    { status, headers: { 'Cache-Control': 'no-store', ...(opts.headers ?? {}) } },
+  )
+}
+
+/**
+ * CSRF — Origin/Referer doğrulaması.
+ *
+ * Auth.js kendi CSRF token'ını yönetir; buradaki kontrol JSON API'lerimiz için.
+ * Tarayıcı `Origin` başlığını script ile değiştiremez, bu yüzden durum
+ * değiştiren her istekte kaynak kendi sitemiz olmalı.
+ *
+ * `SameSite=Lax` çerezi zaten cross-site POST'ta gönderilmez; bu ikinci kapı,
+ * misafir (çerezsiz) uçlarda da koruma sağlar.
+ */
+export function assertSameOrigin(req: NextRequest): NextResponse | null {
+  const origin = req.headers.get('origin')
+  // Origin yoksa (server-to-server, curl) çerez de yoktur — akış zaten
+  // kimlik doğrulanmamış sayılır. Tarayıcı POST'unda Origin HER ZAMAN gelir.
+  if (!origin) return null
+
+  let host: string
+  try {
+    host = new URL(origin).host
+  } catch {
+    return apiError('CSRF_BLOCKED', 'İstek reddedildi.', 403)
+  }
+
+  const expected = req.headers.get('host')
+  if (expected && host === expected) return null
+
+  try {
+    if (host === new URL(env.NEXT_PUBLIC_SITE_URL).host) return null
+  } catch {
+    /* yapılandırma hatası — aşağıda reddedilir */
+  }
+
+  return apiError('CSRF_BLOCKED', 'İstek reddedildi.', 403)
+}
+
+export type BodyResult =
+  | { ok: true; data: unknown }
+  | { ok: false; response: NextResponse }
+
+/**
+ * Güvenli JSON gövde okuma.
+ * Content-Length ve gerçek gövde uzunluğu iki kez kontrol edilir —
+ * başlık yalan söyleyebilir.
+ */
+export async function readJsonBody(
+  req: NextRequest,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<BodyResult> {
+  const declared = req.headers.get('content-length')
+  if (declared && Number(declared) > maxBytes) {
+    return {
+      ok: false,
+      response: apiError('PAYLOAD_TOO_LARGE', 'İstek gövdesi çok büyük.', 413),
+    }
+  }
+
+  let raw: string
+  try {
+    raw = await req.text()
+  } catch {
+    return { ok: false, response: apiError('INVALID_BODY', 'İstek gövdesi okunamadı.', 400) }
+  }
+
+  if (Buffer.byteLength(raw, 'utf8') > maxBytes) {
+    return { ok: false, response: apiError('PAYLOAD_TOO_LARGE', 'İstek gövdesi çok büyük.', 413) }
+  }
+
+  try {
+    return { ok: true, data: raw ? JSON.parse(raw) : {} }
+  } catch {
+    return { ok: false, response: apiError('INVALID_JSON', 'Geçersiz JSON gövdesi.', 400) }
+  }
+}
+
+/**
+ * Beklenmeyen hataları güvenli cevaba çevirir.
+ * İç mesaj/stack ASLA istemciye gitmez; sunucu log'una yazılır.
+ */
+export function handleUnexpected(scope: string, err: unknown): NextResponse {
+  if (err instanceof RedisRequiredError) {
+    // Yapılandırma hatası — opak 500 yerine teşhis edilebilir 503.
+    console.error(`[${scope}] YAPILANDIRMA HATASI:`, err.message)
+    return apiError(
+      'SERVICE_UNAVAILABLE',
+      'Servis geçici olarak kullanılamıyor. Lütfen kısa süre sonra tekrar deneyin.',
+      503,
+      { headers: { 'Retry-After': '30' } },
+    )
+  }
+  if (err instanceof AuthError) {
+    return apiError(err.code, err.message, err.code === 'UNAUTHENTICATED' ? 401 : 403)
+  }
+  if (err instanceof ZodError) {
+    return apiError('VALIDATION_ERROR', 'Girdiler geçersiz.', 400, {
+      details: err.flatten().fieldErrors,
+    })
+  }
+  console.error(`[${scope}]`, err)
+  return apiError('INTERNAL_ERROR', 'Beklenmeyen bir hata oluştu.', 500)
+}

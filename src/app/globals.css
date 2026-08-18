@@ -1,0 +1,204 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   MEDYA 333 — TASARIM SİSTEMİ
+   Referans: Stripe'ın checkout netliği + Linear'ın tipografi disiplini.
+   Neon gradyan, sahte sayaç, "SON 3 SAAT" aciliyet rozeti YOK.
+   ========================================================================== */
+
+@theme {
+  /* --- Renk: nötr taban + TEK marka aksanı ---------------------------- */
+  --color-ink-50: oklch(0.985 0 0);
+  --color-ink-100: oklch(0.967 0.001 286);
+  --color-ink-200: oklch(0.92 0.004 286);
+  --color-ink-300: oklch(0.871 0.006 286);
+  --color-ink-400: oklch(0.705 0.015 286);
+  --color-ink-500: oklch(0.552 0.016 286);
+  --color-ink-600: oklch(0.442 0.017 286);
+  --color-ink-700: oklch(0.37 0.013 286);
+  --color-ink-800: oklch(0.274 0.006 286);
+  --color-ink-900: oklch(0.21 0.006 286);
+  --color-ink-950: oklch(0.141 0.005 286);
+
+  /* Marka aksanı — derin indigo. Güven veren, "ucuz panel" olmayan ton. */
+  --color-brand-50: oklch(0.97 0.014 265);
+  --color-brand-100: oklch(0.93 0.032 265);
+  --color-brand-300: oklch(0.79 0.09 265);
+  --color-brand-500: oklch(0.58 0.19 265);
+  --color-brand-600: oklch(0.51 0.2 265);
+  --color-brand-700: oklch(0.44 0.18 265);
+  --color-brand-900: oklch(0.3 0.12 265);
+
+  --color-success-100: oklch(0.94 0.05 155);
+  --color-success-600: oklch(0.55 0.14 155);
+  --color-success-700: oklch(0.47 0.13 155);
+  --color-warning-100: oklch(0.95 0.06 85);
+  --color-warning-600: oklch(0.63 0.14 75);
+  --color-warning-700: oklch(0.52 0.13 70);
+  --color-danger-100: oklch(0.94 0.04 25);
+  --color-danger-600: oklch(0.58 0.2 25);
+  --color-danger-700: oklch(0.5 0.19 25);
+
+  /* --- Tipografi: TEK aile, sınırlı ölçek ----------------------------- */
+  --font-sans:
+    'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+
+  --text-display: 3.75rem;
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.03em;
+  --text-display--font-weight: 700;
+
+  --text-h1: 2.5rem;
+  --text-h1--line-height: 1.15;
+  --text-h1--letter-spacing: -0.02em;
+  --text-h1--font-weight: 700;
+
+  --text-h2: 1.75rem;
+  --text-h2--line-height: 1.25;
+  --text-h2--letter-spacing: -0.015em;
+  --text-h2--font-weight: 600;
+
+  --text-h3: 1.25rem;
+  --text-h3--line-height: 1.35;
+  --text-h3--font-weight: 600;
+
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.55;
+
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.45;
+  --text-caption--letter-spacing: 0.01em;
+
+  /* --- Yarıçap ve gölge: yumuşak, ağır gölge yok ---------------------- */
+  --radius-card: 0.875rem;
+  --radius-control: 0.625rem;
+
+  --shadow-card: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.06);
+  --shadow-lifted: 0 4px 8px -2px rgb(16 24 40 / 0.06), 0 2px 4px -2px rgb(16 24 40 / 0.04);
+  --shadow-drawer: 0 20px 40px -12px rgb(16 24 40 / 0.18);
+
+  /* --- Hareket: 150-200ms ease-out, sadece transform + opacity -------- */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  * {
+    border-color: var(--color-ink-200);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-ink-50);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Erişilebilirlik: görünür focus ring — asla kaldırılmaz */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Fiyat ve miktar rakamları hizalı görünsün */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Mobilde alta yapışan fiyat çubuğu — iOS güvenli alan dahil */
+  .sticky-price-bar {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+@layer utilities {
+  /* Adım açılırken yumuşak giriş — sadece transform + opacity (60fps) */
+  @keyframes step-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-in {
+    animation: step-in var(--duration-base) var(--ease-out-soft) both;
+  }
+
+  /* Miktar slider'ı — tarayıcılar arası tutarlı, 44px dokunma hedefi */
+  input[type='range'] {
+    height: 0.5rem;
+  }
+
+  input[type='range']::-webkit-slider-thumb {
+    appearance: none;
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 9999px;
+    background: #fff;
+    border: 2px solid var(--color-brand-600);
+    box-shadow: var(--shadow-card);
+    cursor: grab;
+    transition: transform var(--duration-fast) var(--ease-out-soft);
+  }
+
+  input[type='range']::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    transform: scale(1.08);
+  }
+
+  input[type='range']::-moz-range-thumb {
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 9999px;
+    background: #fff;
+    border: 2px solid var(--color-brand-600);
+    cursor: grab;
+  }
+
+  /* Sayı girişinde artırma okları gizlenir — tasarım temizliği */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+}

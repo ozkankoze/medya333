@@ -1,0 +1,828 @@
+// ============================================================================
+//  MEDYA 333 — Prisma Schema
+//  Mimari v1.0 + Faz 0 kararları
+//
+//  PARA BİRİMİ KURALI
+//  Tüm parasal alanlar TAM SAYI KURUŞ (Int). Float / Decimal KULLANILMAZ.
+//  Alan adları `...Minor` ile biter. 249,00 TL = 24900
+//
+//  KDV KURALI (Faz 0 kararı #4)
+//  Kullanıcıya gösterilen ve PricingRule'a girilen TÜM fiyatlar KDV DAHİL'dir.
+//  Checkout'ta üzerine KDV EKLENMEZ. Vergi, brüt tutardan geriye doğru ayrıştırılır:
+//      taxAmountMinor = round(totalMinor * taxRateBp / (10000 + taxRateBp))
+//      subtotalMinor  = totalMinor - taxAmountMinor        // net matrah
+//  Sipariş anındaki taxRateBp SNAPSHOT olarak saklanır; oran sonradan değişse
+//  bile geçmiş siparişlerin vergi hesabı değişmez.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7: bağlantı URL'i BURADA TANIMLANMAZ.
+//   • Migration / introspection → prisma.config.ts içindeki `datasource.url`
+//   • Uygulama çalışma zamanı    → PrismaClient({ adapter: new PrismaPg(...) })
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+//  ENUMS
+// ============================================================================
+
+enum UserRole {
+  CUSTOMER
+  SUPPORT
+  OPERATOR
+  ADMIN
+  SUPERADMIN
+}
+
+enum TargetType {
+  PROFILE
+  POST
+  VIDEO
+  CHANNEL
+  GROUP
+}
+
+enum TargetStatus {
+  PENDING
+  VERIFIED /// resmî/izinli API ile doğrulandı, zengin önizleme var
+  UNVERIFIED /// format normalize edildi, API yok → kullanıcı onayı gerekir
+  INVALID
+  PRIVATE
+  NOT_FOUND
+}
+
+enum PricingMode {
+  FLAT_TIER /// tüm miktar, düşülen kademenin birim fiyatıyla
+  GRADUATED /// her kademe kendi fiyatıyla (progressive)
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+/// Manuel fulfillment ilerlemesi nasıl ölçülüyor?
+/// METRIC       → sayılabilir (takipçi/beğeni): operatör mevcut değeri girer, fark hesaplanır
+/// MANUAL_COUNT → sayılamaz (yorum/profil tanıtımı): operatör teslim adedini doğrudan girer
+enum MeasurementMode {
+  METRIC
+  MANUAL_COUNT
+}
+
+enum OrderStatus {
+  DRAFT /// Taslak — sipariş henüz oluşturulmadı (sihirbaz devam ediyor)
+  PENDING_PAYMENT /// Ödeme Bekleniyor — sipariş var, ödeme yok, FULFILLMENT YOK
+  PAID /// Ödeme Alındı
+  PROCESSING /// Hazırlanıyor
+  STARTED /// İşlem Başladı
+  IN_PROGRESS /// Devam Ediyor
+  PARTIAL /// Kısmen Tamamlandı
+  COMPLETED /// Tamamlandı
+  CANCELLED /// İptal Edildi
+  REFUNDED /// İade Edildi
+  FAILED /// Başarısız
+}
+
+/// Durum ≠ olay. "Not eklendi" bir olaydır ama durumu değiştirmez.
+enum OrderEventType {
+  ORDER_CREATED
+  PAYMENT_PENDING
+  PRICE_CHANGED
+  CUSTOMER_INFO_ADDED
+  CONSENT_ACCEPTED
+  GUEST_CLAIMED
+  TRACKING_LINK_SENT
+  PAYMENT_INITIATED
+  PAYMENT_RECEIVED
+  PAYMENT_FAILED
+  PROCESSING
+  STARTED
+  PROGRESS_UPDATED
+  PARTIAL
+  COMPLETED
+  CANCELLED
+  REFUND_REQUESTED
+  REFUNDED
+  FAILED
+  NOTE_ADDED
+  TARGET_CONFIRMED
+  ASSIGNED
+  STATUS_CHANGED
+  INVOICE_ISSUED
+  SYSTEM
+}
+
+enum PaymentStatus {
+  INITIATED
+  PENDING_3DS
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CHARGEBACK
+}
+
+/// Faz 0 kararı #5 — alanlar hazır, gerçek sağlayıcı entegre EDİLMEDİ.
+enum InvoiceStatus {
+  NOT_REQUIRED
+  PENDING
+  ISSUED
+  FAILED
+  CANCELLED
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+  FAILED
+}
+
+// ============================================================================
+//  KULLANICI & AUTH  (Auth.js v5 uyumlu)
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String? /// argon2id. Google-only kullanıcıda null
+  name          String?
+  phone         String?
+  image         String?
+  role          UserRole  @default(CUSTOMER)
+
+  /// Misafir siparişten doğan gölge kayıt. Kişi aynı e-posta ile kayıt olursa
+  /// claimedAt dolar, isGuest=false olur ve geçmiş siparişleri panele düşer.
+  /// FK'ler değişmediği için veri taşıma gerekmez.
+  isGuest   Boolean   @default(false)
+  claimedAt DateTime?
+
+  balanceMinor Int     @default(0) /// iade/kredi bakiyesi (kuruş)
+  isBlocked    Boolean @default(false)
+  blockReason  String?
+
+  twoFactorSecret String? /// admin rolleri için zorunlu (Faz 5)
+  lastLoginAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts       Account[]
+  sessions       Session[]
+  orders         Order[]    @relation("customer")
+  assignedOrders Order[]    @relation("assignee")
+  payments       Payment[]
+  auditLogs      AuditLog[] @relation("actor")
+  claimTokens    GuestClaimToken[]
+
+  @@index([role])
+  @@index([email, isGuest])
+  @@index([createdAt])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// MİSAFİR SİPARİŞİ DEVRALMA
+/// Yalnızca e-posta eşleşmesine güvenilmez: kullanıcı e-postasını doğruladıktan
+/// sonra üretilen tek kullanımlık token ile devralma yapılır.
+model GuestClaimToken {
+  id        String   @id @default(cuid())
+  /// Token'ın kendisi DEĞİL, HMAC hash'i saklanır
+  tokenHash String   @unique
+  email     String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================================
+//  KATALOG — tamamen DB kaynaklı (yeni platform/hizmet = 0 satır frontend)
+// ============================================================================
+
+model Platform {
+  id   String @id @default(cuid())
+  slug String @unique
+  name String
+
+  /// Registry anahtarı — slug'dan BAĞIMSIZ. "Instagram Reels" adında ikinci bir
+  /// platform açılıp adapterKey="instagram" seçilebilsin diye ayrı tutuldu.
+  adapterKey    String @default("generic")
+  adapterConfig Json   @default("{}")
+
+  iconSlug     String? /// yerleşik ikon setinden
+  iconUrl      String? /// admin SVG yüklemesi — deploy gerekmez
+  brandColor   String?
+  gradientFrom String?
+  gradientTo   String?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  seoTitle       String?
+  seoDescription String?
+
+  services Service[]
+  targets  Target[]
+  orders   Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model Service {
+  id         String   @id @default(cuid())
+  platformId String
+  platform   Platform @relation(fields: [platformId], references: [id], onDelete: Restrict)
+
+  slug             String
+  name             String
+  shortDescription String?
+  iconSlug         String?
+
+  targetType      TargetType
+  measurementMode MeasurementMode @default(METRIC)
+
+  /// Müşteriye gösterilen birim adı: "adet" | "paket" | "hafta" | "kampanya"
+  /// SADECE GÖSTERİM içindir. Pricing engine'in numeric quantity mantığına
+  /// hiçbir şekilde girmez — fiyat her zaman tam sayı miktar üzerinden hesaplanır.
+  unitLabel       String          @default("adet")
+
+  /// Hedef girdisi tamamen DB'den sürülür → yeni hizmet eklemek frontend
+  /// değişikliği gerektirmez. Frontend bu alanları render eder.
+  inputLabel       String
+  inputPlaceholder String
+  inputHelpText    String?
+  inputExample     String
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  variants ServiceVariant[]
+  orders   Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([platformId, slug])
+  @@index([platformId, isActive, sortOrder])
+}
+
+model ServiceVariant {
+  id        String  @id @default(cuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  slug         String
+  internalName String /// SADECE admin görür: "Premium TR-Havuz v2"
+
+  // --- Müşteriye gösterilen alanlar ---
+  customerLabel String /// "Premium"
+  tagline       String? /// "Daha hızlı başlar, telafi garantili"
+  badge         String? /// "EN ÇOK TERCİH EDİLEN"
+  isDefault     Boolean @default(false)
+  isVisible     Boolean @default(true) /// false = sadece admin/manuel sipariş
+
+  // --- Miktar sınırları (frontend slider'ına dönüşür, ham sayı gösterilmez) ---
+  minQuantity      Int
+  maxQuantity      Int
+  quantityStep     Int   @default(1)
+  presetQuantities Int[] @default([])
+
+  // --- SLA / vaat ---
+  estimatedStartMinutes    Int?
+  estimatedCompleteMinutes Int?
+  refillDays               Int?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  pricingRules PricingRule[]
+  orders       Order[]
+  orderItems   OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([serviceId, slug])
+  @@index([serviceId, isActive, isVisible, sortOrder])
+}
+
+// ============================================================================
+//  FİYATLANDIRMA
+//  unitPriceMinor KDV DAHİL brüt birim fiyattır (Faz 0 kararı #4).
+// ============================================================================
+
+model PricingRule {
+  id               String         @id @default(cuid())
+  serviceVariantId String
+  serviceVariant   ServiceVariant @relation(fields: [serviceVariantId], references: [id], onDelete: Cascade)
+
+  mode     PricingMode @default(FLAT_TIER)
+  currency String      @default("TRY")
+
+  minQuantity Int /// dahil
+  maxQuantity Int? /// dahil; null = sınırsız
+
+  unitPriceMinor Int /// KDV DAHİL, 1 adet, kuruş
+  setupFeeMinor  Int @default(0) /// KDV DAHİL sabit ek ücret
+
+  validFrom  DateTime  @default(now())
+  validUntil DateTime?
+  priority   Int       @default(0) /// çakışmada büyük olan kazanır
+  isActive   Boolean   @default(true)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([serviceVariantId, isActive, minQuantity])
+}
+
+/// Vergi oranı tek yerden yönetilir; sipariş anında Order'a snapshot'lanır.
+model TaxRate {
+  id        String   @id @default(cuid())
+  code      String   @unique /// "KDV20"
+  name      String /// "KDV %20"
+  rateBp    Int /// basis point: %20 → 2000
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  validFrom DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([isActive, isDefault])
+}
+
+// ============================================================================
+//  HEDEF
+// ============================================================================
+
+model Target {
+  id         String     @id @default(cuid())
+  platformId String
+  platform   Platform   @relation(fields: [platformId], references: [id], onDelete: Restrict)
+  targetType TargetType
+
+  rawInput     String /// kullanıcının yazdığı ham metin
+  normalized   String /// "medya333" — kanonik tanımlayıcı
+  canonicalUrl String? /// "https://instagram.com/medya333"
+  externalId   String?
+
+  status       TargetStatus @default(PENDING)
+  verifiedAt   DateTime?
+  verifyMethod String? /// "youtube_data_api" | "oembed" | "format_only"
+
+  /// UNVERIFIED fallback akışında kullanıcı "Bu hedef doğru" onayı verdi mi?
+  userConfirmed   Boolean   @default(false)
+  userConfirmedAt DateTime?
+
+  // --- Sipariş anında dondurulan önizleme (teslim ölçümünün kanıtı) ---
+  displayName   String?
+  handle        String?
+  avatarUrl     String? /// kendi media-proxy'mize indirilmiş hali
+  thumbnailUrl  String?
+  followerCount Int?
+  isPrivate     Boolean?
+  metaSnapshot  Json?
+  snapshotAt    DateTime?
+
+  orders     Order[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([platformId, normalized])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================================================
+//  SİPARİŞ
+// ============================================================================
+
+model Order {
+  id      String @id @default(cuid())
+  orderNo String @unique /// "M333-8F2K-4Q1B" — yüksek entropili, tahmin edilemez
+
+  // --- Kullanıcı ---
+  userId          String
+  user            User      @relation("customer", fields: [userId], references: [id], onDelete: Restrict)
+  isGuestOrder    Boolean   @default(false)
+
+  /// Müşteri bilgileri — misafir siparişinde tek kaynak, kayıtlıda snapshot.
+  /// İleride fatura entegrasyonu için genişletmeye uygun (adres, TCKN, VKN).
+  customerFirstName String?
+  customerLastName  String?
+  /// Normalize edilmiş (trim + lowercase) e-posta
+  customerEmail     String?
+  customerPhone     String?
+
+  guestEmail      String?
+  guestName       String?
+  guestPhone      String?
+  accessTokenHash String? /// imzalı takip linki — TOKEN'IN HASH'İ saklanır
+  accessExpiresAt DateTime?
+
+  /// ÇİFT SİPARİŞ KORUMASI. Aynı Idempotency-Key ile gelen istek aynı siparişi
+  /// döndürür; farklı gövdeyle aynı key gelirse reddedilir (requestHash karşılaştırması).
+  idempotencyKey  String?   @unique
+  requestHash     String?
+
+  /// SÖZLEŞME ONAYLARI — snapshot. Metin sonradan değişse bile kullanıcının
+  /// HANGİ sürümü kabul ettiği kanıtlanabilir olmalı (mesafeli satış mevzuatı).
+  consentAcceptedAt      DateTime?
+  consentTermsVersion    String?
+  consentRefundVersion   String?
+  consentPrivacyVersion  String?
+  consentSnapshot        Json?
+
+  // --- Denormalize katalog referansları (admin filtreleri JOIN'siz çalışsın) ---
+  platformId       String
+  platform         Platform       @relation(fields: [platformId], references: [id], onDelete: Restrict)
+  serviceId        String
+  service          Service        @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  serviceVariantId String
+  serviceVariant   ServiceVariant @relation(fields: [serviceVariantId], references: [id], onDelete: Restrict)
+  targetId         String
+  target           Target         @relation(fields: [targetId], references: [id], onDelete: Restrict)
+  quantity         Int
+
+  // --- PARA (hepsi kuruş; KDV DAHİL mantığı) -------------------------------
+  currency String @default("TRY")
+
+  unitPriceMinor    Int /// KDV dahil brüt birim fiyat (snapshot)
+  listSubtotalMinor Int /// unitPrice * quantity + setupFee — indirim öncesi, KDV dahil
+  discountMinor     Int @default(0) /// KDV dahil indirim
+  totalMinor        Int /// ÖDENEN tutar = list - discount, KDV dahil
+
+  taxRateBp      Int /// SNAPSHOT: %20 → 2000. Oran değişse bile geçmiş bozulmaz
+  taxAmountMinor Int /// total içinden ayrıştırılan KDV
+  subtotalMinor  Int /// net matrah = total - taxAmount
+
+  couponId   String?
+  coupon     Coupon?   @relation(fields: [couponId], references: [id])
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+
+  // --- FATURA (Faz 0 kararı #5: alanlar hazır, entegrasyon YOK) -------------
+  invoiceStatus   InvoiceStatus @default(NOT_REQUIRED)
+  invoiceProvider String? /// "parasut" | "nilvera" | "logo" ...
+  invoiceId       String? /// sağlayıcıdaki kayıt kimliği
+  invoiceNumber   String?
+  invoiceUrl      String?
+  invoicedAt      DateTime?
+  invoiceError    String?
+
+  // --- Durum ---
+  status       OrderStatus @default(DRAFT)
+  assignedToId String?
+  assignedTo   User?       @relation("assignee", fields: [assignedToId], references: [id])
+
+  customerNote String?
+  adminNote    String?
+
+  ipHash    String? /// ham IP saklanmaz — tuzlu hash
+  userAgent String?
+  riskScore Int?
+
+  // --- Zaman damgaları ---
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  paidAt       DateTime?
+  processingAt DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
+  refundedAt   DateTime?
+  dueAt        DateTime? /// SLA son teslim — geciken sipariş uyarısı
+
+  items    OrderItem[]
+  payments Payment[]
+  events   OrderEvent[]
+  refunds  Refund[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([platformId, status])
+  @@index([serviceId, status])
+  @@index([assignedToId, status])
+  @@index([guestEmail])
+  @@index([customerEmail])
+  @@index([idempotencyKey])
+  @@index([dueAt])
+  @@index([invoiceStatus])
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  serviceVariantId String
+  serviceVariant   ServiceVariant @relation(fields: [serviceVariantId], references: [id], onDelete: Restrict)
+  targetId         String
+  target           Target         @relation(fields: [targetId], references: [id], onDelete: Restrict)
+
+  quantity Int
+
+  // --- Manuel fulfillment ilerlemesi ---
+  /// startCount ve goalCount, sipariş anında değil STARTED geçişinde dondurulur:
+  /// sipariş ile başlangıç arasındaki organik değişim bize yazılmamalı.
+  startCount        Int?
+  goalCount         Int? /// startCount + quantity
+  currentCount      Int?
+  deliveredQuantity Int       @default(0)
+  lastProgressAt    DateTime?
+
+  // --- Fiyat anlık görüntüsü (KDV dahil) ---
+  unitPriceMinor       Int
+  lineSubtotalMinor    Int
+  lineTotalMinor       Int
+  appliedPricingRuleId String?
+  pricingSnapshot      Json /// tam kırılım — denetlenebilirlik
+
+  // --- Katalog anlık görüntüsü (isimler değişse bile geçmiş doğru kalır) ---
+  platformNameSnapshot String
+  serviceNameSnapshot  String
+  variantLabelSnapshot String
+
+  status OrderStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+}
+
+model OrderEvent {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  type       OrderEventType
+  fromStatus OrderStatus?
+  toStatus   OrderStatus?
+
+  message String?
+  payload Json?
+
+  /// Operatörün iç notu müşteri zaman çizelgesinde görünmemeli.
+  isCustomerVisible Boolean @default(false)
+
+  actorType String  @default("SYSTEM") /// SYSTEM | CUSTOMER | ADMIN | WEBHOOK
+  actorId   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([type, createdAt])
+}
+
+// ============================================================================
+//  ÖDEME  (Faz 4 — burada sadece şema hazır, entegrasyon yok)
+// ============================================================================
+
+model Payment {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  provider      String /// "iyzico" | "paytr" | "manual_transfer"
+  providerRef   String? @unique /// conversationId / merchant_oid
+  providerTxnId String?
+
+  status        PaymentStatus @default(INITIATED)
+  amountMinor   Int
+  currency      String        @default("TRY")
+  refundedMinor Int           @default(0)
+
+  // PCI kapsam dışı — sadece maskeli gösterim bilgisi
+  cardBrand    String?
+  cardLast4    String?
+  cardBankName String?
+  installment  Int?    @default(1)
+
+  failureCode    String?
+  failureMessage String?
+
+  idempotencyKey   String  @unique
+  rawInitPayload   Json?
+  rawResultPayload Json?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  capturedAt DateTime?
+
+  events  PaymentEvent[]
+  refunds Refund[]
+
+  @@index([orderId])
+  @@index([status, createdAt])
+  @@index([provider, createdAt])
+}
+
+/// Webhook replay koruması burada: @@unique([provider, providerEventId])
+model PaymentEvent {
+  id        String   @id @default(cuid())
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  provider        String
+  providerEventId String
+  eventType       String
+  signatureValid  Boolean
+  payload         Json
+  processedAt     DateTime?
+  processingError String?
+  receivedAt      DateTime  @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([receivedAt])
+}
+
+model Refund {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  amountMinor      Int /// KDV dahil iade tutarı
+  reason           String
+  providerRefundId String?
+  status           RefundStatus @default(PENDING)
+
+  /// İade çift onaylı: ADMIN talep eder, SUPERADMIN onaylar.
+  requestedById String
+  approvedById  String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([orderId])
+  @@index([status])
+}
+
+// ============================================================================
+//  KUPON & KAMPANYA
+// ============================================================================
+
+model Coupon {
+  id          String  @id @default(cuid())
+  code        String  @unique /// normalize: trim + UPPERCASE
+  description String?
+
+  discountType     DiscountType
+  discountValue    Int /// PERCENTAGE → basis point (%10 = 1000) · FIXED → kuruş
+  maxDiscountMinor Int?
+  minOrderMinor    Int?
+
+  // Kapsam — boş dizi = tümü
+  platformIds String[] @default([])
+  serviceIds  String[] @default([])
+  variantIds  String[] @default([])
+
+  maxRedemptions        Int?
+  maxRedemptionsPerUser Int? @default(1)
+  redemptionCount       Int  @default(0)
+
+  validFrom  DateTime  @default(now())
+  validUntil DateTime?
+  isActive   Boolean   @default(true)
+
+  orders      Order[]
+  redemptions CouponRedemption[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, validUntil])
+}
+
+model CouponRedemption {
+  id          String   @id @default(cuid())
+  couponId    String
+  coupon      Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId      String
+  orderId     String   @unique
+  amountMinor Int
+  createdAt   DateTime @default(now())
+
+  @@index([couponId, userId])
+}
+
+model Campaign {
+  id         String  @id @default(cuid())
+  slug       String  @unique
+  name       String
+  bannerText String?
+
+  discountType  DiscountType
+  discountValue Int
+
+  platformIds String[] @default([])
+  variantIds  String[] @default([])
+
+  startsAt              DateTime
+  endsAt                DateTime
+  isActive              Boolean  @default(true)
+  isStackableWithCoupon Boolean  @default(false)
+
+  orders Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, startsAt, endsAt])
+}
+
+// ============================================================================
+//  DENETİM & İZLEME
+// ============================================================================
+
+model AuditLog {
+  id          String  @id @default(cuid())
+  actorId     String?
+  actor       User?   @relation("actor", fields: [actorId], references: [id])
+  actorIpHash String?
+
+  action     String /// "pricing_rule.update"
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+}
+
+model AdapterCallLog {
+  id         String   @id @default(cuid())
+  adapterKey String
+  operation  String
+  success    Boolean
+  statusCode Int?
+  durationMs Int
+  errorCode  String?
+  createdAt  DateTime @default(now())
+
+  @@index([adapterKey, createdAt])
+  @@index([success, createdAt])
+}
