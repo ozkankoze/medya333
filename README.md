@@ -1,8 +1,9 @@
-# Medya 333 — Faz 2
+# Medya 333 — Faz 3
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
-+ **Faz 2** (sipariş oluşturma, misafir takibi, hesap, admin sipariş yönetimi).
++ **Faz 2** (sipariş oluşturma, misafir takibi, hesap, admin sipariş yönetimi)
++ **Faz 3** (ödeme altyapısı: iyzico/PayTR adapter, webhook, iade).
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
 > Bu sistem bot, sahte hesap veya otomatik sosyal medya etkileşimi ÜRETMEZ.
@@ -71,6 +72,13 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
    kuyruğunda görünmez; `PROCESSING`'e geçiş iki bağımsız kapıdan da reddedilir.
 9. **Sipariş numarası tek başına erişim vermez** — e-posta eşleşmesi ya da
    imzalı takip token'ı şarttır.
+10. **Ödeme tutarının tek kaynağı `Order.totalMinor`.** Ödeme servisi tutar
+    parametresi ALMAZ; istemci gövdesindeki `amount` alanları yok sayılır.
+11. **Ödeme sonucunun tek otoritesi doğrulanmış sunucu bildirimidir.**
+    Tarayıcının success URL'ine dönmesi kanıt değildir; `PAID` yalnızca imzası
+    doğrulanmış webhook ile yazılır.
+12. **Kart verisi hiçbir yerde saklanmaz/loglanmaz** — sağlayıcı yanıtları
+    `redactProviderPayload`'dan geçmeden DB'ye veya log'a yazılamaz.
 
 ---
 
@@ -91,46 +99,54 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
 | POST | `/api/v1/auth/register` | Kayıt · 3/saat/IP |
 | POST | `/api/v1/auth/login` | Giriş · 5/dk/IP · veritabanı oturumu |
 | POST | `/api/v1/auth/logout` | Oturum satırını DB'den siler |
+| POST | `/api/v1/payments/create` | Ödeme başlatma · `Idempotency-Key` zorunlu · 10/dk/IP |
+| GET | `/api/v1/payments/[orderNo]/status` | Durum yoklama — YALNIZCA okur |
+| POST | `/api/v1/payments/webhooks/iyzico` | Sağlayıcı bildirimi · auth YOK, imza VAR |
+| POST | `/api/v1/payments/webhooks/paytr` | Sağlayıcı bildirimi · cevap gövdesi `OK` |
 
 ### Admin (`requireRole` + audit log + 100/dk/kullanıcı)
 `/api/v1/admin/platforms` · `/platforms/[id]` · `/platforms/reorder` ·
 `/services` · `/services/[id]` · `/variants` · `/variants/[id]` ·
 `/pricing-rules` · `/pricing-rules/[id]` · `/pricing/validate` · `/pricing/simulate` ·
-`/orders` · `/orders/[orderNo]` · `/orders/[orderNo]/status`
+`/orders` · `/orders/[orderNo]` · `/orders/[orderNo]/status` · `/orders/[orderNo]/refund`
 
 Rol: katalog okuma `SUPPORT+`, katalog yazma `ADMIN+`,
-sipariş okuma `SUPPORT+`, sipariş durum değişikliği `OPERATOR+`.
+sipariş okuma `SUPPORT+`, sipariş durum değişikliği `OPERATOR+`,
+**iade `SUPERADMIN`** (para iadesi geri alınamaz).
 
 ### Sayfalar
 `/` sihirbaz · `/siparis-olusturuldu` başarı ekranı · `/siparis-takip` misafir takibi ·
-`/siparisler/[orderNo]` sipariş detayı · `/hesabim` müşteri paneli · `/giris` · `/kayit`
+`/siparisler/[orderNo]` sipariş detayı · `/hesabim` müşteri paneli · `/giris` · `/kayit` ·
+`/odeme/sonuc/[orderNo]` ödeme sonucu (doğrulanıyor → alındı/başarısız)
 
 ---
 
 ## Test Kapsamı
 
 ```
-tests/unit/pricing.test.ts          30  kademe, KDV, kupon, boşluk/çakışma
-tests/unit/transitions.test.ts      17  state machine bütünlüğü
-tests/unit/parse.test.ts            22  6 platform + generic fallback
-tests/unit/schema.test.ts           29  şema/enum senkronu + çerez tek kaynak
-tests/unit/tier-step.test.ts         7  TIER_BOUNDARY_UNREACHABLE (quantityStep)
-tests/integration/database.test.ts  28  GERÇEK PostgreSQL: migration, seed, FK,
-                                        unique, cascade, katalog/sipariş ilişkileri
-tests/integration/api.test.ts       34  katalog sızıntısı, pricing, kupon, admin
-tests/integration/orders.test.ts    31  sipariş oluşturma, idempotency, fiyat
-                                        değişimi, fulfillment kapısı, enumeration,
-                                        IDOR, guest claim, PII/audit
-tests/integration/orders-api.test.ts 29 route güvenliği: Idempotency-Key, CSRF,
-                                        gövde sınırı, brute force, admin rolleri
-tests/integration/redis.test.ts      8  atomik rate limit, TTL, cache invalidation
-                                    ───
-                                    235  (vitest)
-tests/e2e/order-flow.spec.ts        31  sihirbaz akışı (desktop + mobile)
-tests/e2e/order-create.spec.ts      16  uçtan uca sipariş, takip, kayıt/giriş
-tests/e2e/api-security.spec.ts      12  API güvenlik yüzeyi
-                                    ───
-                                     91  (playwright, 2 proje)
+tests/unit/pricing.test.ts            30  kademe, KDV, kupon, boşluk/çakışma
+tests/unit/transitions.test.ts        17  sipariş state machine bütünlüğü
+tests/unit/parse.test.ts              22  6 platform + generic fallback
+tests/unit/schema.test.ts             29  şema/enum senkronu + çerez tek kaynak
+tests/unit/tier-step.test.ts           7  TIER_BOUNDARY_UNREACHABLE
+tests/unit/payment-status.test.ts     20  ödeme state machine + yapılandırma kapısı
+tests/unit/payment-contracts.test.ts  23  iyzico/PayTR imza ve istek SÖZLEŞMESİ
+tests/unit/payment-redact.test.ts     10  kart/secret arındırma
+tests/integration/database.test.ts    28  migration, seed, FK, unique, cascade
+tests/integration/api.test.ts         34  katalog, pricing, kupon, admin
+tests/integration/orders.test.ts      31  sipariş, idempotency, fulfillment kapısı
+tests/integration/orders-api.test.ts  29  route güvenliği, brute force, roller
+tests/integration/payments.test.ts    36  webhook doğrulama, yarış, iade, PII
+tests/integration/payments-api.test.ts 26 ödeme uçları: sahiplik, CSRF, yetki
+tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
+                                      ───
+                                      350  (vitest)
+tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
+tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
+tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
+tests/e2e/api-security.spec.ts        12  API güvenlik yüzeyi
+                                      ───
+                                      109  (playwright, 2 proje)
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
@@ -140,4 +156,26 @@ Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
 
 ## Sonraki Faz
 
-**Faz 3 — Ödeme (iyzico/PayTR adapter).** Detay: `docs/architecture-decisions.md`
+**Faz 4 — Fulfillment.** Ödeme alınmış siparişlerin manuel iş kuyruğu,
+operatör atama, ilerleme takibi. Detay: `docs/architecture-decisions.md`
+
+### Ödeme sağlayıcısı yapılandırma
+
+Gerçek merchant bilgisi geldiğinde YALNIZCA environment değişkenleri değişir;
+kod değişmez:
+
+```bash
+PAYMENT_PROVIDER=iyzico          # veya paytr
+PAYMENT_ENVIRONMENT=production   # sandbox | production
+APP_BASE_URL=https://medya333.com
+IYZICO_API_KEY=...
+IYZICO_SECRET_KEY=...
+IYZICO_BASE_URL=https://api.iyzipay.com
+# veya
+PAYTR_MERCHANT_ID=...
+PAYTR_MERCHANT_KEY=...
+PAYTR_MERCHANT_SALT=...
+```
+
+`PAYMENT_ENVIRONMENT=production` iken `PAYMENT_PROVIDER=mock` seçilirse
+uygulama ödeme başlatmayı reddeder (`assertPaymentConfig`).

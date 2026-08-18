@@ -89,6 +89,7 @@ export type InvoiceStatus = (typeof INVOICE_STATUS)[number]
 
 export const PAYMENT_STATUS = [
   'INITIATED',
+  'PENDING',
   'PENDING_3DS',
   'AUTHORIZED',
   'CAPTURED',

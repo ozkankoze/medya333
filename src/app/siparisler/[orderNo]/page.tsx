@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { OrderView } from '@/components/orders/OrderView'
 import { buttonVariants } from '@/components/ui/button'
 import { getSessionUser } from '@/server/auth'
+import { readPaymentReturnToken } from '@/server/payments/return-cookie'
 import {
   getOrderForUser,
   lookupOrderByToken,
@@ -26,6 +27,8 @@ export const metadata: Metadata = {
  * Erişim iki yoldan biriyle olur:
  *   • `?t=<takip token'ı>` — e-posta ile gönderilen imzalı bağlantı
  *   • Oturum — sorgu `userId` ile kapsamlanır
+ *   • Ödeme dönüş çerezi — sağlayıcıdan dönen misafir için, token URL'e
+ *     girmeden sahiplik kanıtı (bkz. server/payments/return-cookie.ts)
  *
  * Hiçbiri yoksa 404 döner: siparişin var olup olmadığı bile sızdırılmaz.
  */
@@ -39,10 +42,12 @@ export default async function OrderDetailPage({
   const { orderNo } = await params
   const { t } = await searchParams
 
+  const effectiveToken = t ?? (await readPaymentReturnToken(orderNo))
+
   let order: PublicOrderView
   try {
-    if (t) {
-      order = await lookupOrderByToken(orderNo, t)
+    if (effectiveToken) {
+      order = await lookupOrderByToken(orderNo, effectiveToken)
     } else {
       const user = await getSessionUser()
       if (!user) notFound()
@@ -56,7 +61,7 @@ export default async function OrderDetailPage({
   return (
     <div className="mx-auto max-w-2xl px-5 py-14">
       <h1 className="sr-only">Sipariş {order.orderNo}</h1>
-      <OrderView order={order} />
+      <OrderView order={order} trackingToken={t ?? null} />
 
       <div className="mt-8 flex flex-wrap gap-3">
         <Link href="/hesabim" className={buttonVariants({ variant: 'secondary' })}>

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { PayButton } from '@/components/payments/PayButton'
 import { Money } from '@/components/primitives/Money'
 import { cn } from '@/lib/utils'
 
@@ -90,10 +91,12 @@ export function OrderSuccess({
             Durum: Ödeme bekleniyor
           </p>
           <p className="mt-1.5 text-small leading-relaxed text-warning-700/90">
-            Siparişiniz <strong>ödeme tamamlanana kadar işleme alınmaz</strong>. Ödeme adımı
-            yakında devreye girecek; o ana kadar siparişiniz kayıtlıdır ve dilediğiniz zaman
-            iptal edebilirsiniz.
+            Siparişiniz <strong>ödeme tamamlanana kadar işleme alınmaz</strong>. Ödemenizi
+            tamamladığınızda sipariş otomatik olarak işleme hazır hâle gelir.
           </p>
+          <div className="mt-4">
+            <PayButton orderNo={orderNo} trackingToken={trackingToken} />
+          </div>
         </div>
 
         <div className="mt-5 flex items-baseline justify-between rounded-[--radius-control] border border-ink-200 px-5 py-4 text-left">

@@ -44,7 +44,18 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
+        // ⚠️ E2E'de mock sağlayıcı: gerçek merchant bilgisi yok, canlı uca
+        // istek atılmaz. Ödeme yolu ATLANMAZ — imza/doğrulama aynen çalışır.
         command: 'npx next start -p 3100',
+        env: {
+          ...process.env,
+          PAYMENT_PROVIDER: 'mock',
+          PAYMENT_ENVIRONMENT: 'sandbox',
+          // ⚠️ Sağlayıcıya giden callback/success/checkout adresleri bundan
+          // üretilir. NEXT_PUBLIC_SITE_URL derlemeye gömüldüğü için çalışma
+          // zamanında değiştirilemez; APP_BASE_URL tam da bunun için var.
+          APP_BASE_URL: 'http://127.0.0.1:3100',
+        },
         url: 'http://127.0.0.1:3100',
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

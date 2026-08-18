@@ -332,3 +332,148 @@ Admin varsayılan kuyruğu (`queue=active`) yalnızca ödenmiş siparişleri gö
 webhook doğrulama ve replay koruması (`PaymentEvent` zaten `@@unique([provider,
 providerEventId])` taşıyor), `PENDING_PAYMENT → PAID` geçişinin ödeme
 callback'ine bağlanması.
+
+---
+
+## ADR-010 — Ödeme Durum Makinesi: İsimler Neden Farklı
+
+**Durum:** Kabul edildi (Faz 3)
+
+Faz 3 tarifi kavramsal olarak şu durumları istedi:
+`INITIATED · PENDING · SUCCESS · FAILED · CANCELLED · REFUNDED · PARTIALLY_REFUNDED`
+
+Uygulanan enum bunları KARŞILAR ama iki yerde daha ayrıntılıdır:
+
+| İstenen | Uygulanan | Gerekçe |
+|---|---|---|
+| PENDING | `PENDING` + `PENDING_3DS` | 3DS beklemesi ile genel sağlayıcı beklemesi farklı müşteri mesajı ve farklı zaman aşımı gerektirir. PayTR iframe'i açıkken 3DS'te olmayabilir. |
+| SUCCESS | `AUTHORIZED` + `CAPTURED` | Ön provizyon (para bloke) ile tahsilat (para alındı) aynı şey değildir. **Siparişi `PAID` yapan TEK durum `CAPTURED`'dır** — `AUTHORIZED` yapmaz. |
+| — | `CHARGEBACK` | Ters ibraz iade değildir; ayrı izlenmelidir. |
+
+`PAYMENT_UNLOCKS_ORDER` kümesi tek elemanlıdır (`CAPTURED`) ve bir birim
+testiyle bu şart kilitlenmiştir.
+
+---
+
+## ADR-011 — Mock Sağlayıcı: Gerçek Credential Olmadan Uçtan Uca Doğrulama
+
+**Durum:** Kabul edildi (Faz 3)
+
+**Bağlam.** Elimizde iyzico veya PayTR merchant/sandbox bilgisi YOK. Faz 3
+kuralı 24 açıktı: sahte secret üretme, canlı uca istek atma, ödeme başarılı
+varsayma. Ama "ödeme zinciri çalışıyor" iddiasının da kanıtlanması gerekiyordu.
+
+**Karar.** Üçüncü bir adapter: `MockPaymentProvider`.
+
+Yaptıkları:
+- Dışarıya **hiçbir ağ isteği yapmaz**.
+- Bildirimini gerçek sağlayıcılarla **aynı arayüz** üzerinden üretir.
+- İmzayı **gerçekten hesaplar ve gerçekten doğrular** — webhook güvenlik yolu
+  "test için atlanmış" değildir; imzasız bildirim reddedilir.
+- Ödemeyi kendiliğinden başarılı **saymaz**; imzalı bildirim gelene kadar
+  `PENDING` kalır.
+- Anahtarı `ORDER_TOKEN_SECRET`'ten türer — uydurulmuş bir "merchant secret"
+  değil, kendi mock'umuzun kendi anahtarı. Hiçbir sağlayıcı kimliği taklit
+  edilmez.
+
+**Kapı `PAYMENT_ENVIRONMENT`'tır, `NODE_ENV` değil.** İlk uygulamada kapı
+`NODE_ENV !== 'production'` idi ve E2E'de patladı: sandbox/staging dağıtımları
+da `next build` + `next start` ile çalışır, yani NODE_ENV=production'dır.
+"Gerçek para dönüyor mu" sorusunun doğru cevabı `PAYMENT_ENVIRONMENT`'tır.
+Ek olarak `assertPaymentConfig()` canlı ortamda mock seçimini tamamen reddeder.
+
+---
+
+## ADR-012 — `APP_BASE_URL`: Callback Adresleri Derlemeye Gömülemez
+
+**Durum:** Kabul edildi (Faz 3)
+
+**Bağlam.** Sağlayıcıya giden `callbackUrl` / `successUrl` başta
+`NEXT_PUBLIC_SITE_URL`'den üretiliyordu. E2E'de ödeme akışı koptu: kullanıcı
+`localhost:3000`'e yönlendi, oysa sunucu `127.0.0.1:3100`'deydi.
+
+**Kök neden.** Next.js `NEXT_PUBLIC_` önekli değişkenleri **derleme sırasında**
+koda gömer. Çalışma zamanında değiştirmek imkânsızdır. Aynı derleme imajı
+staging'de ve canlıda kullanıldığında sağlayıcıya **yanlış callback adresi**
+gider — ödeme bildirimi hiç ulaşmaz. Bu, canlıda "para alındı ama sipariş
+ödenmemiş görünüyor" olarak ortaya çıkardı; teşhisi en zor sınıftan bir hata.
+
+**Karar.** Sunucu tarafı adresler `APP_BASE_URL` (server-only, çalışma
+zamanında okunur) üzerinden üretilir; yoksa `NEXT_PUBLIC_SITE_URL`'e düşülür.
+`assertSameOrigin` da bunu kullanır.
+
+---
+
+## ADR-013 — Ödeme Dönüş Çerezi: Token URL'e Konmadan Sahiplik
+
+**Durum:** Kabul edildi (Faz 3)
+
+**Bağlam.** Misafir kullanıcı sağlayıcıdan döndüğünde sonuç sayfasının
+"bu sipariş senin mi" sorusunu cevaplaması gerekir. En kolay yol takip
+token'ını `successUrl`'e koymaktı — ama ADR-009 gereği token URL'e girmemeli.
+
+**Karar.** Ödeme başlatılırken token, kısa ömürlü (2 saat) `httpOnly` çereze
+yazılır. Sağlayıcı dönüşü üst düzey GET navigasyonu olduğu için `SameSite=Lax`
+çerez tarayıcıca **gönderilir**. Token URL'e, geçmişe, `Referer`'a hiç girmez.
+
+Çerez YALNIZCA yazıldığı sipariş için geçerlidir ve bir KOLAYLIKTIR: yazılamazsa
+(istek bağlamı yok) akış düşmez, kullanıcı takip bağlantısıyla erişir.
+
+---
+
+## Faz 3 Uygulama Özeti
+
+**Sağlayıcı mimarisi**
+- `PaymentProvider` arayüzü: `createPayment` · `getPaymentStatus` ·
+  `verifyWebhook` · `handleWebhook` · `refundPayment`.
+- Üç adapter: `IyzicoPaymentProvider`, `PaytrPaymentProvider`,
+  `MockPaymentProvider`. Domain kodunda `if (provider === 'paytr')` **yok**.
+- Mevcut bir `Payment` HER ZAMAN kendi `provider` alanıyla işlenir; aktif
+  sağlayıcı değişse bile eski ödemelerin bildirimleri doğru adapter'a gider.
+
+**Tutar**
+- `createPaymentForOrder` **tutar parametresi almaz**. Tek kaynak
+  `Order.totalMinor`; `Payment.amountMinor` onun snapshot'ıdır.
+- Webhook'ta tutar `Payment.amountMinor` ile karşılaştırılır. Uyuşmazsa ödeme
+  işlenmez ve `payment.amount_mismatch` audit kaydı düşer.
+
+**Webhook doğrulama zinciri (10 adım)**
+imza → tekrar → referans → tutar → para birimi → sağlayıcı eşleşmesi →
+durum geçişi → transaction + `FOR UPDATE` → PaymentEvent → OrderEvent.
+
+- **iyzico bildirimi tutar taşımaz.** Bu yüzden `CAPTURED` iddiasında
+  `getPaymentStatus` ile sunucudan **sorulur**; doğrulanamazsa ödeme
+  başarılı sayılmaz.
+- İmza geçersizse bile sağlayıcıya `ack` döneriz (PayTR "OK" almazsa saatlerce
+  tekrar gönderir); ödeme İŞLENMEZ, olay `WEBHOOK_REJECTED` olarak kayıtlıdır.
+
+**Yarış koşulları**
+- Aynı bildirim N kez → `PaymentEvent` üzerindeki `@@unique([provider,
+  providerEventId])` ilkini geçirir, kalanları `DUPLICATE` yapar.
+- Eşzamanlı bildirimler → `SELECT … FOR UPDATE` + kilit sonrası durum
+  yeniden okunur; yalnızca biri işler.
+- Success redirect + webhook → redirect **hiçbir şey yazmaz**, tek yazar
+  webhook'tur.
+- Eşzamanlı iadeler → kilit alındıktan SONRA üst sınır yeniden hesaplanır.
+
+**Aynı siparişe iki başarılı ödeme**
+Normal akışta imkânsız (`createPaymentForOrder` reddeder). Sağlayıcı tarafında
+gecikmiş ikinci tahsilat olursa: sipariş ikinci kez ileri taşınmaz, otomatik
+fulfillment tetiklenmez, `getRefundSummary().needsReconciliation` **true** olur.
+
+**İade**
+- Üst sınır iki kapıda: ödemenin kalan iade edilebilir tutarı ve sipariş toplamı.
+- Başarısız iade `refundedMinor`'ı ARTIRMAZ.
+- Yetki `SUPERADMIN` — para iadesi geri alınamaz.
+
+**Log ve PII**
+`redactProviderPayload` yasaklı anahtarları atar, metne gömülü kart
+numaralarını (Luhn kontrolüyle) maskeler, derinlik/uzunluk sınırlar.
+`safeLogLine` aynı kuralları log satırına uygular.
+
+---
+
+## Sonraki Faz — Faz 4
+
+Fulfillment: ödenmiş siparişlerin manuel iş kuyruğu, operatör atama,
+ilerleme (`deliveredQuantity`) takibi, kısmi teslim ve SLA uyarıları.

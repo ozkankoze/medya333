@@ -119,6 +119,8 @@ enum OrderEventType {
 
 enum PaymentStatus {
   INITIATED
+  /// Sağlayıcıya yönlendirildi, sonuç bekleniyor (3DS dışı bekleme de dahil)
+  PENDING
   PENDING_3DS
   AUTHORIZED
   CAPTURED
@@ -641,9 +643,27 @@ model Payment {
   userId  String
   user    User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  provider      String /// "iyzico" | "paytr" | "manual_transfer"
-  providerRef   String? @unique /// conversationId / merchant_oid
+  provider      String /// "iyzico" | "paytr" | "mock"
+  /// Bizim ürettiğimiz benzersiz referans. iyzico'da conversationId,
+  /// PayTR'de merchant_oid olarak gönderilir. Webhook bu alandan bulunur.
+  providerRef   String? @unique
+  /// Sağlayıcının kendi işlem kimliği (iyzico paymentId gibi)
   providerTxnId String?
+
+  /// Aynı siparişe birden fazla ödeme denemesi. 1'den başlar.
+  attemptNumber Int @default(1)
+
+  /// ⚠️ SNAPSHOT — ödeme başlatıldığı andaki değerler. DEĞİŞTİRİLMEZ.
+  /// Webhook doğrulaması bunlarla yapılır; Order sonradan değişse bile
+  /// ödenen tutar/sipariş eşleşmesi bozulmaz.
+  orderNoSnapshot String?
+  /// "sandbox" | "production" — canlı ve test kayıtları karışmasın
+  environment     String @default("sandbox")
+
+  /// Sağlayıcı checkout bilgisi (kart verisi DEĞİL)
+  checkoutUrl       String?
+  checkoutToken     String?
+  checkoutExpiresAt DateTime?
 
   status        PaymentStatus @default(INITIATED)
   amountMinor   Int
@@ -670,6 +690,7 @@ model Payment {
   events  PaymentEvent[]
   refunds Refund[]
 
+  @@unique([orderId, attemptNumber])
   @@index([orderId])
   @@index([status, createdAt])
   @@index([provider, createdAt])
@@ -704,7 +725,12 @@ model Refund {
   amountMinor      Int /// KDV dahil iade tutarı
   reason           String
   providerRefundId String?
+  providerStatus   String?
+  failureMessage   String?
   status           RefundStatus @default(PENDING)
+
+  /// Aynı iade talebinin iki kez işlenmesini engeller
+  idempotencyKey String? @unique
 
   /// İade çift onaylı: ADMIN talep eder, SUPERADMIN onaylar.
   requestedById String

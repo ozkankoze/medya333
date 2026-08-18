@@ -42,12 +42,36 @@ export const env = createEnv({
     UPSTASH_REDIS_REST_URL: z.string().url().optional(),
     UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
+    /**
+     * SUNUCU TARAFI TABAN ADRES.
+     *
+     * ⚠️ `NEXT_PUBLIC_SITE_URL` DERLEME ZAMANINDA gömülür (Next.js tüm
+     * NEXT_PUBLIC_ değişkenlerini build sırasında metin olarak değiştirir).
+     * Ödeme sağlayıcısına giden callback/success adresleri ise DAĞITIMA göre
+     * değişir: aynı imaj staging'de ve canlıda farklı adresle çalışır.
+     * Bu yüzden sunucu tarafı adresler bu ÇALIŞMA ZAMANI değişkeninden
+     * okunur; tanımlı değilse NEXT_PUBLIC_SITE_URL'e düşülür.
+     */
+    APP_BASE_URL: z.string().url().optional(),
+
     // --- Vergi ---
     /** Varsayılan KDV oranı, basis point. %20 → 2000. DB'deki TaxRate önceliklidir. */
     DEFAULT_TAX_RATE_BP: z.coerce.number().int().min(0).max(10_000).default(2000),
 
-    // --- ÖDEME (Faz 4 — Faz 0'da entegrasyon YOK, alanlar opsiyonel) ---
-    PAYMENT_PROVIDER: z.enum(['iyzico', 'paytr']).default('iyzico'),
+    // --- ÖDEME (Faz 3) ---
+    /**
+     * Yeni ödemeler için aktif sağlayıcı. Yalnızca SEÇİMİ belirler;
+     * iş mantığı sağlayıcıya göre dallanmaz (bkz. server/payments/registry.ts).
+     * "mock" yalnızca üretim DIŞINDA kullanılabilir.
+     */
+    PAYMENT_PROVIDER: z.enum(['iyzico', 'paytr', 'mock']).default('iyzico'),
+    /** Sandbox/production ayrımı — Payment kaydına da yazılır. */
+    PAYMENT_ENVIRONMENT: z.enum(['sandbox', 'production']).default('sandbox'),
+    /**
+     * ⚠️ Bu anahtarların hiçbiri NEXT_PUBLIC_ değildir; istemci bundle'ına
+     * girmez. Yoksa ilgili sağlayıcı `isConfigured=false` olur ve ödeme
+     * başlatma net bir hatayla reddedilir — sahte secret ÜRETİLMEZ.
+     */
     IYZICO_API_KEY: z.string().optional(),
     IYZICO_SECRET_KEY: z.string().optional(),
     IYZICO_BASE_URL: z.string().url().default('https://sandbox-api.iyzipay.com'),
@@ -98,8 +122,10 @@ export const env = createEnv({
     REDIS_URL: process.env.REDIS_URL,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
+    APP_BASE_URL: process.env.APP_BASE_URL,
     DEFAULT_TAX_RATE_BP: process.env.DEFAULT_TAX_RATE_BP,
     PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER,
+    PAYMENT_ENVIRONMENT: process.env.PAYMENT_ENVIRONMENT,
     IYZICO_API_KEY: process.env.IYZICO_API_KEY,
     IYZICO_SECRET_KEY: process.env.IYZICO_SECRET_KEY,
     IYZICO_BASE_URL: process.env.IYZICO_BASE_URL,

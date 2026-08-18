@@ -1,3 +1,4 @@
+import { PayButton } from '@/components/payments/PayButton'
 import { Money } from '@/components/primitives/Money'
 import { ProgressBar } from '@/components/primitives/ProgressBar'
 import { StatusBadge } from '@/components/primitives/StatusBadge'
@@ -14,7 +15,14 @@ import type { PublicOrderView } from '@/server/orders/lookup'
  * ⚠️ PII MİNİMİZASYONU: Burada müşteri adı, telefonu veya tam e-postası
  * GÖSTERİLMEZ. `maskedEmail` yalnızca "doğru siparişte miyim" teyidi içindir.
  */
-export function OrderView({ order }: { order: PublicOrderView }) {
+export function OrderView({
+  order,
+  trackingToken,
+}: {
+  order: PublicOrderView
+  /** Misafir erişiminde ödeme başlatabilmek için sahiplik kanıtı */
+  trackingToken?: string | null
+}) {
   const awaitingPayment = order.status === 'PENDING_PAYMENT'
 
   return (
@@ -52,6 +60,9 @@ export function OrderView({ order }: { order: PublicOrderView }) {
               Siparişiniz <strong>ödeme tamamlanana kadar işleme alınmaz</strong>. Bu aşamada
               hiçbir işlem başlatılmamıştır.
             </p>
+            <div className="mt-4">
+              <PayButton orderNo={order.orderNo} trackingToken={trackingToken ?? null} />
+            </div>
           </div>
         )}
       </div>

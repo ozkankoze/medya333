@@ -109,7 +109,7 @@ function OrderGroup({ title, orders }: { title: string; orders: OrderRow[] }) {
 
               {o.status === 'PENDING_PAYMENT' && (
                 <p className="mt-3 text-caption text-warning-700">
-                  Ödeme tamamlanmadan sipariş işleme alınmaz.
+                  Ödeme bekleniyor — tamamlamak için siparişi açın.
                 </p>
               )}
 

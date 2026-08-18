@@ -5,6 +5,7 @@ import type { ZodTypeAny, z } from 'zod'
 import { requireRole, type SessionUser } from '@/server/auth'
 import { CatalogAdminError, type ActorContext } from '@/server/catalog/admin'
 import { AdminOrderError } from '@/server/orders/admin'
+import { PaymentError } from '@/server/payments/create'
 import { apiError, handleUnexpected, MAX_ADMIN_BODY_BYTES, readJsonBody } from '@/server/http'
 import { hashIp, clientIpFrom, rateLimit, rateLimitHeaders } from '@/server/ratelimit'
 import type { UserRole } from '@/lib/enums'
@@ -90,6 +91,10 @@ export function adminHandler<S extends ZodTypeAny | undefined = undefined>(
         return apiError(err.code, err.message, err.status, { details: err.details })
       }
       if (err instanceof AdminOrderError) {
+        return apiError(err.code, err.message, err.status)
+      }
+      // PaymentError / RefundError (RefundError ondan türer)
+      if (err instanceof PaymentError) {
         return apiError(err.code, err.message, err.status)
       }
       return handleUnexpected('admin', err)

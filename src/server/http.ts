@@ -2,7 +2,7 @@ import 'server-only'
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
-import { env } from '@/env'
+import { appBaseUrl } from '@/server/base-url'
 import { AuthError } from '@/server/auth/errors'
 import { RedisRequiredError } from '@/server/redis'
 
@@ -64,7 +64,9 @@ export function assertSameOrigin(req: NextRequest): NextResponse | null {
   if (expected && host === expected) return null
 
   try {
-    if (host === new URL(env.NEXT_PUBLIC_SITE_URL).host) return null
+    // Çalışma zamanı adresi (APP_BASE_URL) öncelikli — derlemeye gömülü
+    // NEXT_PUBLIC_SITE_URL staging/canlı ayrımını yansıtmayabilir.
+    if (host === new URL(appBaseUrl()).host) return null
   } catch {
     /* yapılandırma hatası — aşağıda reddedilir */
   }
