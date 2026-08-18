@@ -91,6 +91,8 @@ enum OrderStatus {
 /// Durum ≠ olay. "Not eklendi" bir olaydır ama durumu değiştirmez.
 enum OrderEventType {
   ORDER_CREATED
+  ORDER_CONFIRMED
+  FULFILLMENT_COMPLETED
   PAYMENT_PENDING
   PRICE_CHANGED
   CUSTOMER_INFO_ADDED
@@ -115,6 +117,45 @@ enum OrderEventType {
   STATUS_CHANGED
   INVOICE_ISSUED
   SYSTEM
+}
+
+/// Fulfillment'ın KENDİ durum makinesi. Order durumuyla birebir eşitlenmez:
+/// sipariş "PAID" iken fulfillment "READY"dir (operasyon henüz başlamadı).
+enum FulfillmentStatus {
+  READY
+  PROCESSING
+  STARTED
+  PARTIAL
+  COMPLETED
+  FAILED
+  REVIEW_REQUIRED
+}
+
+enum FulfillmentEventType {
+  CREATED
+  ASSIGNED
+  REASSIGNED
+  STARTED
+  PROGRESS_UPDATED
+  METRIC_DECREASED
+  PARTIAL_DELIVERY
+  NOTE_ADDED
+  COMPLETED
+  FAILED
+  REVIEW_REQUIRED
+  REPLACEMENT_CREATED
+  REPLACEMENT_APPROVED
+  REPLACEMENT_STARTED
+  REPLACEMENT_COMPLETED
+}
+
+enum ReplacementStatus {
+  DROP_DETECTED
+  REVIEW_REQUIRED
+  APPROVED
+  REPLACEMENT_PROCESSING
+  COMPLETED
+  REJECTED
 }
 
 enum PaymentStatus {
@@ -187,6 +228,11 @@ model User {
   claimTokens    GuestClaimToken[]
 
   @@index([role])
+  assignedFulfillments  Fulfillment[]      @relation("fulfillmentAssignee")
+  assignerFulfillments  Fulfillment[]      @relation("fulfillmentAssigner")
+  fulfillmentEvents     FulfillmentEvent[] @relation("fulfillmentEventActor")
+  assignedReplacements  ReplacementCase[]  @relation("replacementAssignee")
+
   @@index([email, isGuest])
   @@index([createdAt])
 }
@@ -550,10 +596,11 @@ model Order {
   refundedAt   DateTime?
   dueAt        DateTime? /// SLA son teslim — geciken sipariş uyarısı
 
-  items    OrderItem[]
-  payments Payment[]
-  events   OrderEvent[]
-  refunds  Refund[]
+  items       OrderItem[]
+  payments    Payment[]
+  events      OrderEvent[]
+  refunds     Refund[]
+  fulfillment Fulfillment?
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -565,6 +612,128 @@ model Order {
   @@index([idempotencyKey])
   @@index([dueAt])
   @@index([invoiceStatus])
+}
+
+// ============================================================================
+//  FULFILLMENT — MANUEL OPERASYON
+//
+//  ⚠️ Bu tablolar bot/scraping/otomasyon İÇİN DEĞİLDİR. Gerçek kişilerin
+//  yaptığı işin kaydını tutar: kim, ne zaman, ne kadar teslim etti.
+//  Sistem hiçbir koşulda kendi kendine fulfillment başlatmaz/tamamlamaz.
+// ============================================================================
+
+model Fulfillment {
+  id      String @id @default(cuid())
+  /// ⚠️ 1 Order → 1 Fulfillment. Duplicate webhook ikinci kayıt AÇAMAZ.
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  status FulfillmentStatus @default(READY)
+
+  /// Katalog sonradan değişse bile bu fulfillment'ın NE İÇİN açıldığı sabit kalır.
+  targetSnapshot Json
+
+  requestedQuantity Int
+  deliveredQuantity Int @default(0)
+
+  /// METRIC modunda hedefin ölçülen değerleri. STARTED anında dondurulur —
+  /// sipariş ile başlangıç arasındaki organik değişim bize yazılmaz.
+  initialMetric Int?
+  currentMetric Int?
+
+  assignedToUserId String?
+  assignedTo       User?     @relation("fulfillmentAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  assignedById     String?
+  assignedBy       User?     @relation("fulfillmentAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedAt       DateTime?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+
+  /// ServiceVariant.refillDays snapshot'ından hesaplanır. Garanti bitince
+  /// OTOMATİK hiçbir işlem yapılmaz; yalnızca telafi hakkını sınırlar.
+  guaranteeDays   Int?
+  guaranteeEndsAt DateTime?
+
+  /// Operasyon içi not — müşteriye GÖSTERİLMEZ.
+  internalNote String?
+  /// Müşteriye gösterilen kontrollü mesaj (SUPPORT+ yazabilir).
+  customerNote String?
+
+  /// FAILED sebebi — teknik detay, müşteriye gösterilmez.
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events       FulfillmentEvent[]
+  replacements ReplacementCase[]
+
+  @@index([status, createdAt])
+  @@index([assignedToUserId, status])
+  @@index([createdAt])
+}
+
+model FulfillmentEvent {
+  id            String      @id @default(cuid())
+  fulfillmentId String
+  fulfillment   Fulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Cascade)
+
+  type FulfillmentEventType
+
+  /// İşlemi yapan operatör/admin. Sistem olaylarında null.
+  actorUserId String?
+  actor       User?   @relation("fulfillmentEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  /// Bu olayda teslim edilen adet (progress olaylarında)
+  quantity       Int?
+  previousMetric Int?
+  currentMetric  Int?
+
+  fromStatus FulfillmentStatus?
+  toStatus   FulfillmentStatus?
+
+  /// ⚠️ PII YAZILMAZ. Operasyon notu; müşteri adı/e-postası buraya girmez.
+  note String?
+
+  /// Müşteri zaman çizelgesinde görünür mü?
+  isCustomerVisible Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([fulfillmentId, createdAt])
+  @@index([type, createdAt])
+}
+
+/// Garanti kapsamındaki düşüş telafisi. TAMAMEN MANUEL — otomatik telafi YOK.
+model ReplacementCase {
+  id            String      @id @default(cuid())
+  fulfillmentId String
+  fulfillment   Fulfillment @relation(fields: [fulfillmentId], references: [id], onDelete: Cascade)
+
+  reason String
+
+  /// Telafi açıldığı andaki durum — sonradan değişse bile kanıt kalır
+  initialDelivered Int
+  currentMetric    Int?
+  droppedQuantity  Int?
+
+  replacementQuantity Int
+
+  status ReplacementStatus @default(DROP_DETECTED)
+
+  assignedToUserId String?
+  assignedTo       User?   @relation("replacementAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  approvedById String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([fulfillmentId])
+  @@index([status, createdAt])
 }
 
 model OrderItem {

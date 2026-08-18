@@ -1,7 +1,12 @@
 import 'server-only'
 
 import { CUSTOMER_TIMELINE_STEPS, ORDER_STATUS_META } from '@/lib/orders/status'
-import type { OrderStatus } from '@/lib/enums'
+import type { FulfillmentStatus, OrderStatus } from '@/lib/enums'
+import {
+  computeFulfillmentProgress,
+  CUSTOMER_FULFILLMENT_VIEW,
+  goalMetric,
+} from '@/lib/fulfillment/status'
 import { db } from '@/server/db'
 import { normalizeOrderNo, safeEmailEquals, verifyAccessToken } from './order-no'
 
@@ -60,6 +65,33 @@ export interface PublicOrderView {
 
   /** Maskelenmiş e-posta — doğru siparişte olduğunu teyit için */
   maskedEmail: string | null
+
+  /**
+   * OPERASYON İLERLEMESİ — müşteri görünümü.
+   *
+   * ⚠️ Buraya İÇ bilgi GİRMEZ: operatör adı, iç not, teknik hata sebebi,
+   * atama, maliyet ve sağlayıcı bilgileri yoktur. Durum metni
+   * `CUSTOMER_FULFILLMENT_VIEW` üzerinden güvenli dile çevrilir.
+   */
+  fulfillment: {
+    label: string
+    description: string
+    tone: string
+    /** Müşteri tarafı yoklamaya devam etsin mi? */
+    polling: boolean
+    requested: number
+    delivered: number
+    remaining: number
+    percent: number
+    /** METRIC modunda: başlangıç / mevcut / hedef */
+    initialMetric: number | null
+    currentMetric: number | null
+    goalMetric: number | null
+    startedAt: string | null
+    completedAt: string | null
+    /** SUPPORT+ tarafından yazılmış kontrollü müşteri notu */
+    customerNote: string | null
+  } | null
 }
 
 export class OrderAccessDeniedError extends Error {
@@ -81,6 +113,18 @@ function maskEmail(email: string | null): string | null {
 }
 
 const ORDER_INCLUDE = {
+  fulfillment: {
+    select: {
+      status: true,
+      requestedQuantity: true,
+      deliveredQuantity: true,
+      initialMetric: true,
+      currentMetric: true,
+      startedAt: true,
+      completedAt: true,
+      customerNote: true,
+    },
+  },
   platform: { select: { name: true, slug: true } },
   service: { select: { name: true, unitLabel: true } },
   serviceVariant: { select: { customerLabel: true } },
@@ -95,6 +139,8 @@ const ORDER_INCLUDE = {
 
 const EVENT_LABELS: Record<string, string> = {
   ORDER_CREATED: 'Sipariş oluşturuldu',
+  ORDER_CONFIRMED: 'Sipariş onaylandı',
+  FULFILLMENT_COMPLETED: 'İşlem tamamlandı',
   TARGET_CONFIRMED: 'Hedef onaylandı',
   PAYMENT_PENDING: 'Ödeme bekleniyor',
   PAYMENT_RECEIVED: 'Ödeme alındı',
@@ -169,6 +215,44 @@ function toPublicView(order: NonNullable<OrderWithRelations>): PublicOrderView {
     })),
     steps,
     maskedEmail: maskEmail(order.customerEmail ?? order.guestEmail),
+    fulfillment: toCustomerFulfillment(order.fulfillment),
+  }
+}
+
+/** İç fulfillment kaydını GÜVENLİ müşteri görünümüne çevirir. */
+function toCustomerFulfillment(
+  f: {
+    status: string
+    requestedQuantity: number
+    deliveredQuantity: number
+    initialMetric: number | null
+    currentMetric: number | null
+    startedAt: Date | null
+    completedAt: Date | null
+    customerNote: string | null
+  } | null,
+): PublicOrderView['fulfillment'] {
+  if (!f) return null
+  const view = CUSTOMER_FULFILLMENT_VIEW[f.status as FulfillmentStatus]
+  const p = computeFulfillmentProgress({
+    requestedQuantity: f.requestedQuantity,
+    deliveredQuantity: f.deliveredQuantity,
+  })
+  return {
+    label: view.label,
+    description: view.description,
+    tone: view.tone,
+    polling: view.polling,
+    requested: p.requested,
+    delivered: p.delivered,
+    remaining: p.remaining,
+    percent: p.percent,
+    initialMetric: f.initialMetric,
+    currentMetric: f.currentMetric,
+    goalMetric: goalMetric(f.initialMetric, p.requested),
+    startedAt: f.startedAt?.toISOString() ?? null,
+    completedAt: f.completedAt?.toISOString() ?? null,
+    customerNote: f.customerNote,
   }
 }
 

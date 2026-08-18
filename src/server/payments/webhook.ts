@@ -11,6 +11,7 @@ import {
 import { writeAudit } from '@/server/audit'
 import { db } from '@/server/db'
 import { orderStatusChangedEmail, sendMail } from '@/server/mail'
+import { ensureFulfillmentForPaidOrder } from '@/server/fulfillment/create'
 import { transitionOrder } from '@/server/orders/transition'
 import { recordPaymentEvent } from './events'
 import { getProvider } from './registry'
@@ -329,6 +330,21 @@ export async function processWebhook(
         eventType: 'PAYMENT_RECEIVED',
       })
       orderPaid = true
+
+      /**
+       * ⚠️ OTOMATİK KISIM BURADA BİTER.
+       * Sipariş onaylanır ve fulfillment READY olarak kuyruğa düşer.
+       * Sistem işe BAŞLAMAZ: READY → PROCESSING → STARTED → COMPLETED
+       * zincirinin tamamı manuel operatör aksiyonudur.
+       *
+       * Idempotent: `Fulfillment.orderId` UNIQUE olduğu için tekrar gelen
+       * bildirim ikinci fulfillment açamaz ve mevcut işi YENİDEN BAŞLATMAZ.
+       */
+      await ensureFulfillmentForPaidOrder(payment.orderId).catch((e: unknown) => {
+        // Fulfillment açılamazsa ödeme geçersiz olmaz; operasyon audit'ten görür.
+        console.error('[payment.webhook] fulfillment açılamadı:', (e as Error).message)
+        return null
+      })
     } catch (err) {
       // Sipariş zaten PAID ise transitionOrder no-op'tur; başka bir hata
       // ödemeyi geçersiz kılmaz — operasyon audit'ten görür.

@@ -473,7 +473,154 @@ numaralarını (Luhn kontrolüyle) maskeler, derinlik/uzunluk sınırlar.
 
 ---
 
-## Sonraki Faz — Faz 4
+## ADR-014 — Fulfillment'ın Kendi Durum Makinesi Var, Sipariş'e Zorla Eşitlenmez
 
-Fulfillment: ödenmiş siparişlerin manuel iş kuyruğu, operatör atama,
-ilerleme (`deliveredQuantity`) takibi, kısmi teslim ve SLA uyarıları.
+**Bağlam.** Sipariş durumu müşteriye anlatılan hikâyedir; fulfillment durumu
+operasyonun iç gerçeğidir. İkisini tek alanla yönetmek, "sipariş `PARTIAL`
+ama operatör hâlâ çalışıyor" gibi durumları temsil edilemez kılar.
+
+**Karar.** `Fulfillment.status` ayrı bir enum ve ayrı bir geçiş tablosudur
+(`FULFILLMENT_TRANSITIONS`). Sipariş durumu, fulfillment ilerledikçe
+**tek yönlü** olarak takip eder — asla tersi olmaz.
+
+`syncOrderStatus` sipariş zincirini **adım adım** yürür
+(`PROCESSING → STARTED → PARTIAL → COMPLETED`): sipariş makinesi
+`PAID → STARTED` doğrudan geçişine izin vermez ve ara durumu atlayan bir
+senkron denemesi sessizce başarısız olurdu. Senkron başarısız olsa bile
+fulfillment aksiyonu geri alınmaz — operasyon kaydı tek gerçektir.
+
+`COMPLETED` yalnızca `REVIEW_REQUIRED`'a gidebilir: **tamamlanmış iş geri alınmaz**,
+sorun varsa incelemeye açılır.
+
+---
+
+## ADR-015 — Otomasyon Sınırı Kodda Üç Katmanla Kilitlenir
+
+**Bağlam.** "Sistem işi kendi başlatmasın" bir yorum satırıyla korunamaz.
+Yarın eklenecek bir cron, bir webhook dalı ya da bir test yardımcı fonksiyonu
+kuralı farkında olmadan çiğneyebilir.
+
+**Karar.** Kural üç bağımsız katmanda uygulanır:
+
+1. **Üretilebilir durum kümesi.** `AUTO_CREATABLE_STATUSES = {READY}` —
+   sistemin yaratabileceği tek fulfillment durumu.
+2. **İnsan aktör zorunluluğu.** `MANUAL_ONLY_TRANSITIONS =
+   {PROCESSING, STARTED, PARTIAL, COMPLETED, FAILED}` ve tek yazma noktasındaki
+   `assertManualActor(to, actorUserId)`. `actorUserId === null` (yani sistem)
+   bu durumlara **hiçbir yoldan** yazamaz — `AutomationNotAllowedError`.
+3. **Servis katmanı yetkisi.** `assertCanOperate` rol + atama kontrolü yapar.
+
+Webhook yalnızca `ensureFulfillmentForPaidOrder` çağırır; bu fonksiyon
+`READY` dışında bir durum üretemez. `%100` teslim girildiğinde bile
+`updateProgress` `COMPLETED` yazmaz — yalnızca `PARTIAL` işaretler.
+
+---
+
+## ADR-016 — İlerleme Metrikten Türetilir, İstemciden Alınmaz
+
+**Bağlam.** Operatör panelinden "%50" göndermek kolay olurdu; ama o değer
+istemcinin iddiasıdır ve müşteriye gösterilen ilerlemenin kaynağı olamaz.
+
+**Karar.** `progress` uç noktasının şemasında `percent` ve `remaining`
+alanları **yoktur**. Operatör yalnızca gözlemlediği ham metriği girer
+(`currentMetric`) ya da doğrudan teslim adedini yazar.
+
+```
+delivered = clamp(currentMetric − initialMetric, 0, requestedQuantity)
+percent   = round(delivered / requested × 100)      // backend
+remaining = requested − delivered                    // backend
+```
+
+`initialMetric` işin **başlatıldığı anda dondurulur**; sonradan değişmez.
+`deliveredQuantity > requestedQuantity` hem hesapta hem de yazma noktasında
+imkânsızdır.
+
+**Metrik düşerse** (takipçi kaybı) bu bir hata değildir: `METRIC_DECREASED`
+event'i yazılır, teslim sayısı geri alınmaz, operasyon durmaz. Düşüş garanti
+penceresi içindeyse operatör manuel telafi kaydı açabilir.
+
+---
+
+## ADR-017 — Müşteri Görünümü İç Duruma Bağlı Değil, Eşlenir
+
+**Bağlam.** `FAILED` durumunu müşteriye "Başarısız" diye göstermek hem yanlış
+(inceleme sürüyor) hem de gereksiz paniktir. Ayrıca operatör adı, iç not,
+IP, maliyet ve sağlayıcı bilgisi müşteri yüzeyine hiç çıkmamalıdır.
+
+**Karar.** `CUSTOMER_FULFILLMENT_VIEW` iç durumdan müşteri diline **eşleme**
+tablosudur; müşteri yüzeyi enum'u hiç görmez.
+
+| İç durum | Müşteriye |
+|---|---|
+| `READY` | Sıraya alındı — "Siparişiniz onaylandı ve işlem sırasına alındı." |
+| `PROCESSING` | Hazırlanıyor |
+| `STARTED` | Devam ediyor — "İşleminiz devam ediyor." |
+| `PARTIAL` | Devam ediyor (kısmi teslim bilgisiyle) |
+| `COMPLETED` | Tamamlandı |
+| `FAILED` | **İnceleniyor** — teknik sebep gösterilmez |
+| `REVIEW_REQUIRED` | İnceleniyor |
+
+`toCustomerFulfillment()` yalnızca beyaz listedeki alanları taşır; iç alanlar
+serileştirilmez. Bir birim testi, tüm müşteri metinlerini kelime bazlı
+tarayarak `operator · internal · ip · maliyet · provider · audit · hata`
+sızıntısını engeller.
+
+**Polling.** İlk sürümde WebSocket/SSE **yok**. Müşteri kartı 20 saniyede bir
+yoklar ve `polling: false` (terminal durum) geldiğinde **kendini durdurur**.
+
+---
+
+## Faz 4 Uygulama Özeti
+
+**Yeni modeller**
+- `Fulfillment` — `orderId @unique` (1 sipariş = 1 fulfillment; tekrar eden
+  webhook ikinci kayıt AÇAMAZ), hedef snapshot'ı, istenen/teslim edilen adet,
+  başlangıç/güncel metrik, atama, zaman damgaları, garanti penceresi, notlar.
+- `FulfillmentEvent` — `fromStatus`/`toStatus`/`actorUserId`/`isCustomerVisible`
+  ile tam denetim izi. `actorUserId === null` ⇒ sistem (yalnızca `CREATED`).
+- `ReplacementCase` — `DROP_DETECTED → REVIEW_REQUIRED → APPROVED →
+  REPLACEMENT_PROCESSING → COMPLETED | REJECTED`.
+
+**Otomatik / manuel sınırı**
+
+| Adım | Kim |
+|---|---|
+| Ödeme doğrulandı → sipariş `PAID` | 🤖 sistem (imzalı webhook) |
+| Sipariş otomatik onayı (`ORDER_CONFIRMED`) | 🤖 sistem |
+| Fulfillment kaydı + `READY` | 🤖 sistem |
+| `READY → PROCESSING → STARTED` | 👤 operatör |
+| İlerleme girişi | 👤 operatör |
+| `→ COMPLETED` / `→ FAILED` | 👤 operatör |
+| Telafi açma | 👤 operatör · onay 👤 `ADMIN+` |
+
+**Ödenmemiş sipariş kuyrukta görünemez — iki kapı**
+1. Fulfillment yalnızca doğrulanmış ödeme sonrası yaratılır.
+2. Kuyruk sorgusu ayrıca `order.status ∈ PAID_ORDER_STATUSES` filtresi uygular.
+
+**Yarış koşulları**
+- Eşzamanlı 3 webhook → `Fulfillment.orderId` unique + P2002 yakalama ⇒
+  tek kayıt, ikinciler mevcut kaydı döner.
+- Eşzamanlı ilerleme güncellemesi → `SELECT … FOR UPDATE` ⇒ teslim adedi
+  hiçbir zaman istenen adedi aşmaz.
+- Aynı duruma tekrar geçiş → idempotent no-op, yeni event yazılmaz.
+
+**Garanti**
+`ServiceVariant.refillDays` **tamamlanma anında** `Fulfillment.guaranteeDays` /
+`guaranteeEndsAt` olarak snapshot'lanır; sonradan katalog değişse bile
+müşterinin hakkı değişmez. Pencere kapandıktan sonra sistem hiçbir otomatik
+işlem yapmaz — süre dolmuşsa telafi kaydı açılamaz.
+
+---
+
+## Sonraki Faz — Faz 5 (onay bekliyor)
+
+Faz 4 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+
+**Kalan teknik borç**
+- Operatör paneli sayfa yenilemesiyle çalışır; kuyrukta otomatik yenileme yok.
+- Kuyrukta sayfalama yok (limit 100). Hacim arttığında cursor tabanlı sayfalama gerekir.
+- Bildirim yok: müşteriye "işleminiz başladı/tamamlandı" e-postası gitmiyor.
+- SLA/gecikme uyarısı yok — `READY`'de bekleyen iş için eşik alarmı kurulmadı.
+- Telafi kaydı yeni bir fulfillment üretmez; aynı kayıt üzerinde ilerler.
+- Prisma WASM şema motoru mevcut veritabanına karşı diff alamıyor
+  (`Column type 'char' could not be deserialized`); migration'lar elle yazılıyor.

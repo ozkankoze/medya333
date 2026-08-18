@@ -138,6 +138,10 @@ beforeAll(async () => {
       maxQuantity: { gte: 1000 },
       service: { targetType: 'PROFILE', platform: { slug: 'instagram' } },
     },
+    // ⚠️ Deterministik seçim: sırasız `findFirst` bazen garantili (Premium),
+    // bazen garantisiz (Standart) varyantı getiriyordu ve garanti testleri
+    // koşuma göre değişiyordu.
+    orderBy: { slug: 'asc' },
     include: { service: true },
   })
   variantId = variant.id

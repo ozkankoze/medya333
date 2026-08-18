@@ -26,6 +26,8 @@ export type OrderStatus = (typeof ORDER_STATUS)[number]
 
 export const ORDER_EVENT_TYPE = [
   'ORDER_CREATED',
+  'ORDER_CONFIRMED',
+  'FULFILLMENT_COMPLETED',
   'PAYMENT_PENDING',
   'PRICE_CHANGED',
   'CUSTOMER_INFO_ADDED',
@@ -100,6 +102,46 @@ export const PAYMENT_STATUS = [
   'CHARGEBACK',
 ] as const
 export type PaymentStatus = (typeof PAYMENT_STATUS)[number]
+
+export const FULFILLMENT_STATUS = [
+  'READY',
+  'PROCESSING',
+  'STARTED',
+  'PARTIAL',
+  'COMPLETED',
+  'FAILED',
+  'REVIEW_REQUIRED',
+] as const
+export type FulfillmentStatus = (typeof FULFILLMENT_STATUS)[number]
+
+export const FULFILLMENT_EVENT_TYPE = [
+  'CREATED',
+  'ASSIGNED',
+  'REASSIGNED',
+  'STARTED',
+  'PROGRESS_UPDATED',
+  'METRIC_DECREASED',
+  'PARTIAL_DELIVERY',
+  'NOTE_ADDED',
+  'COMPLETED',
+  'FAILED',
+  'REVIEW_REQUIRED',
+  'REPLACEMENT_CREATED',
+  'REPLACEMENT_APPROVED',
+  'REPLACEMENT_STARTED',
+  'REPLACEMENT_COMPLETED',
+] as const
+export type FulfillmentEventType = (typeof FULFILLMENT_EVENT_TYPE)[number]
+
+export const REPLACEMENT_STATUS = [
+  'DROP_DETECTED',
+  'REVIEW_REQUIRED',
+  'APPROVED',
+  'REPLACEMENT_PROCESSING',
+  'COMPLETED',
+  'REJECTED',
+] as const
+export type ReplacementStatus = (typeof REPLACEMENT_STATUS)[number]
 
 export const REFUND_STATUS = ['PENDING', 'APPROVED', 'COMPLETED', 'REJECTED', 'FAILED'] as const
 export type RefundStatus = (typeof REFUND_STATUS)[number]

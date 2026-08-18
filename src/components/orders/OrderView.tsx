@@ -1,6 +1,6 @@
+import { FulfillmentProgress } from '@/components/orders/FulfillmentProgress'
 import { PayButton } from '@/components/payments/PayButton'
 import { Money } from '@/components/primitives/Money'
-import { ProgressBar } from '@/components/primitives/ProgressBar'
 import { StatusBadge } from '@/components/primitives/StatusBadge'
 import { formatMinor } from '@/lib/money'
 import { withUnit } from '@/lib/units'
@@ -67,6 +67,16 @@ export function OrderView({
         )}
       </div>
 
+      {/* ------------------------- Operasyon ilerlemesi -------------------------- */}
+      {order.fulfillment && (
+        <FulfillmentProgress
+          orderNo={order.orderNo}
+          unitLabel={order.unitLabel}
+          initial={order.fulfillment}
+          trackingToken={trackingToken ?? null}
+        />
+      )}
+
       {/* -------------------------------- Zaman çizelgesi ------------------------- */}
       <div className="rounded-[--radius-card] border border-ink-200 bg-white p-6 shadow-[--shadow-card]">
         <h2 className="text-h3 text-ink-900">Sipariş durumu</h2>
@@ -110,11 +120,9 @@ export function OrderView({
           ))}
         </ol>
 
-        {order.progressPercent > 0 && (
-          <div className="mt-6 border-t border-ink-200 pt-5">
-            <ProgressBar quantity={order.quantity} deliveredQuantity={order.deliveredQuantity} />
-          </div>
-        )}
+        {/* İlerleme çubuğu artık FulfillmentProgress kartında; burada
+            tekrarlanmaz. Fulfillment henüz açılmamışsa (ödeme bekliyor)
+            gösterilecek ilerleme de yoktur. */}
       </div>
 
       {/* ---------------------------------- Detay -------------------------------- */}

@@ -57,10 +57,12 @@ describe('migration', () => {
       'Coupon', 'CouponRedemption', 'Campaign',
       'AuditLog', 'AdapterCallLog',
       'GuestClaimToken',
+      // Faz 4 — manuel operasyon
+      'Fulfillment', 'FulfillmentEvent', 'ReplacementCase',
     ]) {
       expect(names, `${t} tablosu yok`).toContain(t)
     }
-    expect(names).toHaveLength(22)
+    expect(names).toHaveLength(25)
   })
 
   it('tüm enum tipleri oluştu ve değerleri doğru', async () => {
@@ -72,8 +74,15 @@ describe('migration', () => {
     // Faz 2: DRAFT eklendi, AWAITING_PAYMENT→PENDING_PAYMENT / PAYMENT_RECEIVED→PAID
     expect(map.get('OrderStatus')).toBe(11)
     // Faz 2: PAYMENT_PENDING, PRICE_CHANGED, CUSTOMER_INFO_ADDED,
-    //        CONSENT_ACCEPTED, GUEST_CLAIMED, TRACKING_LINK_SENT eklendi
-    expect(map.get('OrderEventType')).toBe(25)
+    //        CONSENT_ACCEPTED, GUEST_CLAIMED, TRACKING_LINK_SENT
+    // Faz 4: ORDER_CONFIRMED, FULFILLMENT_COMPLETED
+    expect(map.get('OrderEventType')).toBe(27)
+    // Faz 3: PENDING eklendi (3DS dışı sağlayıcı beklemesi)
+    expect(map.get('PaymentStatus')).toBe(10)
+    // Faz 4 — fulfillment enum'ları
+    expect(map.get('FulfillmentStatus')).toBe(7)
+    expect(map.get('FulfillmentEventType')).toBe(15)
+    expect(map.get('ReplacementStatus')).toBe(6)
     expect(map.get('MeasurementMode')).toBe(2)
     expect(map.get('InvoiceStatus')).toBe(5)
     expect(map.get('UserRole')).toBe(5)

@@ -1,13 +1,16 @@
-# Medya 333 — Faz 3
+# Medya 333 — Faz 4
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
 + **Faz 2** (sipariş oluşturma, misafir takibi, hesap, admin sipariş yönetimi)
-+ **Faz 3** (ödeme altyapısı: iyzico/PayTR adapter, webhook, iade).
++ **Faz 3** (ödeme altyapısı: iyzico/PayTR adapter, webhook, iade)
++ **Faz 4** (fulfillment: operasyon kuyruğu, manuel ilerleme, garanti/telafi).
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
 > Bu sistem bot, sahte hesap veya otomatik sosyal medya etkileşimi ÜRETMEZ.
 > Platform entegrasyonları yalnızca hedef doğrulama/önizleme amaçlıdır; scraping kullanılmaz.
+> **Fulfillment yalnızca insanın yaptığı işin KAYDIDIR** — sistem hiçbir koşulda
+> işi kendi başlatmaz, ilerletmez veya tamamlamaz.
 
 ---
 
@@ -79,6 +82,17 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
     doğrulanmış webhook ile yazılır.
 12. **Kart verisi hiçbir yerde saklanmaz/loglanmaz** — sağlayıcı yanıtları
     `redactProviderPayload`'dan geçmeden DB'ye veya log'a yazılamaz.
+13. **FULFILLMENT OTOMATİK BAŞLAMAZ / TAMAMLANMAZ.** Sistemin üretebileceği tek
+    fulfillment durumu `READY`'dir (`AUTO_CREATABLE_STATUSES`).
+    `PROCESSING · STARTED · PARTIAL · COMPLETED · FAILED` yalnızca `actorUserId`
+    dolu bir aksiyonla yazılabilir (`assertManualActor`).
+14. **İlerleme yüzdesi backend'de hesaplanır.** İstemci `percent`/`remaining`
+    gönderemez; şemada bu alanlar yoktur. `deliveredQuantity > requestedQuantity`
+    veri katmanında imkânsızdır.
+15. **Metrik düşüşü hata değildir** — `METRIC_DECREASED` event'i yazılır,
+    teslim sayısı geri alınmaz, operasyon durmaz.
+16. **Telafi (replacement) tamamen manueldir.** `DROP_DETECTED → REVIEW_REQUIRED
+    → APPROVED` zincirinde onay `ADMIN+` ister; otomatik telafi yoktur.
 
 ---
 
@@ -110,14 +124,31 @@ doğrudan sürerek aynı SQL'i üretir. Normal ortamlarda `npm run db:migrate` k
 `/pricing-rules` · `/pricing-rules/[id]` · `/pricing/validate` · `/pricing/simulate` ·
 `/orders` · `/orders/[orderNo]` · `/orders/[orderNo]/status` · `/orders/[orderNo]/refund`
 
+**Fulfillment (Faz 4)**
+
+| Metod | Yol | Rol |
+|---|---|---|
+| GET | `/api/v1/admin/fulfillments` | `SUPPORT+` — kuyruk + gerçek DB sayaçları |
+| GET | `/api/v1/admin/fulfillments/[id]` | `SUPPORT+` — detay + event geçmişi |
+| POST | `/api/v1/admin/fulfillments/[id]/assign` | `OPERATOR+` (başkasına atama `ADMIN+`) |
+| POST | `/api/v1/admin/fulfillments/[id]/start` | `OPERATOR+` **manuel** başlatma |
+| POST | `/api/v1/admin/fulfillments/[id]/progress` | `OPERATOR+` **manuel** ilerleme |
+| POST | `/api/v1/admin/fulfillments/[id]/complete` | `OPERATOR+` **manuel** tamamlama |
+| POST | `/api/v1/admin/fulfillments/[id]/fail` | `OPERATOR+` |
+| POST | `/api/v1/admin/fulfillments/[id]/note` | `SUPPORT+` (müşteri notu) · `OPERATOR+` (iç not) |
+| POST | `/api/v1/admin/fulfillments/[id]/replacement` | `OPERATOR+` açar · onay `ADMIN+` |
+
 Rol: katalog okuma `SUPPORT+`, katalog yazma `ADMIN+`,
 sipariş okuma `SUPPORT+`, sipariş durum değişikliği `OPERATOR+`,
+fulfillment okuma `SUPPORT+`, fulfillment operasyonu `OPERATOR+` **ve atanmış olmak**
+(`ADMIN+` atama şartından muaf), telafi onayı `ADMIN+`,
 **iade `SUPERADMIN`** (para iadesi geri alınamaz).
 
 ### Sayfalar
 `/` sihirbaz · `/siparis-olusturuldu` başarı ekranı · `/siparis-takip` misafir takibi ·
 `/siparisler/[orderNo]` sipariş detayı · `/hesabim` müşteri paneli · `/giris` · `/kayit` ·
-`/odeme/sonuc/[orderNo]` ödeme sonucu (doğrulanıyor → alındı/başarısız)
+`/odeme/sonuc/[orderNo]` ödeme sonucu (doğrulanıyor → alındı/başarısız) ·
+`/yonetim/fulfillment` operasyon kuyruğu · `/yonetim/fulfillment/[id]` operasyon detayı
 
 ---
 
@@ -132,21 +163,25 @@ tests/unit/tier-step.test.ts           7  TIER_BOUNDARY_UNREACHABLE
 tests/unit/payment-status.test.ts     20  ödeme state machine + yapılandırma kapısı
 tests/unit/payment-contracts.test.ts  23  iyzico/PayTR imza ve istek SÖZLEŞMESİ
 tests/unit/payment-redact.test.ts     10  kart/secret arındırma
+tests/unit/fulfillment-status.test.ts 36  fulfillment state machine, progress, garanti
 tests/integration/database.test.ts    28  migration, seed, FK, unique, cascade
 tests/integration/api.test.ts         34  katalog, pricing, kupon, admin
 tests/integration/orders.test.ts      31  sipariş, idempotency, fulfillment kapısı
 tests/integration/orders-api.test.ts  29  route güvenliği, brute force, roller
 tests/integration/payments.test.ts    36  webhook doğrulama, yarış, iade, PII
 tests/integration/payments-api.test.ts 26 ödeme uçları: sahiplik, CSRF, yetki
+tests/integration/fulfillment.test.ts 57  otomatik READY, manuel geçişler, yarış, telafi
+tests/integration/fulfillment-api.test.ts 21 fulfillment uçları: yetki matrisi
 tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
                                       ───
-                                      350  (vitest)
+                                      464  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
 tests/e2e/api-security.spec.ts        12  API güvenlik yüzeyi
+tests/e2e/fulfillment.spec.ts          5  ödeme → READY → manuel start/progress/complete
                                       ───
-                                      109  (playwright, 2 proje)
+                                      122  (playwright, 2 proje · 119 passed, 3 skipped)
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
@@ -156,8 +191,8 @@ Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
 
 ## Sonraki Faz
 
-**Faz 4 — Fulfillment.** Ödeme alınmış siparişlerin manuel iş kuyruğu,
-operatör atama, ilerleme takibi. Detay: `docs/architecture-decisions.md`
+**Faz 5 — (onay bekliyor).** Faz 4 kapsamı tamamlandı; yeni faza kendiliğinden
+geçilmez. Detay ve kalan teknik borç: `docs/architecture-decisions.md`
 
 ### Ödeme sağlayıcısı yapılandırma
 

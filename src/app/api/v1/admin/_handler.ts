@@ -6,6 +6,11 @@ import { requireRole, type SessionUser } from '@/server/auth'
 import { CatalogAdminError, type ActorContext } from '@/server/catalog/admin'
 import { AdminOrderError } from '@/server/orders/admin'
 import { PaymentError } from '@/server/payments/create'
+import { FulfillmentError } from '@/server/fulfillment/create'
+import {
+  AutomationNotAllowedError,
+  InvalidFulfillmentTransitionError,
+} from '@/server/fulfillment/operate'
 import { apiError, handleUnexpected, MAX_ADMIN_BODY_BYTES, readJsonBody } from '@/server/http'
 import { hashIp, clientIpFrom, rateLimit, rateLimitHeaders } from '@/server/ratelimit'
 import type { UserRole } from '@/lib/enums'
@@ -96,6 +101,16 @@ export function adminHandler<S extends ZodTypeAny | undefined = undefined>(
       // PaymentError / RefundError (RefundError ondan türer)
       if (err instanceof PaymentError) {
         return apiError(err.code, err.message, err.status)
+      }
+      // FulfillmentError / FulfillmentAccessError (ondan türer)
+      if (err instanceof FulfillmentError) {
+        return apiError(err.code, err.message, err.status)
+      }
+      if (err instanceof AutomationNotAllowedError) {
+        return apiError(err.code, err.message, 403)
+      }
+      if (err instanceof InvalidFulfillmentTransitionError) {
+        return apiError(err.code, err.message, 409)
       }
       return handleUnexpected('admin', err)
     }
