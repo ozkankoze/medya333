@@ -46,3 +46,7 @@ yarn-error.log*
 
 # Faz 6 görsel kontrol çıktıları — depoya girmez
 /screenshots/
+
+# Redis anlık görüntüsü — sandbox'ta çalışan yerel Redis üretir.
+# Repoya girmemeli: katalog cache ve rate limit sayaçlarını içerir.
+dump.rdb
