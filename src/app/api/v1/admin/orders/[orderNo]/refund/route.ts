@@ -2,7 +2,8 @@ import type { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { adminHandler } from '../../../_handler'
 import { createRefund, getRefundSummary, RefundError } from '@/server/payments/refund'
-import { clientIpFrom } from '@/server/ratelimit'
+import { clientIpFrom, rateLimit, rateLimitHeaders } from '@/server/ratelimit'
+import { apiError } from '@/server/http'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,7 +37,19 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   return adminHandler(
     { schema: refundSchema, minimumRole: 'SUPERADMIN' },
-    ({ input, actor, req: r }) => {
+    async ({ input, actor, req: r, user }) => {
+      /**
+       * ⚠️ Genel yönetim limiti (100/dk) para iadesi için FAZLA cömerttir:
+       * iade geri alınamaz ve her biri sağlayıcıya gerçek bir işlem yollar.
+       * Kişi başına ayrı ve dar bir tavan uygulanır.
+       */
+      const limit = await rateLimit('admin.refund.user', user.id)
+      if (!limit.ok) {
+        return apiError('RATE_LIMITED', 'Çok fazla iade işlemi. Lütfen bekleyin.', 429, {
+          headers: rateLimitHeaders(limit),
+        })
+      }
+
       if (!/^[A-Za-z0-9._:-]{16,128}$/.test(idempotencyKey)) {
         throw new RefundError(
           'IDEMPOTENCY_KEY_REQUIRED',

@@ -71,6 +71,26 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  /**
+   * ⚠️ İKİNCİ EKSEN: SİPARİŞ BAZLI.
+   * Yalnızca IP'ye bakan bir limit, dağıtık IP'lerden aynı siparişte tekrar
+   * tekrar ödeme oturumu açılmasını engellemez — her deneme sağlayıcıya giden
+   * gerçek bir istektir. Sahiplik kontrolünden ÖNCE uygulanır ki sahibi
+   * olmayan biri de sayacı tüketebilsin diye değil, sağlayıcıya hiç
+   * gidilmesin diye.
+   */
+  let orderLimit
+  try {
+    orderLimit = await rateLimit('payments.init.order', orderNo)
+  } catch (err) {
+    return handleUnexpected('payments.create', err)
+  }
+  if (!orderLimit.ok) {
+    return apiError('RATE_LIMITED', 'Bu sipariş için çok fazla ödeme denemesi yapıldı.', 429, {
+      headers: rateLimitHeaders(orderLimit),
+    })
+  }
+
   // --- SAHİPLİK ------------------------------------------------------------
   let ownerUserId: string | null = null
 

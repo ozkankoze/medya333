@@ -87,6 +87,13 @@ export function adminHandler<S extends ZodTypeAny | undefined = undefined>(
         req,
       })
 
+      /**
+       * Handler hazır bir cevap döndürdüyse (ör. kendi rate limit'i için
+       * başlıklarıyla birlikte 429) onu OLDUĞU GİBİ geçir — aksi halde
+       * cevap ikinci kez JSON'a sarılır ve durum kodu 200'e düşerdi.
+       */
+      if (result instanceof NextResponse) return result
+
       return NextResponse.json(result ?? { ok: true }, {
         headers: { 'Cache-Control': 'no-store' },
       })

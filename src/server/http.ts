@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { randomBytes } from 'node:crypto'
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { appBaseUrl } from '@/server/base-url'
@@ -23,6 +24,19 @@ export const MAX_ADMIN_BODY_BYTES = 256 * 1024
 export interface ApiErrorOptions {
   details?: unknown
   headers?: Record<string, string>
+  /** Sunucu log'u ile müşteri cevabını eşleştiren kimlik (PII içermez). */
+  requestId?: string
+}
+
+/**
+ * KORELASYON KİMLİĞİ
+ *
+ * Müşteriye gösterilen hata ile sunucu log satırını eşleştirir. Rastgeledir,
+ * hiçbir PII veya iç bilgi taşımaz; destek "hata kodunuzu paylaşır mısınız"
+ * diye sorduğunda log'da tek satırda bulunur.
+ */
+export function newRequestId(): string {
+  return randomBytes(6).toString('hex')
 }
 
 export function apiError(
@@ -32,8 +46,22 @@ export function apiError(
   opts: ApiErrorOptions = {},
 ): NextResponse {
   return NextResponse.json(
-    { error: { code, message, ...(opts.details !== undefined ? { details: opts.details } : {}) } },
-    { status, headers: { 'Cache-Control': 'no-store', ...(opts.headers ?? {}) } },
+    {
+      error: {
+        code,
+        message,
+        ...(opts.details !== undefined ? { details: opts.details } : {}),
+        ...(opts.requestId ? { requestId: opts.requestId } : {}),
+      },
+    },
+    {
+      status,
+      headers: {
+        'Cache-Control': 'no-store',
+        ...(opts.requestId ? { 'X-Request-Id': opts.requestId } : {}),
+        ...(opts.headers ?? {}),
+      },
+    },
   )
 }
 
@@ -118,14 +146,16 @@ export async function readJsonBody(
  * İç mesaj/stack ASLA istemciye gitmez; sunucu log'una yazılır.
  */
 export function handleUnexpected(scope: string, err: unknown): NextResponse {
+  const requestId = newRequestId()
+
   if (err instanceof RedisRequiredError) {
     // Yapılandırma hatası — opak 500 yerine teşhis edilebilir 503.
-    console.error(`[${scope}] YAPILANDIRMA HATASI:`, err.message)
+    console.error(`[${scope}][${requestId}] YAPILANDIRMA HATASI: ${err.message}`)
     return apiError(
       'SERVICE_UNAVAILABLE',
       'Servis geçici olarak kullanılamıyor. Lütfen kısa süre sonra tekrar deneyin.',
       503,
-      { headers: { 'Retry-After': '30' } },
+      { headers: { 'Retry-After': '30' }, requestId },
     )
   }
   if (err instanceof AuthError) {
@@ -136,6 +166,15 @@ export function handleUnexpected(scope: string, err: unknown): NextResponse {
       details: err.flatten().fieldErrors,
     })
   }
-  console.error(`[${scope}]`, err)
-  return apiError('INTERNAL_ERROR', 'Beklenmeyen bir hata oluştu.', 500)
+  /**
+   * ⚠️ Yalnızca SUNUCU log'una: mesaj + yığın izi. Müşteriye giden cevapta
+   * korelasyon kimliğinden başka hiçbir iç bilgi YOKTUR.
+   */
+  console.error(`[${scope}][${requestId}]`, err)
+  return apiError(
+    'INTERNAL_ERROR',
+    'Beklenmeyen bir hata oluştu. Sorun sürerse bu kodu destek ekibimize iletin.',
+    500,
+    { requestId },
+  )
 }

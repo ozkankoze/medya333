@@ -14,6 +14,11 @@ import { getRedis, isRedisEnabled, RedisRequiredError } from './redis'
  * yüzden üretimde bellek-içi yola DÜŞÜLEMEZ.
  *
  * Arayüz Faz 0'dakiyle birebir aynı — çağıran kodun tek satırı değişmedi.
+ *
+ * ⚠️ BU TABLO BİR ENVANTER DEĞİL, BİR SÖZDÜR. Burada tanımlı ama hiçbir uçtan
+ * ÇAĞRILMAYAN bir kural, "korunuyor" yanılsaması üretir. `tests/unit/
+ * production-audit.test.ts` her anahtarın en az bir çağrı yeri olduğunu
+ * doğrular; kullanılmayan kural eklenemez.
  */
 
 export const RATE_LIMITS = {
@@ -31,13 +36,14 @@ export const RATE_LIMITS = {
   'orders.sendlink.orderNo': { limit: 3, windowMs: 3_600_000 },
   'orders.claim.user': { limit: 5, windowMs: 3_600_000 },
   'orders.detail.ip': { limit: 60, windowMs: 60_000 },
+  /** Aynı siparişte ödeme başlatmayı tekrar tekrar denemek — sağlayıcı maliyeti */
   'payments.init.order': { limit: 5, windowMs: 60_000 },
   'payments.create.ip': { limit: 10, windowMs: 60_000 },
   'payments.status.ip': { limit: 60, windowMs: 60_000 },
+  /** ⚠️ Para iadesi geri alınamaz; genel admin limitinin altında ayrı tavan */
   'admin.refund.user': { limit: 20, windowMs: 3_600_000 },
   'auth.login.ip': { limit: 5, windowMs: 60_000 },
   'auth.register.ip': { limit: 3, windowMs: 3_600_000 },
-  'media.proxy.ip': { limit: 60, windowMs: 60_000 },
   'admin.api.user': { limit: 100, windowMs: 60_000 },
   'catalog.read.ip': { limit: 120, windowMs: 60_000 },
 } as const

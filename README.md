@@ -1,4 +1,4 @@
-# Medya 333 — Faz 6
+# Medya 333 — Faz 7
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
@@ -8,7 +8,15 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
 + **Faz 5** (gerçek Instagram kataloğu: 8 hizmet · 12 varyant · **63 gerçek fiyat noktası**)
 + **Faz 5.1** (YouTube · Facebook · TikTok · Instagram takipçi garantisi 365 gün —
   toplam **4 platform · 22 hizmet · 29 varyant · 199 fiyat noktası**)
-+ **Faz 6** (müşteri deneyimi: hizmet keşfi, premium kabuk, garanti görünümü, Yardım, SEO).
++ **Faz 6** (müşteri deneyimi: hizmet keşfi, premium kabuk, garanti görünümü, Yardım, SEO)
++ **Faz 7** (production readiness: üretim açılış kapısı, CSP ve güvenlik başlıkları,
+  robots/sitemap/favicon, istek kimliği, yetki matrisi, rate limit envanteri,
+  dağıtım ve yedekleme kontrol listesi).
+
+> ⚠️ **CANLIYA ÇIKIŞ DURUMU: HAZIR DEĞİL.** Kod tarafı hazırdır; ancak gerçek
+> merchant bilgisi, e-posta sağlayıcısı, alan adı/TLS ve yönetilen
+> PostgreSQL + Redis **bağlı değildir**. Açık maddeler:
+> [`docs/PRODUCTION_CHECKLIST.md` § 0](docs/PRODUCTION_CHECKLIST.md).
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
 > Bu sistem bot, sahte hesap veya otomatik sosyal medya etkileşimi ÜRETMEZ.
@@ -49,6 +57,27 @@ npm run dev                   # http://localhost:3000
 | `npm run db:validate-pricing` | Tüm fiyat tablolarını doğrular (boşluk/çakışma) |
 | `node scripts/screenshots.mjs <url>` | 12 ekranın görüntüsünü alır, 6 genişlikte yatay taşma ölçer |
 | `npm run migrate:wasm` | ⚠️ Engine indirilemeyen ortamlarda migration (aşağı bkz.) |
+
+### Üretim belgeleri
+
+| Belge | İçerik |
+|---|---|
+| [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md) | Canlıya çıkış: blocker'lar, env tablosu, deploy/rollback/yedekleme adımları |
+| [`docs/SECURITY_MATRIX.md`](docs/SECURITY_MATRIX.md) | 5 rol × uç yetki matrisi + uç bazlı rate limit envanteri |
+| [`docs/architecture-decisions.md`](docs/architecture-decisions.md) | ADR'ler ve faz uygulama özetleri |
+
+### ⚠️ Aşama değişkeni: `APP_ENV`
+
+`next start` `NODE_ENV`'i **her zaman** `production` yapar — staging ve E2E de
+üretim derlemesi çalıştırır. Bu yüzden "gerçekten canlıyız" kararı `APP_ENV`'den
+okunur (`src/server/production-guard.ts`).
+
+- Tanımsız → `production` varsayılır (**fail-closed**): canlıda yazmayı unutmak
+  kapıyı gevşetmez.
+- `staging` / `e2e` → blocker'lar uyarıya düşer, üretim derlemesi mock ödeme ve
+  HTTP adresle açılabilir.
+- Kaçış kapısı **değildir**: `APP_ENV ≠ production` iken
+  `PAYMENT_ENVIRONMENT=production` **açılamaz** (`STAGE_REAL_PAYMENT`).
 
 ### Kısıtlı ağlarda migration
 
@@ -214,8 +243,11 @@ tests/integration/fulfillment.test.ts 57  otomatik READY, manuel geçişler, yar
 tests/integration/fulfillment-api.test.ts 21 fulfillment uçları: yetki matrisi
 tests/integration/catalog.test.ts     18  katalog CRUD, cache, sızıntı, pasif katalog
 tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
+tests/unit/production-guard.test.ts   20  ⭐ Faz 7: açılış kapısı, aşama, sır sızdırmama
+tests/unit/production-audit.test.ts   19  ⭐ Faz 7: KAYNAK KODU taraması (sır/PAN/SQL/başlık/RL)
+tests/integration/production-chain.test.ts 6 ⭐ Faz 7: uçtan uca zincir + webhook 10× tekrar
                                       ───
-                                      662  (vitest)
+                                      707  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
@@ -283,8 +315,14 @@ beklenen değerlerle karşılaştırır.
 
 ## Sonraki Faz
 
-**Faz 7 — (onay bekliyor).** Faz 6 kapsamı tamamlandı; yeni faza kendiliğinden
-geçilmez. Detay ve kalan teknik borç: `docs/architecture-decisions.md`
+**Faz 8 — (onay bekliyor).** Faz 7 kapsamı tamamlandı; yeni faza kendiliğinden
+geçilmez.
+
+Faz 7'nin sonucu: **kod hazır, ortam hazır değil.** Canlıya çıkışı engelleyen
+beş madde (merchant bilgisi, e-posta sağlayıcısı, alan adı/TLS, yönetilen
+PostgreSQL + Redis, hata izleme) `docs/PRODUCTION_CHECKLIST.md` § 0'da listelidir
+ve hiçbiri kodla "varmış gibi" gösterilmemiştir. Kalan teknik borç:
+`docs/architecture-decisions.md`
 
 ### Ödeme sağlayıcısı yapılandırma
 

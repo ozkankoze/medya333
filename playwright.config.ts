@@ -49,6 +49,16 @@ export default defineConfig({
         command: 'npx next start -p 3100',
         env: {
           ...process.env,
+          /**
+           * ⚠️ `next start` NODE_ENV'i her zaman "production" yapar. Üretim
+           * açılış kapısı (server/production-guard.ts) bu yüzden aşamayı
+           * APP_ENV'den okur: burada "e2e" olduğu için mock ödeme ve
+           * localhost adresi blocker değil UYARI olur.
+           *
+           * Bu bir kaçış kapısı DEĞİLDİR: APP_ENV production değilken
+           * PAYMENT_ENVIRONMENT=production açılamaz (STAGE_REAL_PAYMENT).
+           */
+          APP_ENV: 'e2e',
           PAYMENT_PROVIDER: 'mock',
           PAYMENT_ENVIRONMENT: 'sandbox',
           // ⚠️ Sağlayıcıya giden callback/success/checkout adresleri bundan

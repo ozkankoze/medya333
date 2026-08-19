@@ -15,6 +15,21 @@ export const env = createEnv({
   server: {
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
+    /**
+     * ⭐ DAĞITIM AŞAMASI — "üretim DERLEMESİ" ile "CANLI ortam" aynı şey değildir.
+     *
+     * `next start` NODE_ENV'i her zaman "production" yapar; E2E testleri ve
+     * staging de üretim derlemesi çalıştırır. Bu yüzden "gerçekten canlıyız"
+     * kararı NODE_ENV'e bırakılamaz.
+     *
+     * ⚠️ GÜVENLİ VARSAYILAN: tanımsızsa CANLI kabul edilir. Canlıda bu değişkeni
+     * yazmayı unutmak kapıyı SIKI çalıştırır (fail-closed); staging/e2e'de
+     * gevşetmek ise BİLİNÇLİ bir tercihtir. Üstelik gevşetme bedavaya gelmez:
+     * `production` dışı bir aşamada gerçek tahsilat (PAYMENT_ENVIRONMENT=
+     * production) açılamaz — bkz. server/production-guard.ts.
+     */
+    APP_ENV: z.enum(['production', 'staging', 'e2e']).default('production'),
+
     // --- Veritabanı ---
     DATABASE_URL: z.string().url(),
     DIRECT_DATABASE_URL: z.string().url().optional(),
@@ -110,6 +125,7 @@ export const env = createEnv({
 
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
+    APP_ENV: process.env.APP_ENV,
     DATABASE_URL: process.env.DATABASE_URL,
     DIRECT_DATABASE_URL: process.env.DIRECT_DATABASE_URL,
     AUTH_SECRET: process.env.AUTH_SECRET,

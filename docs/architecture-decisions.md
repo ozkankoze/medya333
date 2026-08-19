@@ -980,18 +980,167 @@ kartı, `tr_TR` locale, canonical. Açıklama katalog saymaz (bkz. ADR-024).
 
 ---
 
-## Sonraki Faz — Faz 7 (onay bekliyor)
+## ADR-027 — Üretim Kapısı `NODE_ENV`'e Değil, Aşamaya Bakar
 
-Faz 6 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+**Bağlam.** Faz 7'de açılış kapısı (`assertProductionReady`) yazıldığında koşul
+`NODE_ENV === 'production'` idi. Kapı ilk kez çalıştırıldığında **E2E paketinin
+tamamı düştü**: `next start` `NODE_ENV`'i her zaman `production` yapar, dolayısıyla
+mock ödeme + `http://127.0.0.1` adresiyle çalışan E2E sunucusu kapıya takıldı.
 
-**Kalan teknik borç**
+Bu, testin bulduğu bir test hatası değil, **kavram hatasıydı**: `NODE_ENV`
+*derleme kipini* söyler ("optimize edilmiş bundle"), *dağıtım aşamasını* değil
+("gerçek müşteriler, gerçek para"). Staging de, E2E de, yerel önizleme de üretim
+derlemesi çalıştırır.
+
+**Karar.** Ayrı bir `APP_ENV` değişkeni eklendi: `production | staging | e2e`.
+Kapı `NODE_ENV === 'production' && APP_ENV === 'production'` iken serttir.
+
+**Varsayılanın yönü kritik.** İki seçenek vardı:
+
+| Varsayılan | Unutulursa ne olur |
+|---|---|
+| `development` | **Canlıda kapı sessizce kapalı kalır** — mock ödemeyle yayına çıkılır |
+| `production` | Staging'de gereksiz yere blocker alınır — gürültülü ama zararsız |
+
+İkincisi seçildi: **fail-closed**. `APP_ENV` tanımsızsa canlı varsayılır. Yanlış
+yapılandırmanın maliyeti simetrik değildir; sessiz başarısızlık, gürültülü
+başarısızlıktan pahalıdır.
+
+**Kaçış kapısına dönüşmesin diye.** `APP_ENV=staging` yazıp gerçek kart çekmek
+mümkün olmamalıdır. Bu yüzden aşamadan **bağımsız**, her ortamda blocker kalan
+tek bir kural var:
+
+```
+APP_ENV ≠ production  &&  PAYMENT_ENVIRONMENT = production  →  STAGE_REAL_PAYMENT
+```
+
+Yani kapıyı gevşetmenin bedeli, gerçek tahsilattan vazgeçmektir. İkisini birden
+alamazsınız.
+
+**Sonuç.** `playwright.config.ts` içinde `APP_ENV: 'e2e'`; canlıda `production`
+(veya hiç). Boot log'unun ilk satırı hangi aşamada açıldığını yazar:
+`[boot] APP_ENV=e2e canli=hayır bulgu=6`.
+
+---
+
+## ADR-028 — Rate Limit Tablosu Bir Envanter Değil, Bir Söz
+
+**Bağlam.** Faz 7'de uç bazlı rate limit envanteri çıkarılırken `RATE_LIMITS`
+tablosundaki 21 kuralın **üçünün hiçbir yerden çağrılmadığı** görüldü:
+
+| Kural | Durum |
+|---|---|
+| `admin.refund.user` (20/saat) | Tanımlı, çağrılmıyor — **para iadesi yalnızca genel 100/dk limitindeydi** |
+| `payments.init.order` (5/dk) | Tanımlı, çağrılmıyor — sipariş bazlı eksen yoktu |
+| `media.proxy.ip` (60/dk) | Tanımlı, **karşılık gelen uç hiç yok** |
+
+Bu, denetimin en sinsi bulgusudur: belge de, kod da "korunuyor" der; koruma
+yoktur. Tablo okunduğunda güvence hissi verir, çalıştığında hiçbir şey yapmaz.
+
+**Karar.**
+1. `admin.refund.user` → `POST /admin/orders/{no}/refund` içine bağlandı.
+   Genel yönetim limiti (100/dk) para iadesi için fazla cömerttir; iade geri
+   alınamaz ve her deneme sağlayıcıya gerçek bir işlem yollar.
+2. `payments.init.order` → `POST /payments/create` içine bağlandı. Yalnızca IP
+   ekseni, dağıtık IP'lerden **aynı siparişte** ödeme oturumu açmayı engellemez.
+3. `media.proxy.ip` → **silindi.** Karşılığı olmayan kural, ileride bir uç
+   yazıldığında "zaten korunuyor" yanılsaması üretir.
+
+**Kalıcı hale getirme.** `tests/unit/production-audit.test.ts` artık tabloyu
+tarayıp her anahtarın en az bir çağrı yeri olduğunu doğruluyor. Kullanılmayan
+bir kural eklemek testi kırar.
+
+**İlgili yan etki.** `adminHandler` handler'ın dönüşünü JSON'a sarıyordu; kendi
+başlıklarıyla 429 döndürebilmek için `NextResponse` dönüşleri artık olduğu gibi
+geçiriliyor (aksi halde cevap ikinci kez sarılır ve durum kodu 200'e düşerdi).
+
+---
+
+## Faz 7 Uygulama Özeti
+
+**Amaç:** yeni özellik değil; canlıya çıkış öncesi güvenlik, stabilite,
+yapılandırma, dağıtım ve gözlemlenebilirlik denetimi.
+
+**Eklenen dosyalar**
+
+| Dosya | İş |
+|---|---|
+| `src/server/production-guard.ts` | Açılış kapısı: 13 bulgu kodu, blocker/warning ayrımı, **sır DEĞERİ asla yazılmaz** |
+| `src/instrumentation.ts` | Süreç açılışında kapıyı çalıştırır; aşamayı log'un ilk satırına yazar |
+| `src/app/robots.ts` | `/api/`, `/yonetim/`, `/panel/`, `/hesabim`, `/siparisler/`, `/odeme/` taramaya kapalı |
+| `src/app/sitemap.ts` | Katalogdan üretilir; katalog okunamazsa statik sayfalara düşer, **boş dönmez** |
+| `src/app/icon.svg` | Mevcut `Mark` bileşeninin SVG'si — yeni logo TASARLANMADI |
+| `docs/PRODUCTION_CHECKLIST.md` | Blocker listesi, env tablosu (secret sınıflaması), deploy/rollback/yedekleme |
+| `docs/SECURITY_MATRIX.md` | 5 rol × uç yetki matrisi + uç bazlı rate limit envanteri |
+
+**Denetimde bulunan ve düzeltilen GERÇEK eksikler**
+
+1. **CSP hiç yoktu.** Faz 0'daki yorum "Faz 4'te eklenecek" diyordu; eklenmemişti.
+   Tam politika yazıldı; `frame-src`/`form-action` yalnızca ödeme sağlayıcısının
+   3DS alan adlarına açık, `frame-ancestors 'none'`, `object-src 'none'`,
+   **`unsafe-eval` yok**.
+2. **`robots.txt` / `sitemap.xml` / favicon yoktu.** Yönetim ve hesap yolları
+   arama motorlarına açıktı.
+3. **Açılış kapısı yoktu.** Yalnızca ödeme anında çalışan `assertPaymentConfig`
+   vardı; mock sağlayıcıyla canlıya çıkmak mümkündü.
+4. **Ölü rate limit kuralları** (ADR-028).
+5. **Aşama/derleme karışıklığı** (ADR-027).
+6. **İstek kimliği yoktu.** `X-Request-Id` + `error.requestId` eklendi; beklenmeyen
+   hata mesajı müşteriye iç detay değil, destek ekibine iletilecek bir kod veriyor.
+
+**Denetlenip TEMİZ çıkanlar (değişiklik gerekmedi)**
+
+- Ham SQL'in tamamı parametreli tagged template; `$queryRawUnsafe` yok.
+- Şemada ve kodda PAN/CVV alanı yok; kart verisi hiç DB'ye ulaşmıyor.
+- 5 migration'ın hiçbirinde `DROP TABLE`/`DROP COLUMN`/veri kaybı yok.
+- Oturum çerezi `httpOnly` + `sameSite=lax` + şemaya göre `secure`/`__Secure-`.
+- Seed demo veri EKLEMİYOR; eski katalog silinmiyor, pasifleştiriliyor (ADR-020).
+- Webhook: imza + tekrar + tutar/para birimi/sipariş eşleşmesi + eşzamanlılık.
+
+**Doğrulama sonuçları**
+
+```
+tsc --noEmit                 0 hata
+next build                   başarılı
+vitest                       707 passed (24 dosya)
+playwright                   181 passed · 3 skipped (desktop + mobile)
+scripts/screenshots.mjs      6 genişlikte yatay taşma = 0px
+curl -I (üretim derlemesi)   CSP · HSTS · XCTO · XFO · Referrer · Permissions · COOP servis ediliyor
+```
+
+**Kapının canlı kanıtı.** Kapı yazıldıktan sonra sandbox yapılandırmasıyla
+`NODE_ENV=production` sunucu başlatıldığında süreç **açılmadı** ve beş blocker'ı
+adlarıyla listeledi — sır değeri yazmadan. Bu, birim testin değil, gerçek
+sürecin verdiği kanıttır.
+
+---
+
+## Sonraki Faz — Faz 8 (onay bekliyor)
+
+Faz 7 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+
+### ⚠️ CANLIYA ÇIKIŞ DEĞERLENDİRMESİ: HAZIR DEĞİL
+
+Kod tarafı hazırdır. Hazır olmayan şey **ortamdır** ve bunların hiçbiri kodla
+"varmış gibi" gösterilmedi:
+
+| # | Blocker | Neden kodla çözülemez |
+|---|---|---|
+| B1 | Gerçek merchant bilgisi yok | Sahte credential üretmek = ödeme almadan sipariş onaylamak |
+| B2 | E-posta sağlayıcısı yok (`ConsoleMailProvider`) | Müşteriye takip linki GİTMİYOR; sahte SMTP eklenmedi |
+| B3 | Alan adı + TLS bağlı değil | `__Secure-` çerezler ve callback'ler HTTPS ister |
+| B4 | Yönetilen PostgreSQL + Redis yok | Yedek/replica/erişim politikası altyapı kararıdır |
+| B5 | Hata izleme (Sentry) yok | DSN olmadan Sentry entegre etmek boş bağımlılık olur |
+
+### Kalan teknik borç
+
 - **Operatör kuyruğunda sayfalama yok.** 50'den fazla açık iş olduğunda en yeni
-  sipariş ilk sayfada görünmüyor (E2E bunu yakaladı; test artık sipariş
-  numarasıyla filtreliyor). Cursor tabanlı sayfalama + sıralama seçeneği gerekir.
-- Garanti süresi yalnızca Instagram Takipçi'de tanımlı; diğer ürünlerde
-  `refillDays = null` olduğu için rozet ve telafi akışı görünmüyor.
-- Müşteriye e-posta bildirimleri hâlâ konsola yazılıyor (gerçek SMTP yok).
+  sipariş ilk sayfada görünmüyor. Cursor tabanlı sayfalama gerekir.
+- Ters proxy `X-Forwarded-For`'u istemciden geleni **ezerek** yazmalıdır; aksi
+  halde rate limit kimliği taklit edilebilir.
+- Garanti süresi yalnızca Instagram Takipçi'de tanımlı.
 - Admin panelinde hizmet/varyant oluşturma ve fiyat kademesi ekleme formu yok.
+- Rol atama arayüzü yok; roller DB'den veriliyor.
 - OG görseli (`og:image`) üretilmedi — gerçek marka görseli bekleniyor.
 - `Logo` hâlâ wordmark; gerçek marka asset'i geldiğinde yalnızca o dosya değişir.
 - Prisma WASM şema motoru diff alamıyor; migration'lar elle yazılıyor.
