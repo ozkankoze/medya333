@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { env } from '@/env'
+import { appBaseUrl } from '@/server/base-url'
 
 /**
  * OTURUM ÇEREZİ — TEK KAYNAK
@@ -14,11 +15,19 @@ import { env } from '@/env'
  * NODE_ENV'e bağlanırsa üretim derlemesi HTTP üzerinde (yerel önizleme,
  * E2E, staging) çalışırken giriş SESSİZCE çalışmaz: sunucu çerezi yazar,
  * tarayıcı atar, kullanıcı sonsuz giriş döngüsüne düşer.
+ *
+ * ⚠️ ŞEMA `APP_BASE_URL`DEN OKUNUR — `NEXT_PUBLIC_SITE_URL`den DEĞİL (Faz 9).
+ * `NEXT_PUBLIC_` değişkenleri DERLEME sırasında koda gömülür. Aynı imaj
+ * `NEXT_PUBLIC_SITE_URL=http://localhost:3000` ile derlenip
+ * `https://www.medya333.com` altına konursa çerez `secure` İŞARETLENMEZ ve
+ * `__Secure-` öneki kullanılmaz: oturum çerezi HTTPS üzerinden gider ama
+ * tarayıcıya "düz HTTP'de de gönderebilirsin" demiş oluruz. Çalışma zamanı
+ * değişkeni bu sınıfı tamamen ortadan kaldırır.
  */
 
 function siteIsHttps(): boolean {
   try {
-    return new URL(env.NEXT_PUBLIC_SITE_URL).protocol === 'https:'
+    return new URL(appBaseUrl()).protocol === 'https:'
   } catch {
     return env.NODE_ENV === 'production'
   }

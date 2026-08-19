@@ -269,6 +269,69 @@ Aynı ekranda **+ Yeni hizmet** ve **+ Yeni varyant** panelleri var.
 
 ---
 
+## 10b · Bildirim paneli — "e-posta gitti mi?"
+
+`/yonetim/notifications`
+
+| Sekme | Ne gösterir |
+|---|---|
+| **Gönderilemeyen** | Müşteriye ulaşmayan bildirimler (varsayılan sekme) |
+| Gönderilen | Teslim edilenler |
+| Atlanan | Alıcı adresi olmayan kayıtlar |
+
+Her satırda: şablon · sipariş no · **maskeli** alıcı · durum · sağlayıcı ·
+oluşturma ve gönderim zamanı.
+
+> ⚠️ Ham e-posta adresi, takip token'ı, sağlayıcının ham cevabı ve API anahtarı
+> **gösterilmez**. Sağlayıcı teslim edemiyorsa ekranın üstünde kırmızı bir uyarı
+> çıkar — bu bir arıza değil, eksik yapılandırmadır.
+
+**Yeniden gönderme** (yalnızca ADMIN+, yalnızca başarısız kayıtlarda):
+sorunun düzeldiğini biliyorsanız tıklayın.
+
+> ⚠️ **Otomatik tekrar YOKTUR.** Sağlayıcı yapılandırılmamışken çalışan bir
+> retry döngüsü, saatte binlerce başarısız denemeden başka bir şey üretmez.
+> Yeniden gönderim yeni kayıt açmaz; "aynı olay için tek bildirim" kuralı
+> korunur, yalnızca deneme sayacı artar.
+
+### Üstteki dört sayaç
+
+| Sayaç | Anlamı |
+|---|---|
+| Gönderilemeyen bildirim | Müşteriye e-posta gitmiyor |
+| İnceleme bekleyen iş | § 6'ya bakın |
+| 24 saatten uzun sıradaki iş | **Bir ölçümdür, gecikme bildirimi DEĞİL** |
+| 30 gün içinde garantisi bitecek | Bilgi amaçlı |
+
+> ⚠️ Sistemde tanımlı bir **hedef teslim süresi (SLA) yoktur**. Bu yüzden
+> hiçbir ekran "gecikti" demez. Uydurma bir eşiğe göre aciliyet ilan etmek,
+> zamanla tüm uyarıların yok sayılmasına yol açar.
+
+---
+
+## 10c · Kullanıcı ve rol yönetimi
+
+`/yonetim/kullanicilar` — **yalnızca ADMIN ve SUPERADMIN görür.**
+
+| Rolünüz | Atayabildikleriniz |
+|---|---|
+| ADMIN | Müşteri · Destek · Operatör |
+| SUPERADMIN | Hepsi (Yönetici ve Süper Yönetici dahil) |
+
+Değiştiremeyeceğiniz üç durum arayüzde **kilitli** görünür:
+
+1. **Kendiniz** — kendi rolünüzü değiştiremezsiniz. Başka bir yönetici gerekir.
+2. **Kendinizle aynı veya üstü** — ADMIN, başka bir ADMIN'i değiştiremez.
+3. **Son SUPERADMIN** — düşürülemez. Önce başka bir SUPERADMIN atayın.
+
+> ⚠️ E-posta adresleri **maskeli** gösterilir. Rol atamak için tam adres
+> gerekmez; kişiyi ayırt edebilmek gerekir.
+>
+> ⚠️ Her rol değişikliği denetim kaydına yazılır: kim, ne zaman, eski rol →
+> yeni rol. Adres ve ad kaydedilmez.
+
+---
+
 ## 11 · Bilinen sınırlar (uydurmuyoruz, söylüyoruz)
 
 | Konu | Durum |
@@ -276,11 +339,20 @@ Aynı ekranda **+ Yeni hizmet** ve **+ Yeni varyant** panelleri var.
 | **E-posta** | Sağlayıcı bağlı değilse müşteriye **e-posta GİTMEZ**. Panel bunu "gönderildi" diye göstermez; bildirim kaydı `FAILED` olur. |
 | **Ödeme** | PayTR başvurusu onaylanmadı. Canlı tahsilat yapılamaz. |
 | **SMS / WhatsApp** | Yok. |
-| **Rol yönetimi** | Panelden rol atanamaz; roller veritabanından verilir. |
+| **Hata izleme** | Sentry **bağlı değil**. Canlıda bir istisna olduğunda kimse otomatik haberdar olmaz. |
+| **SLA** | Hedef teslim süresi tanımlı değil — bu yüzden hiçbir ekran "gecikti" demez, yalnızca süre ölçer. |
+| **Alan adı** | `www.medya333.com` DNS ve TLS bağlanmadı. |
 
 ---
 
 ## 12 · Sağlık kontrolü
+
+İki ayrı uç vardır:
+
+| Uç | Cevapladığı soru | Bağımlılık |
+|---|---|---|
+| `/api/health/live` | Süreç ayakta mı? | **yok** |
+| `/api/health` | Bu örneğe trafik verilebilir mi? | Veritabanı + Redis |
 
 `/api/health` → `healthy` · `degraded` · `unavailable`
 
@@ -305,6 +377,9 @@ Aynı ekranda **+ Yeni hizmet** ve **+ Yeni varyant** panelleri var.
 | Telafi vakası açmak | — | ✔ | ✔ | ✔ |
 | **Telafi onaylamak** | — | — | ✔ | ✔ |
 | Katalog / fiyat değiştirmek | — | — | ✔ | ✔ |
+| Bildirim izleme | ✔ | ✔ | ✔ | ✔ |
+| **Bildirimi yeniden gönderme** | — | — | ✔ | ✔ |
+| **Kullanıcı rolü değiştirme** | — | — | ✔ (sınırlı) | ✔ |
 | **Para iadesi** | — | — | — | ✔ |
 
 Tam matris: [`docs/SECURITY_MATRIX.md`](SECURITY_MATRIX.md).

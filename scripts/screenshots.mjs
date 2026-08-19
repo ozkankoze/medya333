@@ -20,6 +20,15 @@ const WIDTHS = [375, 390, 430, 768, 1024, 1440]
 
 const report = []
 
+/** Yönetim ekranlarını ölçebilmek için oturum açar. */
+async function adminLogin(page) {
+  await page.goto(`${BASE}/giris`)
+  await page.getByLabel('E-posta').fill(ADMIN.email)
+  await page.getByLabel('Şifre').fill(ADMIN.password)
+  await page.getByRole('button', { name: 'Giriş Yap' }).click()
+  await page.waitForURL(/\/hesabim/, { timeout: 20000 })
+}
+
 async function shoot(page, name, { full = true } = {}) {
   await page.waitForTimeout(350)
   const overflow = await page.evaluate(
@@ -137,11 +146,25 @@ try {
   for (const width of WIDTHS) {
     const ctx = await browser.newContext({ viewport: { width, height: 900 } })
     const p = await ctx.newPage()
+
+    /**
+     * ⚠️ Yönetim ekranları da ölçülür (Faz 9).
+     * Faz 9'da panel menüsüne iki bağlantı eklendi ve 390px'te sayfa 45px
+     * taşıdı — yalnızca müşteri sayfalarını ölçmek bunu kaçırırdı.
+     * Oturum yoksa `/giris`'e yönlenir; o sayfa da ölçülmüş olur.
+     */
+    await adminLogin(p).catch(() => {})
+
     for (const [label, url] of [
       ['home', '/'],
       ['wizard', '/?p=instagram&s=takipci#siparis'],
       ['yardim', '/yardim'],
       ['takip', '/siparis-takip'],
+      ['hesabim', '/hesabim'],
+      ['yonetim-kuyruk', '/yonetim/fulfillment?bucket=all'],
+      ['yonetim-katalog', '/yonetim/katalog'],
+      ['yonetim-bildirim', '/yonetim/notifications'],
+      ['yonetim-kullanici', '/yonetim/kullanicilar'],
     ]) {
       await p.goto(`${BASE}${url}`)
       await p.waitForTimeout(250)

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { appBaseUrl } from '@/server/base-url'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { SiteHeader } from '@/components/layout/SiteHeader'
 // Tipografi: Inter Variable, TAMAMEN self-host (npm paketi).
@@ -13,9 +14,21 @@ import './globals.css'
  * Platform ve hizmet listesi katalogdan gelir; burada sabitlenirse katalog
  * değiştiğinde meta açıklaması sessizce yanlışa döner. Bu yüzden açıklama
  * hizmet SAYMAZ, ne yaptığımızı anlatır.
+ *
+ * ⚠️ `generateMetadata` — SABİT `metadata` DEĞİL (Faz 9).
+ * Önceden `metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000')`
+ * yazıyordu. İki ayrı sorunu vardı:
+ *   1. `NEXT_PUBLIC_` değişkeni DERLEME sırasında gömülür — imaj bir kez
+ *      derlenip farklı ortamlara konursa canonical/OG adresleri yanlış olur.
+ *   2. Değişken derleme sırasında tanımsızsa **canlıda canonical ve OG
+ *      adresleri `http://localhost:3000` olur**. Arama motoruna ve sosyal
+ *      medya kazıyıcısına verilen adres localhost'tur; hiçbir hata alınmaz,
+ *      hiçbir test kırılmaz — sadece sessizce yanlış olur.
+ * `appBaseUrl()` çalışma zamanında `APP_BASE_URL`i okur.
  */
-export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+  metadataBase: new URL(appBaseUrl()),
   title: {
     default: 'Medya 333 | Sosyal Medya Hizmetleri',
     template: '%s · Medya 333',
@@ -36,6 +49,13 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'tr_TR',
     siteName: 'Medya 333',
+    /**
+     * ⚠️ `metadataBase` ile birleşir → `https://www.medya333.com/`.
+     * ⚠️ `images` BİLİNÇLİ OLARAK YOK: gerçek bir OG görseli üretilmedi.
+     * Var olmayan bir dosyaya işaret eden `og:image`, paylaşımlarda kırık
+     * önizleme üretir — hiç vermemek daha iyidir.
+     */
+    url: '/',
     title: 'Medya 333 | Sosyal Medya Hizmetleri',
     description:
       'Gerçek kullanıcılarla yürütülen sosyal medya tanıtım hizmetleri. ' +
@@ -47,7 +67,14 @@ export const metadata: Metadata = {
     description: 'Gerçek kullanıcılarla yürütülen sosyal medya tanıtım hizmetleri.',
   },
   robots: { index: true, follow: true },
+  /**
+   * ⚠️ Canonical `metadataBase` ile birleşir → `https://www.medya333.com/`.
+   * Sihirbaz derin bağlantıları (`/?p=…&s=…`) ana sayfanın sorgu parametreli
+   * varyantlarıdır; canonical hepsini tek adrese toplar ve yinelenen içerik
+   * oluşmaz.
+   */
   alternates: { canonical: '/' },
+  }
 }
 
 export const viewport: Viewport = {
@@ -59,7 +86,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="tr">
+    <html lang="tr-TR">
       <body className="flex min-h-dvh flex-col antialiased">
         {/* Klavye kullanıcısı menüyü atlayıp içeriğe geçebilmeli */}
         <a

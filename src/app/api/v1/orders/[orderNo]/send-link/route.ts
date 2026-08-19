@@ -33,7 +33,7 @@ export async function POST(
   try {
     ipLimit = await rateLimit('orders.sendlink.ip', rateLimitIdentifier(req.headers))
   } catch (err) {
-    return handleUnexpected('orders.sendlink', err)
+    return handleUnexpected('orders.sendlink', err, { orderNo })
   }
   if (!ipLimit.ok) {
     return apiError('RATE_LIMITED', 'Çok fazla istek. Lütfen daha sonra deneyin.', 429, {

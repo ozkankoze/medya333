@@ -123,8 +123,17 @@ export const env = createEnv({
      */
     EMAIL_PROVIDER: z.enum(['none', 'console', 'resend']).optional(),
 
-    // --- Gözlemlenebilirlik ---
+    // --- Gözlemlenebilirlik (Faz 9) ---
+    /**
+     * ⚠️ SDK KURULU DEĞİL. DSN verilse bile gönderim YAPILMAZ; durum
+     * `pending_sdk` olur ve hiçbir yerde "aktif" gösterilmez
+     * (bkz. server/observability.ts).
+     */
     SENTRY_DSN: z.string().url().optional(),
+    /** Sentry ortam etiketi — verilmezse APP_ENV kullanılır. */
+    SENTRY_ENVIRONMENT: z.string().optional(),
+    /** Örnekleme oranı: 0–1. Varsayılan 1 (tüm hatalar). */
+    SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
   },
 
   client: {
@@ -173,6 +182,8 @@ export const env = createEnv({
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
     SENTRY_DSN: process.env.SENTRY_DSN,
+    SENTRY_ENVIRONMENT: process.env.SENTRY_ENVIRONMENT,
+    SENTRY_TRACES_SAMPLE_RATE: process.env.SENTRY_TRACES_SAMPLE_RATE,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_SITE_NAME: process.env.NEXT_PUBLIC_SITE_NAME,
     NEXT_PUBLIC_PRICES_TAX_INCLUSIVE: process.env.NEXT_PUBLIC_PRICES_TAX_INCLUSIVE,

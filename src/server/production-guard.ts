@@ -177,11 +177,39 @@ export function auditProductionConfig(): GuardFinding[] {
       message: 'Taban adres HTTPS değil. Ödeme callback ve güvenli çerezler HTTPS ister.',
     })
   }
-  if (base.includes('localhost') || base.includes('127.0.0.1')) {
+  if (
+    base.includes('localhost') ||
+    base.includes('127.0.0.1') ||
+    base.includes('0.0.0.0') ||
+    base.includes('example.com') ||
+    base.includes('.local')
+  ) {
     findings.push({
       level: 'blocker',
       code: 'BASE_URL_LOCALHOST',
-      message: 'Taban adres localhost gösteriyor.',
+      message:
+        'Taban adres geliştirme/örnek bir adres gösteriyor (localhost, 127.0.0.1, ' +
+        '0.0.0.0, example.com, .local). Canlı adres kullanılmalıdır.',
+    })
+  }
+
+  /**
+   * ⚠️ TABAN ADRES İLE DERLEMEYE GÖMÜLEN ADRES AYNI OLMALI (Faz 9).
+   *
+   * `NEXT_PUBLIC_SITE_URL` derleme sırasında istemci paketine gömülür;
+   * `APP_BASE_URL` çalışma zamanında okunur. İkisi ayrışırsa sayfa
+   * kaynağındaki adresler bir alan adını, e-posta ve ödeme callback'leri
+   * başka bir alan adını gösterir. Hiçbir hata alınmaz — yalnızca sessizce
+   * yanlış olur.
+   */
+  if (env.APP_BASE_URL && env.APP_BASE_URL !== env.NEXT_PUBLIC_SITE_URL) {
+    findings.push({
+      level: 'warning',
+      code: 'BASE_URL_MISMATCH',
+      message:
+        `APP_BASE_URL ("${env.APP_BASE_URL}") ile NEXT_PUBLIC_SITE_URL ` +
+        `("${env.NEXT_PUBLIC_SITE_URL}") farklı. Derlemeye gömülen adres ile ` +
+        'çalışma zamanı adresi aynı olmalıdır.',
     })
   }
 
@@ -245,7 +273,22 @@ export function auditProductionConfig(): GuardFinding[] {
     findings.push({
       level: 'warning',
       code: 'ERROR_TRACKING_NOT_CONFIGURED',
-      message: 'SENTRY_DSN yok. Hatalar yalnızca sunucu log\'unda görünür.',
+      message:
+        'SENTRY_DSN yok. Hatalar yalnızca sunucu log\'unda görünür; ' +
+        'canlıda bir istisna olduğunda kimse haberdar olmaz.',
+    })
+  } else {
+    /**
+     * ⚠️ DSN VAR AMA SDK YOK.
+     * Bu durumu sessiz geçmek en kötüsüdür: ortamda DSN gören kişi
+     * "hata izleme kurulu" sanır, oysa hiçbir olay gönderilmiyordur.
+     */
+    findings.push({
+      level: 'warning',
+      code: 'ERROR_TRACKING_SDK_MISSING',
+      message:
+        'SENTRY_DSN tanımlı ama Sentry SDK projeye kurulu değil — HİÇBİR OLAY ' +
+        'GÖNDERİLMİYOR. Kurulum adımları: docs/PRODUCTION_CHECKLIST.md § 10.',
     })
   }
 

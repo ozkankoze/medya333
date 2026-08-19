@@ -5,6 +5,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { appBaseUrl } from '@/server/base-url'
 import { AuthError } from '@/server/auth/errors'
+import { reportError } from '@/server/observability'
 import { RedisRequiredError } from '@/server/redis'
 
 /**
@@ -145,7 +146,24 @@ export async function readJsonBody(
  * Beklenmeyen hataları güvenli cevaba çevirir.
  * İç mesaj/stack ASLA istemciye gitmez; sunucu log'una yazılır.
  */
-export function handleUnexpected(scope: string, err: unknown): NextResponse {
+/**
+ * ⚠️ KORELASYON BAĞLAMI (Faz 9).
+ * Yalnızca TANIMLAYICILAR geçilir — e-posta, ad, IP ve token DEĞİL.
+ * `scrubContext` beyaz liste uygular; listede olmayan alan sessizce düşer.
+ */
+export interface ErrorContext {
+  orderId?: string
+  orderNo?: string
+  paymentId?: string
+  providerEventId?: string
+  fulfillmentId?: string
+}
+
+export function handleUnexpected(
+  scope: string,
+  err: unknown,
+  context: ErrorContext = {},
+): NextResponse {
   const requestId = newRequestId()
 
   if (err instanceof RedisRequiredError) {
@@ -169,8 +187,20 @@ export function handleUnexpected(scope: string, err: unknown): NextResponse {
   /**
    * ⚠️ Yalnızca SUNUCU log'una: mesaj + yığın izi. Müşteriye giden cevapta
    * korelasyon kimliğinden başka hiçbir iç bilgi YOKTUR.
+   *
+   * ⚠️ İzleme sistemine giden özet AYRI: `reportError` yığın izini
+   * göndermez ve mesajı bağlantı dizesi / token / kart / IP kalıplarından
+   * arındırır. Sunucu log'u zenginken dış servise giden veri asgaridir.
    */
-  console.error(`[${scope}][${requestId}]`, err)
+  const reportable = reportError(err, { ...context, requestId, scope })
+  console.error(
+    `[${scope}][${requestId}]`,
+    Object.entries(reportable.context)
+      .filter(([k]) => k !== 'scope' && k !== 'requestId')
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' '),
+    err,
+  )
   return apiError(
     'INTERNAL_ERROR',
     'Beklenmeyen bir hata oluştu. Sorun sürerse bu kodu destek ekibimize iletin.',

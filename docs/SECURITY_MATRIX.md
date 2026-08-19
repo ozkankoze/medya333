@@ -63,6 +63,10 @@ belirtilmiş istisnalardır.
 | `POST …/note` (iç not) | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `POST …/assign`, `…/start`, `…/progress`, `…/complete`, `…/fail`, `…/replacement` | OPERATOR | — | — | ✔ | ✔ | ✔ |
 | `GET /admin/fulfillments?q=…` (arama/filtre) | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
+| `/yonetim/notifications` (bildirim izleme) | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
+| **`POST /admin/notifications/{id}/retry`** | **ADMIN** | — | — | — | ✔ | ✔ |
+| `/yonetim/kullanicilar` (kullanıcı listesi) | ADMIN | — | — | — | ✔ | ✔ |
+| **`PATCH /admin/users/{id}/role`** | **ADMIN** + 5 ek kural | — | — | — | ✔* | ✔ |
 | `GET /admin/services`, `/variants`, `/pricing-rules`, `/platforms` | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `GET /admin/pricing/simulate`, `/pricing/validate` | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `POST`/`PATCH` katalog (servis, varyant, fiyat kuralı, platform, sıralama) | ADMIN | — | — | — | ✔ | ✔ |
@@ -70,6 +74,30 @@ belirtilmiş istisnalardır.
 
 **Okunacak ana kural:** *okumak* SUPPORT'tan, *işi ilerletmek* OPERATOR'dan,
 *katalog/fiyat değiştirmek* ADMIN'den, *para iade etmek* SUPERADMIN'den başlar.
+
+`✔*` = ADMIN rol atayabilir ama **sınırlı**: yalnızca kendinden düşük roller,
+yalnızca kendinden düşük kullanıcılara, asla kendine (§ 2.4).
+
+### 2.4 Rol değiştirme — beş katmanlı yükseltme engeli (Faz 9)
+
+`PATCH /api/v1/admin/users/{id}/role` en hassas yönetim ucudur: burada bir
+hata, tüm yetki modelini geçersiz kılar. Beş kural üst üste uygulanır:
+
+| # | Kural | Engellediği senaryo |
+|---|---|---|
+| 1 | Uç `minimumRole: 'ADMIN'` | **CUSTOMER kendini ADMIN yapar** |
+| 2 | Kimse **kendi** rolünü değiştiremez (SUPERADMIN dahil) | ADMIN kendini SUPERADMIN yapar |
+| 3 | ADMIN kendi seviyesinde/üstünde **rol atayamaz** | ADMIN yeni ADMIN/SUPERADMIN üretir |
+| 4 | ADMIN kendi seviyesinde/üstünde **kullanıcıyı değiştiremez** | ADMIN diğer ADMIN'leri düşürüp tek yetkili olur |
+| 5 | **Son SUPERADMIN düşürülemez** | Sistem yönetilemez hâle gelir (kilitlenme) |
+
+Kural 5, sayım ve güncellemeyi **aynı transaction'da satır kilidiyle** yapar
+(`SELECT … FOR UPDATE`); aksi hâlde iki eşzamanlı istek son iki SUPERADMIN'i
+birlikte düşürebilirdi.
+
+Ek kısıtlar: misafir gölge kayıtlarına rol atanamaz · kullanıcı listesi
+**maskeli** e-posta gösterir · her değişiklik `user.role_change` olarak
+AuditLog'a yazılır ve payload'a PII girmez.
 
 ### 2.3 Rolden bağımsız ek kapılar
 
@@ -164,6 +192,7 @@ arkasındaki personel birbirini kilitlemez.
 | `POST /payments/webhooks/{provider}` | Sağlayıcı yeniden deneme yapar; limitlemek **ödeme kaybına** yol açar. Koruma imza + tekrar (replay) engeli + `PaymentEvent(provider, providerEventId)` unique kısıtıdır. |
 | `GET /robots.txt`, `/sitemap.xml`, `/icon.svg` | Statik, maliyetsiz. |
 | `GET /api/health` | Sağlık yoklaması kısılmaz (yukarı bkz.). |
+| `GET /api/health/live` | Liveness probu — bağımlılığa bakmaz, sabit `ok` döner. |
 
 ---
 
@@ -190,3 +219,18 @@ kendi yetki kontrolünden geçmiştir.
 | Bildirim kaydında PII var mı? | Yalnızca **maskeli** alıcı (`ab***@site.com`). Ham e-posta, takip token'ı ve sağlayıcı sırrı yazılmaz. |
 | Sağlayıcı yokken ne olur? | Kayıt `FAILED` olur. **"Gönderildi" denmez.** |
 | E-postada iç bilgi görünür mü? | Hayır. `assertSafeVariables` yasaklı alan adlarını (token, secret, cvv, internalNote, failureReason, operatorId…) çalışma zamanında reddeder; testler ayrıca şablon çıktısını iç enum'lara karşı tarar. |
+
+---
+
+## 6. İzleme yüzeyi (Faz 9)
+
+Hata izleme **bağlı değildir** (SDK kurulmadı). Bağlandığında dışarıya çıkacak
+veri bugünden sınırlandırılmıştır — `server/observability.ts`.
+
+| Soru | Cevap |
+|---|---|
+| Hangi alanlar gönderilebilir? | Yalnızca yedi tanımlayıcı: `requestId`, `orderId`, `orderNo`, `paymentId`, `providerEventId`, `fulfillmentId`, `scope`. **Beyaz liste** — tanımlanmamış her alan sessizce düşer. |
+| Yığın izi gönderilir mi? | **Hayır.** Dosya yolları ve bazen değişken değerleri taşır. Sunucu log'unda tam istisna zaten var. |
+| Hata mesajı temizlenir mi? | Evet: bağlantı dizeleri, `Bearer` token'ları, `anahtar=değer` sırları, e-posta adresleri, 13–19 haneli kart benzeri diziler ve IPv4 adresleri maskelenir. |
+| Ham IP gider mi? | **Hayır.** KVKK gereği hiçbir yere ham IP yazılmaz; kalıp maskelemesi ayrıca yakalar. |
+| DSN varsa "aktif" mi? | **Hayır.** SDK kurulu değilse durum `pending_sdk` olur ve boot `ERROR_TRACKING_SDK_MISSING` uyarısı verir. |

@@ -30,7 +30,7 @@ export async function GET(
   try {
     limit = await rateLimit('orders.detail.ip', rateLimitIdentifier(req.headers))
   } catch (err) {
-    return handleUnexpected('orders.detail', err)
+    return handleUnexpected('orders.detail', err, { orderNo })
   }
   if (!limit.ok) {
     return apiError('RATE_LIMITED', 'Çok fazla istek.', 429, { headers: rateLimitHeaders(limit) })
@@ -53,6 +53,6 @@ export async function GET(
     if (err instanceof OrderAccessDeniedError) {
       return apiError('ORDER_NOT_FOUND', err.message, 404)
     }
-    return handleUnexpected('orders.detail', err)
+    return handleUnexpected('orders.detail', err, { orderNo })
   }
 }

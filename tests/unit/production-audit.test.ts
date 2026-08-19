@@ -263,17 +263,32 @@ describe('çerez politikası', () => {
 
 // ===========================================================================
 describe('robots ve sitemap', () => {
-  it('panel ve hesap yolları taranmaya kapalı', () => {
+  it('panel, hesap ve kimlik yolları taranmaya kapalı', () => {
     const robots = read(path.join(SRC, 'app/robots.ts'))
-    for (const p of ['/api/', '/yonetim/', '/hesabim', '/siparisler/', '/odeme/']) {
+    for (const p of [
+      '/api/', '/yonetim/', '/panel/', '/hesabim', '/siparisler/', '/odeme/',
+      '/giris', '/kayit', '/siparis-olusturuldu',
+    ]) {
       expect(robots, `${p} disallow listesinde yok`).toContain(p)
     }
   })
 
-  it('sitemap katalogdan üretilir, elle liste tutulmaz', () => {
-    const sitemap = read(path.join(SRC, 'app/sitemap.ts'))
-    expect(sitemap).toContain('getCatalog')
-    expect(sitemap).toContain('appBaseUrl')
+  it('⚠️ sitemap ÖZEL ve TOKEN taşıyan adresleri İÇERMEZ', () => {
+    const sitemap = stripComments(read(path.join(SRC, 'app/sitemap.ts')))
+    expect(sitemap, 'taban adres sabitlenmiş').toContain('appBaseUrl')
+    for (const banned of [
+      '/siparisler/', // takip token'ı taşır
+      '/yonetim', '/panel', '/hesabim',
+      '/odeme/', '/siparis-olusturuldu',
+      '/giris', '/kayit',
+      '?p=', '?t=', // sihirbaz derin bağlantıları ve token parametresi
+    ]) {
+      expect(sitemap, `site haritasında "${banned}"`).not.toContain(banned)
+    }
+    // İndekslenmesini istediğimiz sayfalar duruyor
+    for (const wanted of ['/yardim', '/siparis-takip', '/kvkk-gizlilik']) {
+      expect(sitemap, `site haritasında "${wanted}" yok`).toContain(wanted)
+    }
   })
 })
 
@@ -364,5 +379,122 @@ describe('Faz 8 — operasyon denetimi', () => {
     const lookup = stripComments(read(path.join(SRC, 'server/orders/lookup.ts')))
     const block = lookup.slice(lookup.indexOf('timeline: order.events.map'), lookup.indexOf('steps,'))
     expect(block, 'zaman çizelgesinde ham enum').not.toMatch(/type:\s*e\.type/)
+  })
+})
+
+// ===========================================================================
+describe('Faz 9 — canlıya çıkış denetimi', () => {
+  it('⚠️ SUNUCU TARAFI ADRESLER APP_BASE_URL\'den üretilir', () => {
+    /**
+     * `NEXT_PUBLIC_SITE_URL` derlemeye gömülür. Callback, e-posta bağlantısı,
+     * canonical ve OG adresleri ondan üretilirse aynı imaj farklı ortamlarda
+     * YANLIŞ adres yayınlar — ve hiçbir hata alınmaz.
+     */
+    const offenders: string[] = []
+    for (const file of sourceFiles) {
+      if (file.endsWith('env.ts')) continue
+      if (file.endsWith(`server${path.sep}base-url.ts`)) continue // tek meşru düşüş noktası
+      if (file.endsWith(`server${path.sep}production-guard.ts`)) continue // karşılaştırma yapar
+      const body = stripComments(read(file))
+      if (/NEXT_PUBLIC_SITE_URL/.test(body)) offenders.push(rel(file))
+    }
+    expect(offenders, 'NEXT_PUBLIC_SITE_URL doğrudan kullanılmış').toEqual([])
+  })
+
+  it('⚠️ KAYNAK KODDA sabitlenmiş geliştirme adresi yok', () => {
+    /**
+     * İki dosya bilinçli olarak muaftır:
+     *   • `env.ts` — geliştirme varsayılanı burada tanımlıdır ve canlıda
+     *     `BASE_URL_LOCALHOST` / `BASE_URL_MISMATCH` ile yakalanır.
+     *   • `production-guard.ts` — bu adresleri YASAKLAYAN kodun kendisi;
+     *     yasakladığı dizeleri içermesi zorunludur.
+     */
+    const exempt = [`${path.sep}env.ts`, `server${path.sep}production-guard.ts`]
+    const offenders: string[] = []
+    for (const file of sourceFiles) {
+      if (exempt.some((e) => file.endsWith(e))) continue
+      const body = stripComments(read(file))
+      for (const bad of ['http://localhost', 'http://127.0.0.1', '0.0.0.0', 'example.com', 'staging.']) {
+        if (body.includes(bad)) offenders.push(`${rel(file)} → ${bad}`)
+      }
+    }
+    expect(offenders, 'üretim çıktısına sızabilecek geliştirme adresi').toEqual([])
+  })
+
+  it('⚠️ ÇEREZ GÜVENLİĞİ derleme zamanı değişkenine bağlı DEĞİL', () => {
+    const cookies = stripComments(read(path.join(SRC, 'server/auth/cookies.ts')))
+    expect(cookies, 'çerez şeması derlemeye gömülü adresten okunuyor').not.toContain(
+      'NEXT_PUBLIC_SITE_URL',
+    )
+    expect(cookies).toContain('appBaseUrl')
+  })
+
+  it('⚠️ metadataBase ÇALIŞMA ZAMANINDA çözülür (localhost fallback yok)', () => {
+    const layout = stripComments(read(path.join(SRC, 'app/layout.tsx')))
+    expect(layout).toContain('generateMetadata')
+    expect(layout).toContain('appBaseUrl()')
+    expect(layout, 'dil etiketi tr-TR olmalı').toContain('lang="tr-TR"')
+  })
+
+  it('⚠️ OG GÖRSELİ UYDURULMAMIŞ', () => {
+    const layout = read(path.join(SRC, 'app/layout.tsx'))
+    // Gerçek bir asset yokken `images:` tanımlamak kırık önizleme üretir.
+    expect(layout).not.toMatch(/images:\s*\[/)
+  })
+
+  it('⚠️ HATA İZLEME credential olmadan "aktif" GÖSTERİLMEZ', () => {
+    const obs = stripComments(read(path.join(SRC, 'server/observability.ts')))
+    // SDK kurulmadan `active` durumuna geçilemez
+    expect(obs).toContain('SENTRY_SDK_INSTALLED = false')
+    expect(obs).toMatch(/if \(!env\.SENTRY_DSN\) return 'not_configured'/)
+  })
+
+  it('⚠️ İZLEME BAĞLAMI beyaz liste ile temizlenir (PII geçemez)', () => {
+    const obs = read(path.join(SRC, 'server/observability.ts'))
+    expect(obs).toContain('ALLOWED_CONTEXT_KEYS')
+    // Beyaz listede PII alanı OLMAMALI
+    const block = obs.slice(obs.indexOf('ALLOWED_CONTEXT_KEYS'), obs.indexOf('])', obs.indexOf('ALLOWED_CONTEXT_KEYS')))
+    for (const pii of ['email', 'phone', 'ip', 'name', 'token', 'password']) {
+      expect(block.toLowerCase(), `bağlam beyaz listesinde "${pii}"`).not.toContain(pii)
+    }
+  })
+
+  it('⚠️ FİYAT OTORİTESİ CACHE\'TE DEĞİL, VERİTABANINDA', () => {
+    const resolve = stripComments(read(path.join(SRC, 'server/pricing/resolve.ts')))
+    // Fiyat çözümleyici katalog cache'ini OKUMAZ
+    expect(resolve, 'fiyat cache\'ten okunuyor').not.toContain('getCatalog')
+    expect(resolve, 'fiyat Redis\'ten okunuyor').not.toContain('getRedis')
+    // Doğrudan veritabanı sorgusu yapar
+    expect(resolve).toContain('db.serviceVariant.findFirst')
+  })
+
+  it('⚠️ RATE LIMIT üretimde FAIL-CLOSED (Redis düşerse açılmaz)', () => {
+    const rl = stripComments(read(path.join(SRC, 'server/ratelimit.ts')))
+    // Redis erişilemezse üretimde `ok: false` döner
+    expect(rl).toMatch(/env\.NODE_ENV === 'production'[\s\S]{0,200}ok: false/)
+  })
+
+  it('⚠️ ROL YÜKSELTME sunucuda engelli', () => {
+    const users = read(path.join(SRC, 'server/users/admin.ts'))
+    for (const rule of [
+      'SELF_ROLE_CHANGE', // kimse kendi rolünü değiştiremez
+      'ROLE_ABOVE_ACTOR', // kendi seviyesinde/üstünde rol atayamaz
+      'TARGET_ABOVE_ACTOR', // kendi seviyesinde/üstünde kullanıcıya dokunamaz
+      'LAST_SUPERADMIN', // kilitlenme koruması
+    ]) {
+      expect(users, `rol kuralı eksik: ${rule}`).toContain(rule)
+    }
+    // Rol değişikliği denetim kaydına yazılır
+    expect(users).toContain("'user.role_change'")
+  })
+
+  it('⚠️ BİLDİRİM PANELİ ham adres/token/sağlayıcı gövdesi göstermez', () => {
+    const admin = stripComments(read(path.join(SRC, 'server/notifications/admin.ts')))
+    // Seçilen alanlar arasında ham e-posta YOK
+    expect(admin).toContain('recipientMasked')
+    expect(admin).not.toMatch(/select:\s*\{[^}]*\bemail:\s*true/)
+    // Otomatik tekrar kuyruğu yok
+    expect(admin).not.toContain('setInterval')
+    expect(admin).not.toContain('setTimeout')
   })
 })

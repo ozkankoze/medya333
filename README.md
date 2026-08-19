@@ -1,4 +1,4 @@
-# Medya 333 — Faz 8
+# Medya 333 — Faz 9
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
@@ -14,11 +14,19 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
   dağıtım ve yedekleme kontrol listesi)
 + **Faz 8** (operasyon: sağlayıcı-bağımsız e-posta + idempotent bildirim katmanı,
   cursor tabanlı iş kuyruğu, arama/filtre/sıralama, katalog CRUD arayüzü,
-  sağlık ucu, operasyon el kitabı).
+  sağlık ucu, operasyon el kitabı)
++ **Faz 9** (canlıya çıkış hazırlığı: üretim alan adı standardı, çalışma zamanı
+  canonical/OG, Sentry iskeleti + PII temizliği, bildirim paneli, rol yönetimi,
+  liveness/readiness ayrımı, DNS/SPF/DKIM/DMARC ve yedekleme kontrol listeleri).
 
-> ⚠️ **CANLIYA ÇIKIŞ DURUMU: HAZIR DEĞİL.** Kod tarafı hazırdır; ancak gerçek
-> merchant bilgisi, e-posta sağlayıcısı, alan adı/TLS ve yönetilen
-> PostgreSQL + Redis **bağlı değildir**. Açık maddeler:
+**CANLI ALAN ADI: `https://www.medya333.com`**
+
+> ⚠️ **CANLIYA ÇIKIŞ DURUMU: HAZIR DEĞİL.** Kod tarafı hazırdır; ancak
+> **hiçbir dış servis bağlı değildir**: merchant bilgisi (PayTR onayı
+> bekleniyor), e-posta sağlayıcısı, DNS/TLS, yönetilen PostgreSQL + Redis,
+> hata izleme ve doğrulanmış yedekleme.
+>
+> Bunların hiçbiri kodla "varmış gibi" gösterilmemiştir. Altı açık madde:
 > [`docs/PRODUCTION_CHECKLIST.md` § 0](docs/PRODUCTION_CHECKLIST.md).
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
@@ -68,7 +76,30 @@ npm run dev                   # http://localhost:3000
 | [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md) | Canlıya çıkış: blocker'lar, env tablosu, deploy/rollback/yedekleme adımları |
 | [`docs/SECURITY_MATRIX.md`](docs/SECURITY_MATRIX.md) | 5 rol × uç yetki matrisi + uç bazlı rate limit envanteri |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | **Operasyon el kitabı** — sipariş bulma, atama, ilerleme, tamamlama, telafi, fiyat değiştirme |
+| [`.env.example`](.env.example) | Gruplanmış ortam değişkenleri: APPLICATION · DATABASE · REDIS · AUTH · EMAIL · PAYMENT · MONITORING |
 | [`docs/architecture-decisions.md`](docs/architecture-decisions.md) | ADR'ler ve faz uygulama özetleri |
+
+### ⚠️ Üretim alan adı: `https://www.medya333.com`
+
+Tüm **sunucu tarafı** adresler tek bir çalışma zamanı değişkeninden üretilir:
+
+```
+APP_BASE_URL=https://www.medya333.com
+NEXT_PUBLIC_SITE_URL=https://www.medya333.com   # aynı değer
+```
+
+`APP_BASE_URL`den üretilenler: ödeme callback'leri · e-posta bağlantıları ·
+sipariş takip linkleri · `canonical` · `og:url` · `robots.txt` · `sitemap.xml` ·
+**oturum çerezinin `Secure` / `__Secure-` kararı**.
+
+> ⚠️ **Neden `NEXT_PUBLIC_SITE_URL` değil?** Next.js `NEXT_PUBLIC_` değişkenlerini
+> DERLEME sırasında koda gömer. Aynı imaj farklı bir ortama konduğunda canonical
+> ve OG adresleri yanlış olur; değişken derleme anında tanımsızsa **canlıda
+> `http://localhost:3000` yayınlanır**. Hiçbir hata alınmaz, hiçbir test kırılmaz —
+> sadece sessizce yanlış olur. Faz 9'da bu iki yer (metadata ve çerez şeması)
+> çalışma zamanına taşındı.
+
+İkisi farklıysa boot `BASE_URL_MISMATCH` uyarısı verir.
 
 ### ⚠️ E-posta sağlayıcısı: `EMAIL_PROVIDER`
 
@@ -264,8 +295,9 @@ tests/unit/production-audit.test.ts   26  ⭐ Faz 7+8: KAYNAK KODU taraması (s�
 tests/integration/production-chain.test.ts 6 ⭐ Faz 7: uçtan uca zincir + webhook 10× tekrar
 tests/unit/notifications.test.ts      29  ⭐ Faz 8: şablon güvenliği, TL→kuruş, ayırıcı belirsizliği
 tests/integration/operations.test.ts  28  ⭐ Faz 8: cursor sayfalama, arama/filtre, bildirim idempotency, health
+tests/integration/launch.test.ts      22  ⭐ Faz 9: üretim alan adı, rol yükseltme engeli, bildirim paneli
                                       ───
-                                      771  (vitest)
+                                      804  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
@@ -273,9 +305,10 @@ tests/e2e/api-security.spec.ts        12  API güvenlik yüzeyi
 tests/e2e/fulfillment.spec.ts          5  ödeme → READY → manuel start/progress/complete
 tests/e2e/catalog.spec.ts              7  admin katalog → fiyat → simülatör → müşteri → YouTube/TikTok
 tests/e2e/experience.spec.ts          21  ⭐ Faz 6: keşif, garanti, paket, checkout, a11y, SEO
-tests/e2e/operations.spec.ts          17  ⭐ Faz 8: sayfalama, arama, katalog CRUD, health, yetki, mobil
+tests/e2e/operations.spec.ts          31  ⭐ Faz 8+9: sayfalama, arama, katalog CRUD, bildirim paneli,
+                                          rol yönetimi, canonical/robots/sitemap, liveness, mobil
                                       ───
-                                      218  (playwright, 2 proje · 213 passed, 5 skipped)
+                                      246  (playwright, 2 proje · 241 passed, 5 skipped)
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
@@ -334,14 +367,16 @@ beklenen değerlerle karşılaştırır.
 
 ## Sonraki Faz
 
-**Faz 9 — (onay bekliyor).** Faz 8 kapsamı tamamlandı; yeni faza kendiliğinden
-geçilmez.
+**Faz 10 — PAYTR PRODUCTION ACTIVATION (onay bekliyor).** Faz 9 kapsamı
+tamamlandı; yeni faza kendiliğinden geçilmez.
 
-Faz 8'in sonucu: **operasyon hazır, ortam hâlâ değil.** PayTR başvurusu
-onaylanmadığı için ödeme entegrasyonuna dokunulmadı. Canlıya çıkışı engelleyen
-beş madde (merchant bilgisi, e-posta sağlayıcısı, alan adı/TLS, yönetilen
-PostgreSQL + Redis, hata izleme) `docs/PRODUCTION_CHECKLIST.md` § 0'da listelidir
-ve hiçbiri kodla "varmış gibi" gösterilmemiştir. Kalan teknik borç:
+Faz 9'un sonucu: **uygulama hazır, dış servisler bağlı değil.** PayTR onayı
+beklendiği için ödeme adapter'ı, webhook davranışı ve credential yönetimi
+DEĞİŞTİRİLMEDİ. Onay geldiğinde kod değişikliği gerekmez — yalnızca dört ortam
+değişkeni girilir.
+
+Canlıya çıkışı engelleyen altı madde `docs/PRODUCTION_CHECKLIST.md` § 0'da
+listelidir; hiçbiri kodla "varmış gibi" gösterilmemiştir. Kalan teknik borç:
 `docs/architecture-decisions.md`
 
 ### Ödeme sağlayıcısı yapılandırma

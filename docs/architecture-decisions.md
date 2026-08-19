@@ -1358,41 +1358,296 @@ GET /api/health              {"status":"healthy", database: up, redis: up}
 
 ---
 
-## Sonraki Faz — Faz 9 (onay bekliyor)
 
-Faz 8 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+## ADR-033 — Alan Adı Çalışma Zamanında Çözülür, Derlemeye Gömülmez
 
-### ⚠️ CANLIYA ÇIKIŞ DEĞERLENDİRMESİ: HÂLÂ HAZIR DEĞİL
+**Bağlam.** Faz 9'da canlı alan adı kesinleşti: `https://www.medya333.com`.
+Kodun buna hazır olup olmadığını denetlerken iki yer bulundu ve ikisi de
+**derleme zamanı** değişkenine bağlıydı:
 
-Faz 8 **operasyonu** hazırladı; **ortam** hazır değil. Beş blocker aynen duruyor:
+```ts
+// app/layout.tsx
+metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000')
 
-| # | Blocker | Faz 8'de değişen |
-|---|---|---|
-| B1 | Gerçek merchant bilgisi yok | Değişmedi — **PayTR onayı bekleniyor** |
-| B2 | E-posta sağlayıcısı yok | Kod hazır (`EMAIL_PROVIDER=resend` + anahtar yeter). Sağlayıcı yokken artık **"gönderildi" denmiyor**, `FAILED` kaydediliyor |
-| B3 | Alan adı + TLS bağlı değil | Değişmedi |
-| B4 | Yönetilen PostgreSQL + Redis yok | Değişmedi. `/api/health` ile izlenebilir hâle geldi |
-| B5 | Hata izleme (Sentry) yok | Değişmedi — sahte entegrasyon eklenmedi |
-
-### PayTR onaylandığında yapılacaklar
-
-Kod değişikliği **gerekmez**; yalnızca environment:
-
-```bash
-PAYMENT_PROVIDER=paytr
-PAYMENT_ENVIRONMENT=production
-PAYTR_MERCHANT_ID=…  PAYTR_MERCHANT_KEY=…  PAYTR_MERCHANT_SALT=…
-APP_ENV=production
+// server/auth/cookies.ts
+new URL(env.NEXT_PUBLIC_SITE_URL).protocol === 'https:'
 ```
 
-Ardından `docs/PRODUCTION_CHECKLIST.md` § 4 (PAYMENT) adımları izlenir.
+**Neden bu bir hata?** Next.js `NEXT_PUBLIC_` değişkenlerini derleme sırasında
+metin olarak gömer. Sonuçları:
+
+1. **Canonical ve OG adresleri.** Değişken derleme anında tanımsızsa canlıda
+   yayınlanan canonical `http://localhost:3000` olur. Arama motoruna ve sosyal
+   medya kazıyıcısına verilen adres localhost'tur. Hiçbir hata alınmaz, hiçbir
+   test kırılmaz — sadece sessizce yanlış olur ve fark edildiğinde indeksleme
+   zaten bozulmuştur.
+2. **Çerez güvenliği.** Aynı imaj `NEXT_PUBLIC_SITE_URL=http://localhost:3000`
+   ile derlenip HTTPS altına konursa oturum çerezi `Secure` **işaretlenmez** ve
+   `__Secure-` öneki kullanılmaz. Tarayıcıya "bu çerezi düz HTTP'de de
+   gönderebilirsin" demiş oluruz. Bu bir SEO kusuru değil, bir güvenlik açığıdır.
+
+**Karar.** İkisi de `appBaseUrl()` üzerinden **çalışma zamanına** taşındı:
+
+- `layout.tsx` sabit `metadata` yerine `generateMetadata()` kullanıyor.
+- `cookies.ts` şemayı `APP_BASE_URL`den okuyor.
+
+Faz 3'te `APP_BASE_URL` tam olarak bu sorun için eklenmişti (ADR-012) ama
+yalnızca ödeme callback'lerinde kullanılmıştı. Aynı gerekçe metadata ve çerez
+için de geçerliydi; Faz 9'da tamamlandı.
+
+**Kalıcı hale getirme.** `production-audit.test.ts` artık `NEXT_PUBLIC_SITE_URL`
+kullanan her dosyayı reddediyor — yalnızca `base-url.ts` (tek meşru düşüş
+noktası) ve `production-guard.ts` (iki değeri karşılaştıran kod) muaf.
+Ayrıca yeni bir boot uyarısı var: `APP_BASE_URL ≠ NEXT_PUBLIC_SITE_URL` ise
+`BASE_URL_MISMATCH`.
+
+**Kanıt.** `NODE_ENV=production APP_ENV=production APP_BASE_URL=https://www.medya333.com`
+ile başlatılan sunucuda:
+
+```
+<link rel="canonical" href="https://www.medya333.com">
+<meta property="og:url" content="https://www.medya333.com">
+set-cookie: __Secure-medya333.session=…; Secure; HttpOnly; SameSite=lax
+```
+
+Derleme `NEXT_PUBLIC_SITE_URL=http://localhost:3000` ile yapılmıştı — yani
+çıktı gerçekten çalışma zamanından geliyor.
+
+---
+
+## ADR-034 — Sitemap'ten Derin Bağlantılar Çıkarıldı
+
+**Bağlam.** Faz 7'de site haritası katalogdan üretiliyordu ve her hizmet için
+bir `/?p=instagram&s=takipci` adresi içeriyordu — 22 hizmet, 22 adres.
+
+**Sorun.** Bu adreslerin hepsi ana sayfanın sorgu parametreli varyantıdır ve
+hepsinin canonical'i `/`'dir. Site haritasına, canonical'i BAŞKA bir adres olan
+bir URL koymak kendi kendisiyle çelişir: arama motoruna "bunu indeksle" derken
+sayfanın kendisi "hayır, asıl adres şu" der. Google bu durumu yinelenen içerik
+sinyali olarak okur.
+
+**Karar.** Site haritası yalnızca **kendi canonical'i kendisi olan** sayfaları
+içerir: ana sayfa, yardım, sipariş takip ve beş yasal metin. Katalog zaten ana
+sayfadaki hizmet keşfi bölümünden taranabiliyor.
+
+**Aynı denetimde çıkanlar:**
+- `/giris` ve `/kayit` site haritasındaydı ama robots'ta engelli değildi —
+  ikisi de düzeltildi (haritadan çıkarıldı, robots'a eklendi).
+- `/siparis-olusturuldu` robots'a eklendi (tek seferlik akış ekranı).
+
+**Kalıcı hale getirme.** Test, site haritasında `/siparisler/`, `/hesabim`,
+`/yonetim`, `/odeme/`, `?t=`, `?p=`, `/giris`, `/kayit` dizelerinin
+BULUNMADIĞINI doğruluyor. `?t=` özellikle önemli: takip token'ı taşıyan bir
+adresin site haritasına girmesi, müşteriye özel bir sırrı yayınlamak olurdu.
+
+---
+
+## ADR-035 — Sentry: Kurulmadan Önce Temizlik
+
+**Bağlam.** Hata izleme hâlâ bağlı değil (B5) ve bu fazda da bağlanamadı —
+gerçek bir DSN yok. İki seçenek vardı: hiçbir şey yapmamak ya da sahte bir
+entegrasyon yazmak. Üçüncü bir yol seçildi.
+
+**Karar.** `server/observability.ts` eklendi. Sentry SDK **kurulmadı**, sahte
+gönderim **yazılmadı**. Modülün yaptığı iki şey var:
+
+1. **Çağrı noktalarını bugünden tekilleştirir.** Tüm beklenmeyen hatalar
+   `reportError()` üzerinden geçiyor. SDK geldiğinde tek bir satır açılıyor;
+   çağıran kodun hiçbir yeri değişmiyor.
+2. **PII temizliğini bugünden zorunlu kılar.** Asıl sebep budur. Sentry'yi
+   sonradan bağlayıp "scrubbing'i sonra yaparız" demek, ilk gün kart bilgisi,
+   bağlantı dizesi ve oturum token'ı içeren olayların üçüncü tarafa gitmesi
+   demektir. Bir kez gönderilen veri geri alınamaz.
+
+**Beyaz liste, kara liste değil.** Korelasyon bağlamı yalnızca yedi alana izin
+verir (`requestId`, `orderId`, `orderNo`, `paymentId`, `providerEventId`,
+`fulfillmentId`, `scope`). Kara liste yaklaşımı her yeni hassas alanda
+güncellenmek zorundadır ve biri unutulduğunda sessizce sızar; beyaz listede
+tanımlanmamış her alan otomatik olarak dışarıda kalır.
+
+Serbest metin ayrıca kalıp bazlı maskelenir: bağlantı dizeleri, `Bearer`
+token'ları, `anahtar=değer` biçimindeki sırlar, e-posta adresleri, 13–19 haneli
+kart benzeri diziler ve IPv4 adresleri. **Yığın izi gönderilmez** — dosya
+yolları ve bazen değişken değerleri taşır; sunucu log'unda tam istisna zaten var.
+
+**Dürüstlük kuralı.** `errorTrackingState()` üç değer döner:
+`not_configured` (DSN yok) · `pending_sdk` (**DSN var ama SDK yok**) · `active`.
+Ortada DSN gören biri "kurulu" sanmasın diye ikinci durum ayrı bir boot uyarısı
+üretir: `ERROR_TRACKING_SDK_MISSING`.
+
+---
+
+## ADR-036 — Liveness ve Readiness Ayrı Uçlardır
+
+**Bağlam.** Faz 8'de tek bir `/api/health` vardı: veritabanı ve Redis'e bakıyor,
+biri yoksa 503 dönüyordu. Konteyner orkestratörüne bağlanırken doğal refleks
+onu hem liveness hem readiness probu yapmaktır.
+
+**Bu neden tehlikeli?** Veritabanı 30 saniye erişilemez olduğunda:
+
+1. Tüm örneklerin liveness probu 503 döner.
+2. Orkestratör "süreçler ölmüş" sanıp **hepsini yeniden başlatır**.
+3. Veritabanı geri geldiğinde ayakta örnek kalmamıştır; hepsi soğuk başlangıçta.
+4. Yeni açılan örnekler yine 503 döner ve döngü kendini besler.
+
+Kısa bir veritabanı kesintisi, uzun bir uygulama kesintisine dönüşür.
+
+**Karar.** İki ayrı uç:
+
+| Uç | Soru | Bağımlılık | Kod |
+|---|---|---|---|
+| `/api/health/live` | Süreç istek işleyebiliyor mu? | **yok** | 200 `ok` |
+| `/api/health` | Bu örneğe trafik verilebilir mi? | DB + Redis | 200 / 503 |
+
+`degraded` (Redis yok, DB var) bilinçli olarak **200** döner: örnek kuyrukta
+kalmalı ama izleme sistemi durumu cevaptan okuyup uyarı üretebilmelidir.
+
+"Gereksiz endpoint üretme" kuralına rağmen bu ikinci uç eklendi çünkü tek uçla
+çalışmanın maliyeti teorik değil, üretimde sık görülen bir arıza modudur.
+
+---
+
+## ADR-037 — Rol Yükseltme Beş Kuralla Engellenir
+
+**Bağlam.** Faz 9'a kadar roller yalnızca veritabanından elle atanıyordu.
+Panelden atama eklenince, en kritik güvenlik yüzeylerinden biri açılmış oluyor:
+bir yönetim ekranından kendini yükseltebilmek, tüm yetki modelini geçersiz kılar.
+
+**Karar — üst üste beş kural:**
+
+1. **Uç `minimumRole: 'ADMIN'` ister.** CUSTOMER, SUPPORT ve OPERATOR bu uca
+   hiç giremez. Bir müşterinin kendini ADMIN yapması bu katmanda biter.
+2. **Kimse kendi rolünü değiştiremez** — SUPERADMIN dahil. Tek başına bu kural,
+   "ADMIN kendini SUPERADMIN yapar" senaryosunu tamamen kapatır.
+3. **ADMIN kendi seviyesinde/üstünde rol ATAYAMAZ.** Yani yeni bir ADMIN veya
+   SUPERADMIN üretemez.
+4. **ADMIN kendi seviyesinde/üstünde kullanıcıyı DEĞİŞTİREMEZ.** Aksi hâlde bir
+   ADMIN diğerlerini düşürüp tek yetkili hâline gelebilirdi.
+5. **Son SUPERADMIN düşürülemez.** Kilitlenme koruması: sistemde tam yetkili
+   kalmazsa kimse rol atayamaz ve çözüm veritabanına elle müdahale olur.
+
+Kural 5, sayım ve güncelleme **aynı transaction içinde satır kilidiyle**
+yapılır (`SELECT … FOR UPDATE`). Aksi hâlde iki eşzamanlı istek "başka
+SUPERADMIN var" görüp ikisini birden düşürebilirdi — klasik bir TOCTOU yarışı.
+
+**Ek kararlar.** Misafir gölge kayıtlarına rol atanamaz (sipariş başına bir
+tane oluşurlar). Kullanıcı listesi **maskeli** e-posta gösterir: rol atamak
+için tam adres gerekmez, kişiyi ayırt edebilmek gerekir. Her değişiklik
+`user.role_change` olarak AuditLog'a yazılır ve payload'a PII girmez.
+
+---
+
+## ADR-038 — "Gecikti" Demek İçin Bir SLA Gerekir
+
+**Bağlam.** Faz 9 şartnamesi operasyon uyarıları istiyordu: uzun süre bekleyen
+işler, inceleme bekleyenler, garantisi bitmek üzere olanlar.
+
+**Sorun.** Sistemde tanımlı bir hedef teslim süresi (SLA) **yoktur**. "24 saati
+geçti = gecikti" demek, uydurulmuş bir eşiğe dayanan bir iddiadır. Ve uyarılar
+gerçeği yansıtmadığında olan şey bellidir: ekip onları yok saymayı öğrenir,
+sonra gerçek bir uyarı geldiğinde de yok sayar.
+
+**Karar.** Ekran **ölçüm** verir, **yorum** vermez:
+
+> "24 saatten uzun süredir sırada bekleyen 3 iş"
+> *Hedef teslim süresi tanımlı değil — bu bir gecikme bildirimi değil, bir ölçümdür.*
+
+Aynı ilke garanti için de geçerli: garanti süresi tanımsız varyantlar sayılır
+ve gösterilir, ama bu bir hata olarak değil bir olgu olarak sunulur —
+"o üründe garanti yoktur", tahmini bir süre atanmaz (ADR-022'nin devamı).
+
+Bir E2E testi, panelde "gecikti" kelimesinin geçmediğini doğruluyor.
+
+---
+
+## Faz 9 Uygulama Özeti
+
+**Amaç:** canlı alan adı kesinleştikten sonra sistemi yayına hazır hâle
+getirmek. **PayTR'ye dokunulmadı.**
+
+### Eklenen dosyalar
+
+| Dosya | İş |
+|---|---|
+| `src/server/observability.ts` | Sentry iskeleti, korelasyon bağlamı, PII/sır temizliği |
+| `src/server/notifications/admin.ts` | Bildirim listesi (cursor), elle yeniden gönderim, operasyon uyarıları |
+| `src/server/users/admin.ts` | Rol yönetimi + beş katmanlı yükseltme engeli |
+| `src/app/api/health/live/route.ts` | Liveness probu (bağımlılığa bakmaz) |
+| `src/app/yonetim/notifications/page.tsx` | Bildirim izleme paneli |
+| `src/app/yonetim/kullanicilar/page.tsx` | Kullanıcı ve rol yönetimi |
+| `src/app/api/v1/admin/notifications/[id]/retry/route.ts` | Elle yeniden gönderim (ADMIN+) |
+| `src/app/api/v1/admin/users/[id]/role/route.ts` | Rol değiştirme (ADMIN+) |
+| `tests/integration/launch.test.ts` | 22 test: alan adı, rol yükseltme, bildirim paneli |
+
+### Veritabanı değişikliği
+
+**YOK.** Faz 9 şema değiştirmedi; yeni migration eklenmedi.
+
+### Bulunan GERÇEK hatalar
+
+1. **`metadataBase` derleme zamanına bağlıydı ve localhost'a düşüyordu** —
+   canlıda canonical/OG adresi `http://localhost:3000` olabilirdi (ADR-033).
+2. **Oturum çerezinin `Secure` kararı derleme zamanına bağlıydı** — HTTPS
+   altında `Secure` işaretlenmemiş çerez üretebilirdi (ADR-033). Güvenlik hatası.
+3. **Site haritası kendi canonical'iyle çelişiyordu** — 22 derin bağlantı,
+   hepsinin canonical'i `/` (ADR-034).
+4. **`/giris` ve `/kayit` site haritasındaydı ama robots'ta engelli değildi.**
+5. **Panel menüsü 390px'te 45px taşıyordu** — Faz 9'da eklenen iki bağlantı
+   satırı doldurdu ve tüm yönetim arayüzü yana kaydı. `flex-wrap` ile çözüldü;
+   görsel kontrol betiği artık yönetim ekranlarını da ölçüyor (54 ölçüm).
+6. **Testte sessiz ESM tuzağı:** `process.env` ataması `import`'lardan sonra
+   çalıştığı için üretim alan adı testi `.env`'deki geliştirme adresini
+   ölçüyordu — yani "geçen" bir test hiçbir şey kanıtlamıyordu. Ortam ayarları
+   ayrı bir modüle (`launch-env.ts`) taşınıp ilk sırada import edildi.
+
+### Doğrulama sonuçları
+
+```
+tsc --noEmit                 0 hata
+next build                   başarılı
+vitest                       804 passed (27 dosya)
+playwright                   241 passed · 5 skipped (desktop + mobile)
+görsel kontrol               9 ekran × 6 genişlik = 54 ölçüm · taşma 0px
+fresh DB → migration → seed  26 tablo · 0 sipariş · 0 kullanıcı (demo veri YOK)
+canonical / og:url           https://www.medya333.com
+oturum çerezi                __Secure-…; Secure; HttpOnly; SameSite=lax
+liveness / readiness         200 ok / 200 healthy
+```
+
+---
+
+## Sonraki Faz — Faz 10: PAYTR PRODUCTION ACTIVATION (onay bekliyor)
+
+Faz 9 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+
+### ⚠️ CANLIYA ÇIKIŞ DEĞERLENDİRMESİ: UYGULAMA HAZIR, DIŞ SERVİSLER DEĞİL
+
+| # | Blocker | Faz 9'da değişen |
+|---|---|---|
+| B1 | Merchant credential yok | **Değişmedi — PayTR onayı bekleniyor.** Ödeme adapter'ı, webhook ve credential yönetimi değiştirilmedi |
+| B2 | E-posta sağlayıcısı yok | Değişmedi. Boot kapısı sıkılaştı: `resend` seçilip anahtar yoksa boot durur |
+| B3 | `www.medya333.com` DNS + TLS yok | Değişmedi. **Kod tarafı hazır**: tüm adresler `APP_BASE_URL`den üretiliyor |
+| B4 | Yönetilen PostgreSQL + Redis yok | Değişmedi. Liveness/readiness ayrımı ve erişim güvenliği kontrol listesi eklendi |
+| B5 | Hata izleme yok | Değişmedi. İskelet + PII temizliği hazır; SDK kurulmadı, sahte entegrasyon yazılmadı |
+| B6 | Yedekleme doğrulanmadı | **Yeni blocker.** Geri yükleme provası yapılmadan "yapılandırıldı" denmez |
+
+### Bu ortamdan DOĞRULANAMAYANLAR
+
+Sandbox'tan test edilemeyen ve bu yüzden **PENDING** bırakılanlar:
+
+- `medya333.com` / `www.medya333.com` DNS çözümü ve dört varyantın yönlendirmesi
+- TLS sertifikası ve zinciri
+- SPF / DKIM / DMARC kayıtları
+- Gerçek bir gelen kutusuna e-posta teslimi
+- Yedekten geri yükleme provası
+
+Bunların hiçbiri "yapıldı" olarak işaretlenmedi.
 
 ### Kalan teknik borç
 
 - Instagram dışındaki ürünlerde garanti süresi (`refillDays`) tanımlı değil.
-- Panelden rol atama yok; roller veritabanından veriliyor.
-- SLA / gecikme alarmı yok (`READY`'de bekleyen iş için eşik).
-- Garanti bitişi yaklaşan siparişler için hatırlatma bildirimi yok.
-- Bildirim başarısızlıkları için panel ekranı yok (şu an yalnızca DB sorgusu).
+- SLA / hedef teslim süresi tanımlı değil — bu yüzden "gecikti" uyarısı yok.
+- Bildirimler için zamanlanmış yeniden deneme kuyruğu yok (elle tetiklenir).
+- Garanti bitişi yaklaşan siparişler için müşteriye hatırlatma bildirimi yok.
 - OG görseli üretilmedi; `Logo` hâlâ wordmark.
 - Prisma WASM şema motoru diff alamıyor; migration'lar elle yazılıyor.

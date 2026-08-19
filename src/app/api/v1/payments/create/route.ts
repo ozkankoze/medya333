@@ -160,6 +160,8 @@ export async function POST(req: NextRequest) {
     if (err instanceof PaymentError) {
       return apiError(err.code, err.message, err.status)
     }
-    return handleUnexpected('payments.create', err)
+    // ⚠️ Korelasyon: sipariş numarası TANIMLAYICIDIR, PII değildir —
+    // tek başına siparişe erişim vermez (e-posta veya imzalı token şart).
+    return handleUnexpected('payments.create', err, { orderNo })
   }
 }

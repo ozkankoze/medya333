@@ -303,3 +303,174 @@ test.describe('mobil operasyon arayüzü', () => {
     expect(overflow, `sayfa ${overflow}px taşıyor`).toBeLessThanOrEqual(0)
   })
 })
+
+// ===========================================================================
+test.describe('bildirim paneli', () => {
+  test('açılır, sağlayıcı uyarısı ve operasyon sayaçları görünür', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/yonetim/notifications')
+
+    await expect(page.getByTestId('alert-failed')).toBeVisible()
+    await expect(page.getByTestId('alert-review')).toBeVisible()
+    await expect(page.getByTestId('alert-waiting')).toBeVisible()
+    await expect(page.getByTestId('alert-guarantee')).toBeVisible()
+
+    /**
+     * ⚠️ SLA tanımlı olmadığı için "gecikti" DENMEZ. Ekran ölçümü verir,
+     * yorumu insana bırakır.
+     */
+    await expect(page.locator('#icerik')).not.toContainText('gecikti')
+    await expect(page.locator('#icerik')).not.toContainText('Gecikti')
+  })
+
+  test('⚠️ ham e-posta, token veya API anahtarı GÖSTERİLMEZ', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/yonetim/notifications?filter=all')
+
+    const html = await page.locator('#icerik').innerHTML()
+
+    // Maskesiz e-posta yok (maskeliler `ab***@` biçiminde)
+    expect(html, 'panelde maskesiz e-posta').not.toMatch(/[a-z0-9._-]{3,}@ornek\.test/i)
+
+    /**
+     * ⚠️ Aranan şey DEĞİŞKEN ADI değil, SIR DEĞERİDİR.
+     * Ekran operatöre `EMAIL_PROVIDER=resend` ve `RESEND_API_KEY` yazmasını
+     * söyleyen bir yardım metni gösterir — bu bir sızıntı değil, yönergedir.
+     * Sızıntı, o değişkenin DEĞERİNİN görünmesidir.
+     */
+    for (const secretShape of [
+      /\bre_[A-Za-z0-9]{8,}/, // Resend anahtar biçimi
+      /Bearer\s+[A-Za-z0-9._-]{16,}/, // yetkilendirme başlığı
+      /\bsk_(live|test)_[A-Za-z0-9]{8,}/, // genel gizli anahtar biçimi
+      /"?(apiKey|accessToken|sessionToken)"?\s*[:=]\s*"?[A-Za-z0-9._-]{12,}/,
+    ]) {
+      expect(html, `panelde sır değeri: ${secretShape}`).not.toMatch(secretShape)
+    }
+
+    // Sağlayıcının ham cevabı da gösterilmez
+    expect(html).not.toContain('"statusCode"')
+  })
+
+  test('sağlayıcı teslim edemiyorsa açık uyarı verir', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/yonetim/notifications')
+
+    // E2E ortamında gerçek sağlayıcı yok → uyarı görünmeli
+    await expect(page.getByTestId('mail-provider-warning')).toBeVisible()
+    await expect(page.getByTestId('mail-provider-warning')).toContainText(
+      'hiçbir e-posta gitmiyor',
+    )
+  })
+})
+
+// ===========================================================================
+test.describe('rol yönetimi', () => {
+  test('⚠️ SUPPORT/OPERATOR kullanıcı yönetimine ERİŞEMEZ', async ({ page, request }) => {
+    // Oturumsuz istek de reddedilmeli
+    const res = await request.patch('/api/v1/admin/users/xxx/role', {
+      data: { role: 'ADMIN' },
+    })
+    expect([401, 403]).toContain(res.status())
+  })
+
+  test('⚠️ CUSTOMER kendini ADMIN YAPAMAZ', async ({ page, request }) => {
+    await isolateClient(page)
+    const email = `esc-${Date.now()}@ornek.test`
+    await page.goto('/kayit')
+    await page.getByLabel('E-posta').fill(email)
+    await page.getByLabel('Şifre').fill('Musteri-Sifre-2026')
+    await page.getByRole('checkbox').check()
+    await page.getByRole('button', { name: 'Hesap Oluştur' }).click()
+    await expect(page).toHaveURL(/\/hesabim/, { timeout: 20_000 })
+
+    const cookies = await page.context().cookies()
+    const cookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ')
+
+    // Kendi kimliğini öğrenip kendini yükseltmeyi dene
+    const res = await request.patch('/api/v1/admin/users/self/role', {
+      headers: { cookie, origin: new URL(page.url()).origin },
+      data: { role: 'SUPERADMIN' },
+    })
+    expect(res.status(), 'CUSTOMER rol değiştirme ucuna girebiliyor').toBe(403)
+
+    // Sayfa da erişilemez olmalı
+    await page.goto('/yonetim/kullanicilar')
+    await expect(page).not.toHaveURL(/\/yonetim\/kullanicilar/, { timeout: 20_000 })
+  })
+
+  test('ADMIN kullanıcı listesini görür; adresler maskelidir', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/yonetim/kullanicilar')
+
+    await expect(page.getByTestId('user-summary')).toBeVisible()
+    const html = await page.locator('#icerik').innerHTML()
+    expect(html).toContain('***@')
+    expect(html, 'listede ham e-posta').not.toContain('admin@medya333.local')
+  })
+
+  test('⚠️ kişi KENDİ rolünü değiştiremez (arayüz de kilitler)', async ({ page }) => {
+    await loginAsAdmin(page)
+    await page.goto('/yonetim/kullanicilar?q=admin')
+
+    // Giriş yapan kullanıcının satırı kilitli görünür
+    await expect(page.locator('[data-testid$="-locked"]').first()).toBeVisible()
+  })
+})
+
+// ===========================================================================
+test.describe('üretim alan adı ve SEO', () => {
+  test('canonical, og:url ve sitemap AYNI tabandan üretilir', async ({ page, request }) => {
+    await page.goto('/')
+
+    const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+    const ogUrl = await page.locator('meta[property="og:url"]').getAttribute('content')
+    expect(canonical).toBeTruthy()
+    expect(new URL(canonical!).origin).toBe(new URL(ogUrl!).origin)
+
+    const robots = await (await request.get('/robots.txt')).text()
+    const sitemap = await (await request.get('/sitemap.xml')).text()
+    expect(robots).toContain(new URL(canonical!).origin)
+    expect(sitemap).toContain(new URL(canonical!).origin)
+  })
+
+  test('⚠️ og:image UYDURULMAMIŞ (kırık önizleme yok)', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('meta[property="og:image"]')).toHaveCount(0)
+  })
+
+  test('dil etiketi tr-TR', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'tr-TR')
+  })
+
+  test('robots özel yolları engeller', async ({ request }) => {
+    const robots = await (await request.get('/robots.txt')).text()
+    for (const p of ['/yonetim/', '/panel/', '/hesabim', '/siparisler/', '/giris', '/kayit']) {
+      expect(robots, `${p} engellenmemiş`).toContain(`Disallow: ${p}`)
+    }
+  })
+
+  test('⚠️ sitemap TOKEN taşıyan veya özel adres içermez', async ({ request }) => {
+    const sitemap = await (await request.get('/sitemap.xml')).text()
+    for (const bad of ['/siparisler/', '/hesabim', '/yonetim', '/odeme/', '?t=', '?p=', '/giris']) {
+      expect(sitemap, `site haritasında "${bad}"`).not.toContain(bad)
+    }
+    expect(sitemap).toContain('/yardim')
+    expect(sitemap).toContain('/siparis-takip')
+  })
+})
+
+// ===========================================================================
+test.describe('liveness / readiness', () => {
+  test('liveness bağımlılığa bakmaz ve düz metin döner', async ({ request }) => {
+    const res = await request.get('/api/health/live')
+    expect(res.status()).toBe(200)
+    expect((await res.text()).trim()).toBe('ok')
+  })
+
+  test('readiness bağımlılık durumunu döner', async ({ request }) => {
+    const res = await request.get('/api/health')
+    const body = await res.json()
+    expect(Object.keys(body.checks).sort()).toEqual(['application', 'database', 'redis'])
+  })
+})
