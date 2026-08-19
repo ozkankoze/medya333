@@ -108,8 +108,9 @@ export async function setupTestDatabase(): Promise<TestDatabase> {
 /** Testler arası izolasyon: katalog dışındaki işlem verisini temizler. */
 export async function truncateTransactional(db: PrismaClient): Promise<void> {
   await db.$executeRawUnsafe(`
-    TRUNCATE TABLE "OrderEvent", "OrderItem", "Refund", "PaymentEvent", "Payment",
-                   "CouponRedemption", "Order", "Target", "AuditLog", "AdapterCallLog"
+    TRUNCATE TABLE "Notification", "OrderEvent", "OrderItem", "Refund", "PaymentEvent",
+                   "Payment", "CouponRedemption", "Order", "Target", "AuditLog",
+                   "AdapterCallLog"
     RESTART IDENTITY CASCADE
   `)
 }

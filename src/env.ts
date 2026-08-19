@@ -111,6 +111,17 @@ export const env = createEnv({
     // --- E-posta ---
     MAIL_FROM: z.string().email().default('siparis@medya333.com'),
     RESEND_API_KEY: z.string().optional(),
+    /**
+     * ⭐ E-POSTA SAĞLAYICISI (Faz 8)
+     *
+     *   none    → gönderim YAPILMAZ ve başarılı SAYILMAZ. Canlı varsayılanı.
+     *   console → yalnızca geliştirme. Üretimde seçilirse boot FAIL.
+     *   resend  → gerçek gönderim; RESEND_API_KEY olmadan seçilemez.
+     *
+     * Tanımsızsa: anahtar varsa `resend`, test'te bellek, canlıda `none`,
+     * geliştirmede `console` (bkz. server/mail/provider.ts).
+     */
+    EMAIL_PROVIDER: z.enum(['none', 'console', 'resend']).optional(),
 
     // --- Gözlemlenebilirlik ---
     SENTRY_DSN: z.string().url().optional(),
@@ -160,6 +171,7 @@ export const env = createEnv({
     INVOICE_API_SECRET: process.env.INVOICE_API_SECRET,
     MAIL_FROM: process.env.MAIL_FROM,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
+    EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
     SENTRY_DSN: process.env.SENTRY_DSN,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_SITE_NAME: process.env.NEXT_PUBLIC_SITE_NAME,

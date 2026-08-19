@@ -31,16 +31,72 @@ const PAID_ORDER_STATUSES: OrderStatus[] = [
   'COMPLETED',
 ]
 
+/**
+ * ⭐ SIRALAMA SEÇENEKLERİ (Faz 8)
+ *
+ * Her seçenek `id` ile biter. Bu bir detay değil, sayfalamanın TEMELİDİR:
+ * `createdAt` iki kayıtta aynı olabilir (aynı webhook toplu işlendiğinde
+ * milisaniyeye kadar aynı olur). Tie-breaker olmadan bir kayıt iki sayfada
+ * birden görünür veya hiç görünmez.
+ */
+const SORT_ORDERS = {
+  /** En yeni sipariş ÜSTTE. Varsayılan — yeni iş asla gözden kaçmaz. */
+  newest: [{ createdAt: 'desc' }, { id: 'desc' }],
+  /** En eski önce — FIFO çalışan ekipler için. */
+  oldest: [{ createdAt: 'asc' }, { id: 'asc' }],
+  /**
+   * Durum önceliği: READY → PROCESSING → STARTED → PARTIAL → COMPLETED →
+   * FAILED → REVIEW_REQUIRED.
+   *
+   * ⚠️ Bu sıra PostgreSQL enum TANIM SIRASIDIR (`FulfillmentStatus`), uygulama
+   * içindeki `QUEUE_PRIORITY` haritası değil. İkisi ilk dört adımda birebir
+   * aynıdır; son üçünde ayrışır (QUEUE_PRIORITY incelemeyi tamamlanandan önce
+   * sayar). Enum sırası veritabanında değiştirilemediği için burada tek
+   * kaynak enum'dur — ve inceleme kuyruğu zaten kendi sekmesinden
+   * (`bucket=review`) izlenir.
+   */
+  priority: [{ status: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+} as const
+
+export type QueueSort = keyof typeof SORT_ORDERS
+export const QUEUE_SORTS = Object.keys(SORT_ORDERS) as QueueSort[]
+
+export const QUEUE_SORT_LABELS: Record<QueueSort, string> = {
+  newest: 'En yeni',
+  oldest: 'En eski',
+  priority: 'Durum önceliği',
+}
+
+export const DEFAULT_QUEUE_PAGE_SIZE = 50
+const MAX_QUEUE_PAGE_SIZE = 100
+
 export interface QueueParams {
   bucket?: QueueBucket | 'all'
   status?: FulfillmentStatus
+  /** Siparişin kendi durumu (fulfillment durumundan ayrıdır) */
+  orderStatus?: OrderStatus
   platformSlug?: string
   serviceSlug?: string
+  variantSlug?: string
+  /** Belirli bir operatör; `'unassigned'` atanmamış işleri getirir */
   assignedToUserId?: string
   /** Yalnızca bana atanmış işler */
   mineOnly?: boolean
+  /** Sipariş no · müşteri e-postası · hedef */
   search?: string
-  page?: number
+  /** ISO tarih (dahil) */
+  createdFrom?: string
+  /** ISO tarih (dahil) */
+  createdTo?: string
+  sort?: QueueSort
+  /**
+   * ⚠️ CURSOR — OFFSET DEĞİL.
+   * Bir önceki sayfanın son (veya ilk) kaydının kimliği. Prisma bu kimliği
+   * sıralama alanlarının değerlerine çevirip keyset sorgusu üretir.
+   */
+  cursor?: string
+  /** Cursor'dan hangi yöne gidiliyor */
+  direction?: 'forward' | 'backward'
   pageSize?: number
 }
 
@@ -48,6 +104,7 @@ export interface QueueRow {
   id: string
   orderNo: string
   status: FulfillmentStatus
+  orderStatus: OrderStatus
   platformName: string
   serviceName: string
   variantLabel: string
@@ -64,14 +121,56 @@ export interface QueueRow {
   priority: number
 }
 
-export async function listFulfillmentQueue(params: QueueParams, viewer: { userId: string; role: UserRole }) {
-  const page = Math.max(1, params.page ?? 1)
-  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 25))
-
-  const where: Record<string, unknown> = {
-    // ⚠️ İkinci kapı: yalnızca ödenmiş siparişlerin işleri.
-    order: { status: { in: PAID_ORDER_STATUSES } },
+export interface QueuePage {
+  items: QueueRow[]
+  sort: QueueSort
+  bucket: QueueBucket | 'all'
+  pageSize: number
+  /** ⚠️ Gerçek DB verisi — sahte istatistik yok. */
+  counts: {
+    new: number
+    active: number
+    partial: number
+    review: number
+    completed: number
+    mine: number
   }
+  /** Uygulanan filtrelerdeki toplam kayıt (sayfa göstergesi için) */
+  filteredTotal: number
+  /** Sonraki sayfanın cursor'ı — yoksa null */
+  nextCursor: string | null
+  /** Önceki sayfanın cursor'ı — yoksa null */
+  prevCursor: string | null
+}
+
+/**
+ * ⚠️ Serbest metin aramasında `contains` kullanılırken kullanıcı girdisi
+ * SQL'e string olarak GÖMÜLMEZ — Prisma parametreli sorgu üretir. Girdi ayrıca
+ * uzunlukla sınırlanır ki pahalı tarama yapılamasın.
+ */
+function buildSearchFilter(raw: string) {
+  const q = raw.trim().slice(0, 120)
+  if (!q) return null
+
+  const filters: Record<string, unknown>[] = [
+    // Sipariş numarası — büyük harfe normalize, kısmi eşleşme
+    { orderNo: { contains: q.toUpperCase() } },
+    // Müşteri e-postası (kayıtlı ve misafir)
+    { customerEmail: { contains: q.toLowerCase() } },
+    { guestEmail: { contains: q.toLowerCase() } },
+    // Hedef — @ işareti yazılmışsa temizlenir
+    { target: { handle: { contains: q.replace(/^@/, ''), mode: 'insensitive' } } },
+    { target: { normalized: { contains: q.replace(/^@/, ''), mode: 'insensitive' } } },
+  ]
+  return { OR: filters }
+}
+
+function buildWhere(params: QueueParams, viewerId: string): Record<string, unknown> {
+  const orderWhere: Record<string, unknown> = {
+    // ⚠️ İkinci kapı: yalnızca ödenmiş siparişlerin işleri.
+    status: { in: PAID_ORDER_STATUSES },
+  }
+  const where: Record<string, unknown> = { order: orderWhere }
 
   if (params.status) {
     where.status = params.status
@@ -80,111 +179,237 @@ export async function listFulfillmentQueue(params: QueueParams, viewer: { userId
   }
 
   if (params.mineOnly) {
-    where.assignedToUserId = viewer.userId
+    where.assignedToUserId = viewerId
+  } else if (params.assignedToUserId === 'unassigned') {
+    where.assignedToUserId = null
   } else if (params.assignedToUserId) {
     where.assignedToUserId = params.assignedToUserId
   }
 
-  if (params.platformSlug || params.serviceSlug || params.search) {
-    const orderWhere = where.order as Record<string, unknown>
-    if (params.platformSlug) orderWhere.platform = { slug: params.platformSlug }
-    if (params.serviceSlug) orderWhere.service = { slug: params.serviceSlug }
-    if (params.search) {
-      orderWhere.orderNo = { equals: params.search.trim().toUpperCase() }
-    }
+  if (params.orderStatus) {
+    // ⚠️ Ödenmiş sipariş kapısını GEVŞETMEZ; onun içinde daraltır.
+    orderWhere.status = PAID_ORDER_STATUSES.includes(params.orderStatus)
+      ? params.orderStatus
+      : { in: [] as OrderStatus[] }
+  }
+  if (params.platformSlug) orderWhere.platform = { slug: params.platformSlug }
+  if (params.serviceSlug) orderWhere.service = { slug: params.serviceSlug }
+  if (params.variantSlug) orderWhere.serviceVariant = { slug: params.variantSlug }
+
+  if (params.search) {
+    const search = buildSearchFilter(params.search)
+    if (search) Object.assign(orderWhere, search)
   }
 
-  const [total, rows, grouped] = await Promise.all([
-    db.fulfillment.count({ where }),
+  const createdAt: Record<string, Date> = {}
+  const from = params.createdFrom ? new Date(params.createdFrom) : null
+  const to = params.createdTo ? new Date(params.createdTo) : null
+  if (from && !Number.isNaN(from.getTime())) createdAt.gte = from
+  if (to && !Number.isNaN(to.getTime())) {
+    // Tarih (saatsiz) verildiyse o günün tamamı kapsanır.
+    to.setHours(23, 59, 59, 999)
+    createdAt.lte = to
+  }
+  if (Object.keys(createdAt).length > 0) where.createdAt = createdAt
+
+  return where
+}
+
+const QUEUE_SELECT = {
+  id: true,
+  status: true,
+  requestedQuantity: true,
+  deliveredQuantity: true,
+  assignedToUserId: true,
+  createdAt: true,
+  startedAt: true,
+  targetSnapshot: true,
+  assignedTo: { select: { name: true, email: true } },
+  order: { select: { orderNo: true, status: true } },
+} as const
+
+type QueueRecord = {
+  id: string
+  status: string
+  requestedQuantity: number
+  deliveredQuantity: number
+  assignedToUserId: string | null
+  createdAt: Date
+  startedAt: Date | null
+  targetSnapshot: unknown
+  assignedTo: { name: string | null; email: string } | null
+  order: { orderNo: string; status: string }
+}
+
+function toRow(f: QueueRecord): QueueRow {
+  const snap = f.targetSnapshot as TargetSnapshot | null
+  const p = computeFulfillmentProgress({
+    requestedQuantity: f.requestedQuantity,
+    deliveredQuantity: f.deliveredQuantity,
+  })
+  return {
+    id: f.id,
+    orderNo: f.order.orderNo,
+    status: f.status as FulfillmentStatus,
+    orderStatus: f.order.status as OrderStatus,
+    platformName: snap?.platformName ?? '—',
+    serviceName: snap?.serviceName ?? '—',
+    variantLabel: snap?.variantLabel ?? '—',
+    unitLabel: snap?.unitLabel ?? 'adet',
+    targetHandle: snap?.targetHandle ?? snap?.targetNormalized ?? null,
+    requestedQuantity: p.requested,
+    deliveredQuantity: p.delivered,
+    remaining: p.remaining,
+    percent: p.percent,
+    assignedToUserId: f.assignedToUserId,
+    // Operatör adı yalnızca İÇ ekranda; müşteri görünümüne asla gitmez.
+    assignedToName: f.assignedTo?.name ?? f.assignedTo?.email ?? null,
+    createdAt: f.createdAt.toISOString(),
+    startedAt: f.startedAt?.toISOString() ?? null,
+    priority: QUEUE_PRIORITY[f.status as FulfillmentStatus],
+  }
+}
+
+/**
+ * ⭐ OPERASYON KUYRUĞU — CURSOR TABANLI SAYFALAMA (Faz 8)
+ *
+ * ⚠️ NEDEN OFFSET DEĞİL?
+ * `skip: (page-1)*size` ile sayfalanan bir kuyrukta, siz 2. sayfadayken yeni
+ * bir sipariş gelirse tüm kayıtlar bir sıra kayar: 1. sayfanın son kaydı
+ * 2. sayfanın başında TEKRAR görünür ve bir kayıt tamamen ATLANIR. Sürekli
+ * yeni iş düşen bir operasyon kuyruğunda bu teorik değil, günlük bir hatadır.
+ *
+ * Cursor (keyset) sayfalamada sorgu "şu kayıttan sonrakiler" der; araya yeni
+ * kayıt girmesi sayfa sınırlarını bozmaz.
+ *
+ * ⚠️ Sıralama HER ZAMAN `id` ile biter. Aynı `createdAt` değerine sahip iki
+ * kayıt (toplu işlenen webhook'lar) tie-breaker olmadan kararsız sıralanır ve
+ * cursor mantığı çöker.
+ */
+export async function listFulfillmentQueue(
+  params: QueueParams,
+  viewer: { userId: string; role: UserRole },
+): Promise<QueuePage> {
+  const pageSize = Math.min(MAX_QUEUE_PAGE_SIZE, Math.max(1, params.pageSize ?? DEFAULT_QUEUE_PAGE_SIZE))
+  const sort: QueueSort = params.sort && params.sort in SORT_ORDERS ? params.sort : 'newest'
+  const orderBy = SORT_ORDERS[sort] as unknown as Record<string, 'asc' | 'desc'>[]
+  const where = buildWhere(params, viewer.userId)
+  const backward = params.direction === 'backward' && Boolean(params.cursor)
+
+  /**
+   * `take: pageSize + 1` — bir fazla çekip "daha var mı?" sorusunu ayrı bir
+   * COUNT sorgusu olmadan cevaplarız. Negatif `take` geriye doğru okur.
+   */
+  const takeCount = pageSize + 1
+
+  const [rows, filteredTotal, grouped, mine] = await Promise.all([
     db.fulfillment.findMany({
       where,
-      orderBy: [{ createdAt: 'asc' }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      select: {
-        id: true,
-        status: true,
-        requestedQuantity: true,
-        deliveredQuantity: true,
-        assignedToUserId: true,
-        createdAt: true,
-        startedAt: true,
-        targetSnapshot: true,
-        assignedTo: { select: { name: true, email: true } },
-        order: { select: { orderNo: true } },
-      },
+      orderBy,
+      select: QUEUE_SELECT,
+      take: backward ? -takeCount : takeCount,
+      ...(params.cursor
+        ? { cursor: { id: params.cursor }, skip: 1 }
+        : {}),
     }),
+    db.fulfillment.count({ where }),
     db.fulfillment.groupBy({
       by: ['status'],
       _count: { _all: true },
+      // ⚠️ Sekme sayaçları FİLTRELERDEN BAĞIMSIZDIR: arama yaparken sekme
+      // sayıları değişirse operatör "işler kayboldu" sanır.
       where: { order: { status: { in: PAID_ORDER_STATUSES } } },
     }),
+    db.fulfillment.count({
+      where: {
+        assignedToUserId: viewer.userId,
+        status: { in: ['PROCESSING', 'STARTED', 'PARTIAL'] },
+      },
+    }),
   ])
+
+  const hasExtra = rows.length > pageSize
+  // Fazladan çekilen kayıt, okuma yönüne göre baştan veya sondan atılır.
+  const pageRows = hasExtra ? (backward ? rows.slice(1) : rows.slice(0, pageSize)) : rows
+
+  const first = pageRows[0]
+  const last = pageRows[pageRows.length - 1]
+
+  /**
+   * İleri giderken: fazladan kayıt varsa sonraki sayfa vardır. Geri
+   * giderken sonraki sayfa her zaman vardır (oradan geldik).
+   */
+  const nextCursor = backward ? (last?.id ?? null) : hasExtra ? (last?.id ?? null) : null
+  const prevCursor = backward
+    ? hasExtra
+      ? (first?.id ?? null)
+      : null
+    : params.cursor
+      ? (first?.id ?? null)
+      : null
 
   const byStatus = Object.fromEntries(
     grouped.map((g) => [g.status, (g._count as { _all: number })._all]),
   )
   const bucketCount = (b: QueueBucket) =>
-    QUEUE_BUCKETS[b].reduce((n, s) => n + (byStatus[s] ?? 0), 0)
-
-  const items: QueueRow[] = rows.map((f) => {
-    const snap = f.targetSnapshot as unknown as TargetSnapshot
-    const p = computeFulfillmentProgress({
-      requestedQuantity: f.requestedQuantity,
-      deliveredQuantity: f.deliveredQuantity,
-    })
-    return {
-      id: f.id,
-      orderNo: f.order.orderNo,
-      status: f.status as FulfillmentStatus,
-      platformName: snap?.platformName ?? '—',
-      serviceName: snap?.serviceName ?? '—',
-      variantLabel: snap?.variantLabel ?? '—',
-      unitLabel: snap?.unitLabel ?? 'adet',
-      targetHandle: snap?.targetHandle ?? snap?.targetNormalized ?? null,
-      requestedQuantity: p.requested,
-      deliveredQuantity: p.delivered,
-      remaining: p.remaining,
-      percent: p.percent,
-      assignedToUserId: f.assignedToUserId,
-      // Operatör adı yalnızca İÇ ekranda; müşteri görünümüne asla gitmez.
-      assignedToName: f.assignedTo?.name ?? f.assignedTo?.email ?? null,
-      createdAt: f.createdAt.toISOString(),
-      startedAt: f.startedAt?.toISOString() ?? null,
-      priority: QUEUE_PRIORITY[f.status as FulfillmentStatus],
-    }
-  })
-
-  // Kuyruk sırası: önce durum önceliği, sonra eskiden yeniye.
-  items.sort((a, b) => a.priority - b.priority || a.createdAt.localeCompare(b.createdAt))
+    QUEUE_BUCKETS[b].reduce((n, st) => n + (byStatus[st] ?? 0), 0)
 
   return {
-    page,
-    pageSize,
-    total,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    items: pageRows.map((r) => toRow(r as QueueRecord)),
+    sort,
     bucket: params.bucket ?? 'all',
-    /** ⚠️ Gerçek DB verisi — sahte istatistik yok. */
+    pageSize,
     counts: {
       new: bucketCount('new'),
       active: bucketCount('active'),
       partial: bucketCount('partial'),
       review: bucketCount('review'),
       completed: bucketCount('completed'),
-      mine: await db.fulfillment.count({
-        where: {
-          assignedToUserId: viewer.userId,
-          status: { in: ['PROCESSING', 'STARTED', 'PARTIAL'] },
-        },
-      }),
+      mine,
     },
-    items,
+    filteredTotal,
+    nextCursor,
+    prevCursor,
   }
+}
+
+/**
+ * Filtre açılır listeleri için katalog seçenekleri.
+ * ⚠️ Yalnızca ADLAR ve slug'lar döner; fiyat, maliyet veya iç alan yoktur.
+ */
+export async function listQueueFilterOptions() {
+  const platforms = await db.platform.findMany({
+    orderBy: { sortOrder: 'asc' },
+    select: {
+      slug: true,
+      name: true,
+      services: {
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          slug: true,
+          name: true,
+          variants: {
+            orderBy: [{ sortOrder: 'asc' }, { slug: 'asc' }],
+            select: { slug: true, customerLabel: true },
+          },
+        },
+      },
+    },
+  })
+  return platforms
 }
 
 // ---------------------------------------------------------------------------
 
 export interface FulfillmentDetail extends QueueRow {
+  /**
+   * ⚠️ HEDEF — YALNIZCA GÜVENLİ ALANLAR.
+   * Snapshot'ta parola, token, oturum veya yetkilendirme başlığı YOKTUR ve
+   * olamaz (bkz. `TargetSnapshot`). Operatörün işi yapabilmesi için gereken
+   * tek şey hedefin herkese açık adresi ve tipidir.
+   */
+  targetType: string
+  targetCanonicalUrl: string | null
   initialMetric: number | null
   currentMetric: number | null
   goalMetric: number | null
@@ -293,6 +518,7 @@ export async function getFulfillmentDetail(
     id: f.id,
     orderNo: f.order.orderNo,
     status: f.status as FulfillmentStatus,
+    orderStatus: f.order.status as OrderStatus,
     platformName: snap?.platformName ?? '—',
     serviceName: snap?.serviceName ?? '—',
     variantLabel: snap?.variantLabel ?? '—',
@@ -318,6 +544,8 @@ export async function getFulfillmentDetail(
     customerNote: f.customerNote,
     failureReason: f.failureReason,
     measurementMode: snap?.measurementMode ?? 'METRIC',
+    targetType: snap?.targetType ?? '—',
+    targetCanonicalUrl: snap?.targetCanonicalUrl ?? null,
     canOperate,
     events: f.events.map((e) => ({
       id: e.id,

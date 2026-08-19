@@ -13,13 +13,21 @@ Bunlar kodla "varmış gibi" gösterilmedi. Gerçekten yoklar.
 | # | Eksik | Etki | Ne gerekiyor |
 |---|---|---|---|
 | B1 | **Gerçek merchant credential yok** | Hiçbir tahsilat yapılamaz | iyzico veya PayTR üye iş yeri onayı + canlı anahtarlar |
-| B2 | **Transactional e-posta sağlayıcısı yok** | Müşteriye **hiçbir e-posta gitmiyor** (sipariş, ödeme, takip linki yalnızca sunucu log'una yazılıyor) | Resend/Postmark hesabı + `RESEND_API_KEY` + `MailProvider` implementasyonu |
+| B2 | **Transactional e-posta sağlayıcısı yok** | Müşteriye **hiçbir e-posta gitmiyor**: sipariş, ödeme, işlem başladı, tamamlandı ve takip linki gönderilemiyor | Resend hesabı + `RESEND_API_KEY` + `EMAIL_PROVIDER=resend` |
 | B3 | **Alan adı ve HTTPS sertifikası bağlı değil** | Ödeme callback'leri ve `__Secure-` çerezleri çalışmaz | DNS + TLS + `APP_BASE_URL=https://…` |
 | B4 | **Yönetilen PostgreSQL ve Redis yok** | Veri kalıcılığı ve rate limit garantisi yok | Yedeklemeli PostgreSQL 16 + Redis 7 |
 | B5 | **Hata izleme (Sentry vb.) bağlı değil** | Canlı hatalar yalnızca konteyner log'unda | `SENTRY_DSN` veya eşdeğeri |
 
 `assertProductionReady()` B1, B3 ve B4'ü **boot'ta yakalar ve uygulamayı
 açmaz**. B2 ve B5 uyarı üretir; iş kararı sizindir.
+
+> ⚠️ **B2 hakkında (Faz 8):** sağlayıcı yokken sistem artık "gönderildi"
+> DEMİYOR. `ResendMailProvider` bağlı değilse her bildirim denemesi
+> `Notification.status = 'FAILED'` olarak kaydedilir ve sunucu log'una
+> `[mail:FAILED] … reason=EMAIL_PROVIDER_NOT_CONFIGURED` düşer. Yani eksik
+> ortam, sessiz bir başarısızlığa değil **görünür bir sayaca** dönüşür.
+> `EMAIL_PROVIDER=console` canlıda **boot'u durdurur** — çünkü console
+> sağlayıcısı teslim etmediği hâlde başarı döndürür.
 
 ---
 
@@ -52,7 +60,8 @@ açmaz**. B2 ve B5 uyarı üretir; iş kararı sizindir.
 | `IYZICO_BASE_URL` | zorunlu | `https://api.iyzipay.com` (sandbox adresi boot FAIL) |
 | `PAYTR_MERCHANT_ID/KEY/SALT` | **secret** | Sağlayıcı paytr ise |
 | `MAIL_FROM` | zorunlu | Doğrulanmış gönderici adresi |
-| `RESEND_API_KEY` | **secret** | Yoksa e-posta GİTMEZ (B2) |
+| `EMAIL_PROVIDER` | zorunlu | `resend` (gerçek) \| `none`. **`console` canlıda boot FAIL** |
+| `RESEND_API_KEY` | **secret** | Yoksa e-posta GİTMEZ (B2); her deneme `FAILED` kaydedilir |
 | `SENTRY_DSN` | opsiyonel | Yoksa uyarı |
 
 > ⚠️ **`NODE_ENV` tek başına "canlıyım" demek DEĞİLDİR.** `next start` NODE_ENV'i
@@ -167,6 +176,10 @@ npm run start            # veya süreç yöneticiniz
 - [ ] Log'lar **PII-safe**: kart verisi, CVV, secret, session token, Authorization
       başlığı yazılmıyor; e-posta maskeleniyor, IP hash'leniyor
 - [ ] `X-Request-Id` / `requestId` alanı destek taleplerinde kullanılabiliyor
+- [ ] **`/api/health` izleme sistemine bağlandı** (`unavailable` → 503)
+      ⚠️ Sağlık ucu ödeme sağlayıcısını ÇAĞIRMAZ ve sır döndürmez
+- [ ] **Bildirim başarısızlıkları izleniyor**: `Notification.status = 'FAILED'`
+      sayısı artıyorsa müşteriye e-posta GİTMİYOR demektir
 - [ ] İzlenecek olaylar:
       - `[payment.webhook] outcome=invalid_signature` → saldırı veya yanlış anahtar
       - `[boot:blocker]` → dağıtım hatası
@@ -228,16 +241,56 @@ Migration'lar **eklemeli** olduğu için eski uygulama sürümü yeni şemayla
 - **Geri yükleme denenmemiş yedek, yedek değildir.**
 - Yedekler şifreli ve uygulama sunucusundan farklı bir konumda tutulur.
 
+### ⚠️ REDIS YEDEKLENMEZ — VE YEDEKLENMEMELİ
+
+Redis bu sistemde **hiçbir verinin tek kaynağı değildir**. İçinde yalnızca
+iki şey vardır:
+
+| Ne | Kaybolursa |
+|---|---|
+| Rate limit sayaçları | Sayaçlar sıfırlanır; kullanıcı bir pencere boyunca daha cömert sınırlarla karşılaşır. Veri kaybı YOK. |
+| Katalog cache | İlk istekte veritabanından yeniden kurulur. Veri kaybı YOK. |
+
+Sipariş, ödeme, fulfillment ve katalog **yalnızca PostgreSQL'dedir**.
+Redis'i yedeklemeye çalışmak yanlış bir güvenlik hissi verir: asıl risk
+Redis'in kaybı değil, **PostgreSQL yedeğinin denenmemiş olmasıdır**.
+
+- [ ] `maxmemory-policy` = **`noeviction`** doğrulandı
+      (sayaçların atılması rate limit'i sessizce devre dışı bırakır)
+- [ ] Redis'in kalıcılığı (RDB/AOF) **kapalı olabilir** — kararı bilinçli verin
+
+### Migration öncesi zorunlu adım
+
+- [ ] **Her migration'dan ÖNCE anlık yedek alındı** (`pg_dump -Fc`)
+- [ ] Yedeğin boyutu ve bitiş kodu kontrol edildi (0 byte yedek sık görülür)
+- [ ] Migration `--dry-run` / staging üzerinde önce çalıştırıldı
+- [ ] Geri dönüş planı yazılı: hangi migration, hangi yedek, kim onaylar
+
+### Geri yükleme provası (ayda bir)
+
+1. Yedeği **BOŞ** bir veritabanına geri yükle (canlıya değil!)
+2. `npm run db:validate-pricing` çalıştır — katalog bütünlüğü
+3. Rastgele 5 sipariş seç, `Order → Payment → Fulfillment` zincirini doğrula
+4. Süreyi **kaydet**: "geri yükleme 40 dakika sürüyor" bilgisi, kriz anında
+   verilecek kararı değiştirir
+5. Prova veritabanını sil
+
 ---
 
 ## 11 · POST-LAUNCH (canlıyı engellemez, sırada)
 
-- [ ] Operatör kuyruğunda sayfalama (50+ açık işte en yeni iş ilk sayfada değil)
-- [ ] Müşteri bildirimleri: sipariş oluşturuldu / ödeme alındı / işlem başladı /
-      tamamlandı / garanti hatırlatma
+**Faz 8'de KAPATILANLAR** ~~üstü çizili~~ olarak bırakıldı; hangi borcun ne
+zaman kapandığı görünür kalsın diye.
+
+- [x] ~~Operatör kuyruğunda sayfalama~~ → Faz 8: cursor tabanlı, 50 kayıt,
+      en yeni ilk sayfada
+- [x] ~~Müşteri bildirimleri~~ → Faz 8: 7 şablon + idempotent bildirim kaydı
+      **(⚠️ gönderim için sağlayıcı gerekir — B2)**
+- [x] ~~Admin panelinde hizmet/varyant oluşturma ve fiyat kademesi formu~~ → Faz 8
 - [ ] Instagram dışındaki ürünlerde garanti süresi tanımlanması (`refillDays`)
 - [ ] SLA / gecikme alarmı (`READY`'de bekleyen iş için eşik)
-- [ ] Admin panelinde hizmet/varyant oluşturma ve fiyat kademesi ekleme formu
+- [ ] Panelden rol atama (roller şu an yalnızca veritabanından veriliyor)
+- [ ] Garanti bitişi yaklaşan siparişler için hatırlatma
 - [ ] Kampanya ve kupon yönetim arayüzü
 - [ ] `og:image` ve gerçek marka logosu
 - [ ] Fatura entegrasyonu (alanlar hazır, sağlayıcı yok)

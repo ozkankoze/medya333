@@ -8,6 +8,13 @@ import { cn } from '@/lib/utils'
 import { getSessionUser } from '@/server/auth'
 import { db } from '@/server/db'
 import { CatalogToggle } from '@/components/catalog/CatalogToggle'
+import {
+  EditServicePanel,
+  NewServicePanel,
+  NewVariantPanel,
+  PlatformControls,
+} from '@/components/catalog/CatalogForms'
+import { getAdapter } from '@/server/platforms/registry'
 
 export const dynamic = 'force-dynamic'
 
@@ -90,12 +97,26 @@ export default async function CatalogAdminPage({
           data-testid={`platform-${platform.slug}`}
         >
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-200 px-5 py-4">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h3 className="text-body font-semibold text-ink-900">{platform.name}</h3>
               <span className="text-caption text-ink-500">/{platform.slug}</span>
               <ActiveTag active={platform.isActive} />
+              <Meta
+                created={platform.createdAt}
+                updated={platform.updatedAt}
+                extra={`${platform.services.length} hizmet`}
+              />
             </div>
-            <span className="text-caption text-ink-500">adapter: {platform.adapterKey}</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-caption text-ink-500">adapter: {platform.adapterKey}</span>
+              <PlatformControls
+                id={platform.id}
+                slug={platform.slug}
+                isActive={platform.isActive}
+                sortOrder={platform.sortOrder}
+                canWrite={canWrite}
+              />
+            </div>
           </header>
 
           {platform.services.length === 0 ? (
@@ -103,7 +124,7 @@ export default async function CatalogAdminPage({
           ) : (
             <div className="divide-y divide-ink-100">
               {platform.services.map((service) => (
-                <div key={service.id} className="px-5 py-4" data-testid={`service-${service.slug}`}>
+                <div key={service.id} className="px-5 py-4" data-testid={`service-${platform.slug}-${service.slug}`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <span className="text-small font-semibold text-ink-900">{service.name}</span>
@@ -126,6 +147,17 @@ export default async function CatalogAdminPage({
                     )}
                   </div>
 
+                  <div className="mt-1">
+                    <Meta
+                      created={service.createdAt}
+                      updated={service.updatedAt}
+                      extra={`${service.variants.length} varyant · ${service.variants.reduce(
+                        (n, v) => n + v.pricingRules.length,
+                        0,
+                      )} fiyat noktası`}
+                    />
+                  </div>
+
                   <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {service.variants.map((variant) => {
                       const entry = entryPriceOf(
@@ -144,7 +176,13 @@ export default async function CatalogAdminPage({
                         <Link
                           key={variant.id}
                           href={`/yonetim/katalog/${variant.id}`}
-                          data-testid={`variant-${service.slug}-${variant.slug}`}
+                          /**
+                           * ⚠️ Platform slug'ı ŞART: hizmet ve varyant
+                           * slug'ları platformlar arasında tekrar eder
+                           * (Instagram ve TikTok'ta ikisi de "takipci-turk").
+                           * Platformsuz bir tanımlayıcı benzersiz DEĞİLDİR.
+                           */
+                          data-testid={`variant-${platform.slug}-${service.slug}-${variant.slug}`}
                           className="flex flex-col gap-1 rounded-[--radius-control] border border-ink-200 p-3 hover:bg-ink-50"
                         >
                           <span className="flex items-center gap-2 text-small font-medium text-ink-900">
@@ -172,13 +210,76 @@ export default async function CatalogAdminPage({
                       )
                     })}
                   </div>
+
+                  {canWrite && (
+                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                      <EditServicePanel
+                        targetTypes={targetTypesFor(platform.adapterKey)}
+                        draft={{
+                          id: service.id,
+                          platformId: platform.id,
+                          name: service.name,
+                          slug: service.slug,
+                          shortDescription: service.shortDescription,
+                          targetType: service.targetType,
+                          measurementMode: service.measurementMode,
+                          unitLabel: service.unitLabel,
+                          inputLabel: service.inputLabel,
+                          inputPlaceholder: service.inputPlaceholder,
+                          inputHelpText: service.inputHelpText,
+                          inputExample: service.inputExample,
+                          sortOrder: service.sortOrder,
+                        }}
+                      />
+                      <NewVariantPanel serviceId={service.id} serviceSlug={service.slug} />
+                    </div>
+                  )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {canWrite && (
+            <div className="border-t border-ink-100 px-5 py-4">
+              <NewServicePanel
+                platformId={platform.id}
+                platformSlug={platform.slug}
+                targetTypes={targetTypesFor(platform.adapterKey)}
+              />
             </div>
           )}
         </section>
       ))}
     </div>
+  )
+}
+
+/**
+ * ⚠️ Hedef tipleri ADAPTER'DAN okunur, elle yazılmaz.
+ * Instagram'da VIDEO desteklenirken Telegram'da desteklenmeyebilir; listeyi
+ * sabitlemek, sunucunun `UNSUPPORTED_TARGET_TYPE` ile reddedeceği bir hizmetin
+ * arayüzde oluşturulabilir görünmesine yol açardı.
+ */
+function targetTypesFor(adapterKey: string): string[] {
+  return [...getAdapter(adapterKey).supportedTargetTypes]
+}
+
+/** Oluşturulma / son güncelleme — operasyon için güvenli üstveri. */
+function Meta({
+  created,
+  updated,
+  extra,
+}: {
+  created: Date
+  updated: Date
+  extra?: string
+}) {
+  const fmt = (d: Date) => d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  return (
+    <span className="text-caption text-ink-400">
+      {extra && <>{extra} · </>}
+      oluşturma {fmt(created)} · güncelleme {fmt(updated)}
+    </span>
   )
 }
 

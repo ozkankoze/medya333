@@ -59,10 +59,12 @@ describe('migration', () => {
       'GuestClaimToken',
       // Faz 4 — manuel operasyon
       'Fulfillment', 'FulfillmentEvent', 'ReplacementCase',
+      // Faz 8 — bildirim kaydı (idempotency: unique(orderEventId, channel))
+      'Notification',
     ]) {
       expect(names, `${t} tablosu yok`).toContain(t)
     }
-    expect(names).toHaveLength(25)
+    expect(names).toHaveLength(26)
   })
 
   it('tüm enum tipleri oluştu ve değerleri doğru', async () => {
@@ -76,13 +78,18 @@ describe('migration', () => {
     // Faz 2: PAYMENT_PENDING, PRICE_CHANGED, CUSTOMER_INFO_ADDED,
     //        CONSENT_ACCEPTED, GUEST_CLAIMED, TRACKING_LINK_SENT
     // Faz 4: ORDER_CONFIRMED, FULFILLMENT_COMPLETED
-    expect(map.get('OrderEventType')).toBe(27)
+    // Faz 8: REPLACEMENT_APPROVED, REPLACEMENT_COMPLETED
+    expect(map.get('OrderEventType')).toBe(29)
     // Faz 3: PENDING eklendi (3DS dışı sağlayıcı beklemesi)
     expect(map.get('PaymentStatus')).toBe(10)
     // Faz 4 — fulfillment enum'ları
     expect(map.get('FulfillmentStatus')).toBe(7)
     expect(map.get('FulfillmentEventType')).toBe(15)
     expect(map.get('ReplacementStatus')).toBe(6)
+    // Faz 8 — bildirim enum'ları. ⚠️ NotificationChannel'da YALNIZCA EMAIL var:
+    // SMS/WhatsApp bu fazda bilinçli olarak eklenmedi.
+    expect(map.get('NotificationChannel')).toBe(1)
+    expect(map.get('NotificationStatus')).toBe(4)
     expect(map.get('MeasurementMode')).toBe(2)
     expect(map.get('InvoiceStatus')).toBe(5)
     expect(map.get('UserRole')).toBe(5)

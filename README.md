@@ -1,4 +1,4 @@
-# Medya 333 — Faz 7
+# Medya 333 — Faz 8
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
@@ -11,7 +11,10 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
 + **Faz 6** (müşteri deneyimi: hizmet keşfi, premium kabuk, garanti görünümü, Yardım, SEO)
 + **Faz 7** (production readiness: üretim açılış kapısı, CSP ve güvenlik başlıkları,
   robots/sitemap/favicon, istek kimliği, yetki matrisi, rate limit envanteri,
-  dağıtım ve yedekleme kontrol listesi).
+  dağıtım ve yedekleme kontrol listesi)
++ **Faz 8** (operasyon: sağlayıcı-bağımsız e-posta + idempotent bildirim katmanı,
+  cursor tabanlı iş kuyruğu, arama/filtre/sıralama, katalog CRUD arayüzü,
+  sağlık ucu, operasyon el kitabı).
 
 > ⚠️ **CANLIYA ÇIKIŞ DURUMU: HAZIR DEĞİL.** Kod tarafı hazırdır; ancak gerçek
 > merchant bilgisi, e-posta sağlayıcısı, alan adı/TLS ve yönetilen
@@ -64,7 +67,20 @@ npm run dev                   # http://localhost:3000
 |---|---|
 | [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md) | Canlıya çıkış: blocker'lar, env tablosu, deploy/rollback/yedekleme adımları |
 | [`docs/SECURITY_MATRIX.md`](docs/SECURITY_MATRIX.md) | 5 rol × uç yetki matrisi + uç bazlı rate limit envanteri |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | **Operasyon el kitabı** — sipariş bulma, atama, ilerleme, tamamlama, telafi, fiyat değiştirme |
 | [`docs/architecture-decisions.md`](docs/architecture-decisions.md) | ADR'ler ve faz uygulama özetleri |
+
+### ⚠️ E-posta sağlayıcısı: `EMAIL_PROVIDER`
+
+| Değer | Davranış |
+|---|---|
+| `resend` | Gerçek gönderim. `RESEND_API_KEY` olmadan **seçilemez**. |
+| `none` | Gönderim YAPILMAZ ve **başarılı sayılmaz** — bildirim kaydı `FAILED`. Canlı varsayılanı. |
+| `console` | Yalnızca geliştirme. **Canlıda boot'u durdurur** (teslim etmediği hâlde başarı döndürür). |
+
+**Kural:** eksik yapılandırma sessiz bir başarısızlığa değil, görünür bir
+sayaca dönüşür. `Notification.status = 'FAILED'` sayısı, "müşteriye e-posta
+gitmiyor" demenin ölçülebilir hâlidir.
 
 ### ⚠️ Aşama değişkeni: `APP_ENV`
 
@@ -244,10 +260,12 @@ tests/integration/fulfillment-api.test.ts 21 fulfillment uçları: yetki matrisi
 tests/integration/catalog.test.ts     18  katalog CRUD, cache, sızıntı, pasif katalog
 tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
 tests/unit/production-guard.test.ts   20  ⭐ Faz 7: açılış kapısı, aşama, sır sızdırmama
-tests/unit/production-audit.test.ts   19  ⭐ Faz 7: KAYNAK KODU taraması (sır/PAN/SQL/başlık/RL)
+tests/unit/production-audit.test.ts   26  ⭐ Faz 7+8: KAYNAK KODU taraması (sır/SQL/başlık/RL/OFFSET/audit)
 tests/integration/production-chain.test.ts 6 ⭐ Faz 7: uçtan uca zincir + webhook 10× tekrar
+tests/unit/notifications.test.ts      29  ⭐ Faz 8: şablon güvenliği, TL→kuruş, ayırıcı belirsizliği
+tests/integration/operations.test.ts  28  ⭐ Faz 8: cursor sayfalama, arama/filtre, bildirim idempotency, health
                                       ───
-                                      707  (vitest)
+                                      771  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
@@ -255,8 +273,9 @@ tests/e2e/api-security.spec.ts        12  API güvenlik yüzeyi
 tests/e2e/fulfillment.spec.ts          5  ödeme → READY → manuel start/progress/complete
 tests/e2e/catalog.spec.ts              7  admin katalog → fiyat → simülatör → müşteri → YouTube/TikTok
 tests/e2e/experience.spec.ts          21  ⭐ Faz 6: keşif, garanti, paket, checkout, a11y, SEO
+tests/e2e/operations.spec.ts          17  ⭐ Faz 8: sayfalama, arama, katalog CRUD, health, yetki, mobil
                                       ───
-                                      184  (playwright, 2 proje · 181 passed, 3 skipped)
+                                      218  (playwright, 2 proje · 213 passed, 5 skipped)
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa
@@ -315,10 +334,11 @@ beklenen değerlerle karşılaştırır.
 
 ## Sonraki Faz
 
-**Faz 8 — (onay bekliyor).** Faz 7 kapsamı tamamlandı; yeni faza kendiliğinden
+**Faz 9 — (onay bekliyor).** Faz 8 kapsamı tamamlandı; yeni faza kendiliğinden
 geçilmez.
 
-Faz 7'nin sonucu: **kod hazır, ortam hazır değil.** Canlıya çıkışı engelleyen
+Faz 8'in sonucu: **operasyon hazır, ortam hâlâ değil.** PayTR başvurusu
+onaylanmadığı için ödeme entegrasyonuna dokunulmadı. Canlıya çıkışı engelleyen
 beş madde (merchant bilgisi, e-posta sağlayıcısı, alan adı/TLS, yönetilen
 PostgreSQL + Redis, hata izleme) `docs/PRODUCTION_CHECKLIST.md` § 0'da listelidir
 ve hiçbiri kodla "varmış gibi" gösterilmemiştir. Kalan teknik borç:

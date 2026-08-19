@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatMinor, formatQuantity } from '@/lib/money'
 import type { PricingMode } from '@/lib/enums'
+import { PricingRuleToggle } from './CatalogForms'
+import { minorToLira, parseLiraToMinor } from './admin-client'
 
 /**
  * FİYAT KADEMESİ DÜZENLEYİCİ
@@ -28,18 +30,12 @@ export interface EditableRule {
   isActive: boolean
 }
 
-/** "1.349,90" / "1349,90" / "1349.90" → 134990 kuruş. Yuvarlama hatası yok. */
-export function parseLiraToMinor(text: string): number | null {
-  const cleaned = text.trim().replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null
-  const [whole = '0', frac = ''] = cleaned.split('.')
-  const kurus = (frac + '00').slice(0, 2)
-  return Number(whole) * 100 + Number(kurus)
-}
-
-function minorToLira(minor: number): string {
-  return (minor / 100).toFixed(2).replace('.', ',')
-}
+/**
+ * ⚠️ TL→kuruş dönüşümü ve tersi TEK YERDE (`admin-client.ts`).
+ * Daha önce bu dosyada AYRI bir kopya vardı; ayırıcı belirsizliği düzeltmesi
+ * yalnızca birine uygulansaydı iki ekran aynı girdiyi farklı fiyata çevirirdi.
+ */
+export { parseLiraToMinor, minorToLira } from './admin-client'
 
 export function PricingEditor({
   variantId,
@@ -117,6 +113,7 @@ export function PricingEditor({
             <th className="px-5 py-2 font-medium">Model</th>
             <th className="px-5 py-2 font-medium">Fiyat (₺)</th>
             <th className="px-5 py-2 font-medium">Kayıtlı</th>
+            <th className="px-5 py-2 font-medium">Durum</th>
             {canWrite && <th className="px-5 py-2" />}
           </tr>
         </thead>
@@ -155,17 +152,42 @@ export function PricingEditor({
                 >
                   {formatMinor(stored)}
                 </td>
+                <td className="px-5 py-2.5">
+                  <span
+                    className={
+                      rule.isActive
+                        ? 'rounded-full bg-success-100 px-2 py-0.5 text-caption font-medium text-success-700'
+                        : 'rounded-full bg-ink-200 px-2 py-0.5 text-caption font-medium text-ink-600'
+                    }
+                    data-testid={`rule-status-${rule.minQuantity}`}
+                  >
+                    {rule.isActive ? 'Aktif' : 'Pasif'}
+                  </span>
+                </td>
                 {canWrite && (
-                  <td className="px-5 py-2.5 text-right">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={busyId === rule.id}
-                      onClick={() => save(rule)}
-                      data-testid={`save-price-${rule.minQuantity}`}
-                    >
-                      {busyId === rule.id ? '…' : 'Kaydet'}
-                    </Button>
+                  <td className="px-5 py-2.5">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busyId === rule.id}
+                        onClick={() => save(rule)}
+                        data-testid={`save-price-${rule.minQuantity}`}
+                      >
+                        {busyId === rule.id ? '…' : 'Kaydet'}
+                      </Button>
+                      {/*
+                        ⚠️ SİLME DÜĞMESİ YOK. Fiyat kademesi geçmiş siparişlere
+                        `appliedPricingRuleId` ile bağlıdır; silinmesi o
+                        siparişin hangi fiyattan verildiğini kaybettirir.
+                        Doğru işlem pasifleştirmedir.
+                      */}
+                      <PricingRuleToggle
+                        id={rule.id}
+                        isActive={rule.isActive}
+                        minQuantity={rule.minQuantity}
+                      />
+                    </div>
                   </td>
                 )}
               </tr>

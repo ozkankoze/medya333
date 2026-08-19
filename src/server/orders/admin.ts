@@ -5,7 +5,6 @@ import { ORDER_STATUS_META } from '@/lib/orders/status'
 import { FULFILLMENT_ALLOWED_FROM, InvalidTransitionError } from '@/lib/orders/transitions'
 import { writeAudit } from '@/server/audit'
 import { db } from '@/server/db'
-import { orderStatusChangedEmail, sendMail } from '@/server/mail'
 import { normalizeOrderNo } from './order-no'
 import { FulfillmentBeforePaymentError, transitionOrder, type ActorType } from './transition'
 
@@ -222,38 +221,19 @@ export async function adminTransitionOrder(input: AdminTransitionInput) {
       after: { status: input.to, orderNo: order.orderNo, reason: input.reason ?? null },
     })
 
-    // Müşteriye görünür durumlarda bilgilendirme e-postası
-    const email = order.customerEmail ?? order.guestEmail
-    if (email && ORDER_STATUS_META[input.to].customerVisible) {
-      const detail = await db.order.findUniqueOrThrow({
-        where: { id: order.id },
-        select: {
-          orderNo: true,
-          quantity: true,
-          totalMinor: true,
-          status: true,
-          platform: { select: { name: true } },
-          service: { select: { name: true, unitLabel: true } },
-          serviceVariant: { select: { customerLabel: true } },
-          target: { select: { handle: true, normalized: true } },
-        },
-      })
-      await sendMail(
-        orderStatusChangedEmail({
-          orderNo: detail.orderNo,
-          email,
-          platformName: detail.platform.name,
-          serviceName: detail.service.name,
-          variantLabel: detail.serviceVariant.customerLabel,
-          quantity: detail.quantity,
-          unitLabel: detail.service.unitLabel,
-          totalMinor: detail.totalMinor,
-          targetHandle: detail.target.handle ?? detail.target.normalized,
-          status: detail.status as OrderStatus,
-          trackingToken: null,
-        }),
-      )
-    }
+    /**
+     * ⚠️ ADMIN DURUM DEĞİŞİKLİĞİ TEK BAŞINA E-POSTA ÜRETMEZ.
+     *
+     * Faz 8 öncesi burada her müşteriye görünür durum için "durum değişti"
+     * e-postası gidiyordu. Bu, bildirimleri iki ayrı yerden yönetmek demekti
+     * ve idempotency yoktu: aynı geçiş iki kez denendiğinde iki e-posta
+     * gidebiliyordu.
+     *
+     * Artık tek kaynak `server/notifications`tır ve yalnızca ANLAMLI
+     * kilometre taşları bildirim üretir (ödeme alındı, işleme alındı,
+     * ilerleme, tamamlandı, telafi). "PROCESSING oldu" gibi ara durumlar
+     * müşteri zaman çizelgesinde görünür ama e-posta üretmez.
+     */
 
     return {
       orderNo: order.orderNo,

@@ -755,9 +755,24 @@ describe('operasyon kuyruğu', () => {
     const newQ = await listFulfillmentQueue({ bucket: 'new' }, { userId: users.admin, role: 'ADMIN' })
     expect(newQ.items.map((i) => i.id)).toEqual([a.fulfillmentId])
 
-    const all = await listFulfillmentQueue({ bucket: 'all' }, { userId: users.admin, role: 'ADMIN' })
-    // READY (öncelik 1) STARTED'dan (3) önce gelir
-    expect(all.items[0]!.status).toBe('READY')
+    /**
+     * ⚠️ Faz 8'de VARSAYILAN SIRALAMA "en yeni" oldu (createdAt DESC + id).
+     * Sebep: yeni düşen siparişin ilk sayfada görünmesi garanti edilmeli.
+     * Durum önceliği artık açıkça istenir.
+     */
+    const newestFirst = await listFulfillmentQueue(
+      { bucket: 'all' },
+      { userId: users.admin, role: 'ADMIN' },
+    )
+    expect(newestFirst.items[0]!.id).toBe(b.fulfillmentId)
+
+    const byPriority = await listFulfillmentQueue(
+      { bucket: 'all', sort: 'priority' },
+      { userId: users.admin, role: 'ADMIN' },
+    )
+    // READY, STARTED'dan önce gelir
+    expect(byPriority.items[0]!.status).toBe('READY')
+    expect(byPriority.items[0]!.id).toBe(a.fulfillmentId)
   })
 
   it('sipariş numarasıyla arama', async () => {

@@ -5,7 +5,6 @@ import { writeAudit } from '@/server/audit'
 import { getSessionUser } from '@/server/auth'
 import { db } from '@/server/db'
 import { apiError, assertSameOrigin, handleUnexpected, readJsonBody } from '@/server/http'
-import { orderCreatedEmail, sendMail } from '@/server/mail'
 import {
   createOrder,
   IdempotencyConflictError,
@@ -135,38 +134,11 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // E-posta — asla siparişi düşürmez (sendMail throw etmez)
-    const detail = await db.order.findUnique({
-      where: { id: result.order.id },
-      select: {
-        orderNo: true,
-        customerEmail: true,
-        quantity: true,
-        totalMinor: true,
-        status: true,
-        platform: { select: { name: true } },
-        service: { select: { name: true, unitLabel: true } },
-        serviceVariant: { select: { customerLabel: true } },
-        target: { select: { handle: true, normalized: true } },
-      },
-    })
-    if (detail?.customerEmail) {
-      await sendMail(
-        orderCreatedEmail({
-          orderNo: detail.orderNo,
-          email: detail.customerEmail,
-          platformName: detail.platform.name,
-          serviceName: detail.service.name,
-          variantLabel: detail.serviceVariant.customerLabel,
-          quantity: detail.quantity,
-          unitLabel: detail.service.unitLabel,
-          totalMinor: detail.totalMinor,
-          targetHandle: detail.target.handle ?? detail.target.normalized,
-          status: detail.status,
-          trackingToken: result.accessToken,
-        }),
-      )
-    }
+    /**
+     * ⚠️ SİPARİŞ BİLDİRİMİ BURADA GÖNDERİLMEZ.
+     * `createOrder` içinde, olayı yazan kodun yanında tetiklenir — böylece
+     * siparişi oluşturan başka bir giriş noktası bildirimi atlayamaz.
+     */
 
     return NextResponse.json(
       {

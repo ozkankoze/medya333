@@ -47,6 +47,9 @@ export const ORDER_EVENT_TYPE = [
   'REFUNDED',
   'FAILED',
   'NOTE_ADDED',
+  /** Faz 8 — telafi (garanti) kilometre taşları; müşteriye görünür. */
+  'REPLACEMENT_APPROVED',
+  'REPLACEMENT_COMPLETED',
   'TARGET_CONFIRMED',
   'ASSIGNED',
   'STATUS_CHANGED',

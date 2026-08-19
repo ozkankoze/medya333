@@ -161,8 +161,8 @@ export function OrderView({
         <div className="rounded-[--radius-card] border border-ink-200 bg-white p-6 shadow-[--shadow-card]">
           <h2 className="text-h3 text-ink-900">Geçmiş</h2>
           <ol className="mt-4 flex flex-col gap-4">
-            {order.timeline.map((e, i) => (
-              <li key={`${e.type}-${i}`} className="flex gap-3">
+            {order.timeline.map((e) => (
+              <li key={e.id} className="flex gap-3">
                 <span className="mt-1.5 size-2 shrink-0 rounded-full bg-brand-500" aria-hidden />
                 <div>
                   <p className="text-small font-medium text-ink-800">{e.label}</p>

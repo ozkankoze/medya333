@@ -12,6 +12,8 @@ import {
 } from '@/lib/fulfillment/status'
 import { writeAudit } from '@/server/audit'
 import { db } from '@/server/db'
+import { notifyLatestOrderEvent, notifyOrderEvent } from '@/server/notifications'
+import { ORDER_STATUS_META } from '@/lib/orders/status'
 import { transitionOrder } from '@/server/orders/transition'
 import { FulfillmentError, guaranteeEndFor } from './create'
 
@@ -351,6 +353,14 @@ export async function startFulfillment(input: StartInput, actor: Actor): Promise
   // Sipariş de ilerletilir (fulfillment ile ZORLA eşitlenmez, karşılığı yazılır)
   await syncOrderStatus(f.orderId, 'STARTED', actor)
 
+  /**
+   * ⭐ BİLDİRİM: "Siparişiniz işleme alındı."
+   * Olay `syncOrderStatus` içinde zaten yazıldı; burada yalnızca tetikliyoruz.
+   * Aynı iş iki kez başlatılamadığı için ikinci bir e-posta doğal olarak
+   * oluşmaz; oluşsa bile `unique(orderEventId, channel)` engeller.
+   */
+  await notifyLatestOrderEvent(f.orderId, 'STARTED')
+
   const after = await loadFulfillment(input.fulfillmentId)
   return {
     fulfillmentId: after.id,
@@ -510,7 +520,15 @@ export async function updateProgress(
       })
     }
 
-    return { progress, nextMetric, metricDecreased, dropAmount, previousMetric }
+    return {
+      progress,
+      nextMetric,
+      metricDecreased,
+      dropAmount,
+      previousMetric,
+      /** İlk teslim mi? Bildirim yalnızca bu geçişte üretilir. */
+      firstDelivery: locked.deliveredQuantity === 0 && progress.delivered > 0,
+    }
   })
 
   // OrderItem ilerlemesi de güncellenir (müşteri görünümü buradan besleniyor)
@@ -536,6 +554,32 @@ export async function updateProgress(
       metricDecreased: result.metricDecreased,
     },
   })
+
+  /**
+   * ⭐ BİLDİRİM: "Siparişiniz devam ediyor."
+   *
+   * ⚠️ SADECE İLK TESLİMDE. Operatör 20 kez ilerleme girdiğinde müşteriye 20
+   * e-posta gitmesi bildirimi değersizleştirir. İlk teslim gerçek bir
+   * kilometre taşıdır; sonrası zaten takip sayfasındaki ilerleme çubuğundan
+   * canlı olarak izlenir.
+   *
+   * ⚠️ Bu bir OTOMATİK FULFILLMENT DEĞİLDİR: olay, operatörün elle girdiği
+   * ilerlemenin KAYDIDIR. Sistem hiçbir şey teslim etmez.
+   */
+  if (result.firstDelivery) {
+    const event = await db.orderEvent.create({
+      data: {
+        orderId: pre.orderId,
+        type: 'PROGRESS_UPDATED',
+        message: 'Siparişiniz devam ediyor.',
+        actorType: 'ADMIN',
+        actorId: actor.userId,
+        isCustomerVisible: true,
+      },
+      select: { id: true },
+    })
+    await notifyOrderEvent(event.id)
+  }
 
   const after = await loadFulfillment(input.fulfillmentId)
   return {
@@ -625,7 +669,7 @@ export async function completeFulfillment(
     actor,
   )
 
-  await db.orderEvent.create({
+  const completedEvent = await db.orderEvent.create({
     data: {
       orderId: f.orderId,
       type: 'FULFILLMENT_COMPLETED',
@@ -634,7 +678,11 @@ export async function completeFulfillment(
       actorId: actor.userId,
       isCustomerVisible: true,
     },
+    select: { id: true },
   })
+
+  /** ⭐ BİLDİRİM: "Siparişiniz tamamlandı." Garanti bilgisi kayıttan okunur. */
+  await notifyOrderEvent(completedEvent.id)
 
   return {
     fulfillmentId,
@@ -768,9 +816,21 @@ async function syncOrderStatus(
       await transitionOrder({
         orderId,
         to: step,
+        /**
+         * ⚠️ Olay TÜRÜ adım adıyla yazılır (STATUS_CHANGED değil).
+         * Aksi hâlde bildirim katmanı "hangi kilometre taşına gelindi"
+         * bilgisini olaydan okuyamaz ve müşteri zaman çizelgesindeki tüm
+         * satırlar aynı ada sahip olurdu.
+         * ORDER_CHAIN'in dört adımı da geçerli birer OrderEventType'tır.
+         */
+        eventType: step,
         actorType: 'ADMIN',
         actorId: actor.userId,
-        reason: 'Operasyon ilerlemesi',
+        /**
+         * ⚠️ MÜŞTERİ ZAMAN ÇİZELGESİNDE GÖRÜNÜR. "Operasyon ilerlemesi" gibi
+         * iç jargon değil, durumun müşteriye anlatımı yazılır.
+         */
+        reason: ORDER_STATUS_META[step].description,
       })
       reached = step === to
     } catch (err) {

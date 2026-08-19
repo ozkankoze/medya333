@@ -8,8 +8,13 @@ import { getSessionUser } from '@/server/auth'
 import { validatePricingTable } from '@/server/catalog/admin'
 import { db } from '@/server/db'
 import { CatalogToggle } from '@/components/catalog/CatalogToggle'
+import {
+  EditVariantPanel,
+  NewPricingRulePanel,
+} from '@/components/catalog/CatalogForms'
 import { PricingEditor } from '@/components/catalog/PricingEditor'
 import { PriceSimulator } from '@/components/catalog/PriceSimulator'
+import { ValidationReport } from '@/components/catalog/ValidationReport'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,6 +93,24 @@ export default async function VariantAdminPage({ params }: { params: Promise<{ i
           label="Miktar modeli"
           value={variant.presetOnly ? 'Hazır miktar' : 'Serbest miktar'}
         />
+        <Stat
+          label="Garanti"
+          value={
+            /* ⚠️ Tanımlı değilse "yok" yazılır — varsayılan gün UYDURULMAZ. */
+            variant.refillDays && variant.refillDays > 0
+              ? `${variant.refillDays} gün telafi`
+              : 'Tanımlı değil'
+          }
+        />
+        <Stat label="Fiyat noktası" value={String(variant.pricingRules.length)} />
+        <Stat
+          label="Oluşturma"
+          value={variant.createdAt.toLocaleDateString('tr-TR')}
+        />
+        <Stat
+          label="Son güncelleme"
+          value={variant.updatedAt.toLocaleDateString('tr-TR')}
+        />
       </dl>
 
       {variant.presetOnly && (
@@ -122,31 +145,7 @@ export default async function VariantAdminPage({ params }: { params: Promise<{ i
       )}
 
       {/* ------------------------ Doğrulama raporu -------------------------- */}
-      <div
-        className={cn(
-          'rounded-[--radius-card] border p-4',
-          report.ok ? 'border-success-600/30 bg-success-100' : 'border-danger-600/30 bg-danger-100',
-        )}
-        data-testid="pricing-report"
-      >
-        <p
-          className={cn(
-            'text-small font-medium',
-            report.ok ? 'text-success-700' : 'text-danger-700',
-          )}
-        >
-          {report.ok ? 'Fiyat tablosu sağlam.' : 'Fiyat tablosunda sorun var.'}
-        </p>
-        {report.issues.length > 0 && (
-          <ul className="mt-2 flex flex-col gap-1 text-caption text-ink-700">
-            {report.issues.map((issue, i) => (
-              <li key={i}>
-                <strong>{issue.code}</strong> — {issue.message}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <ValidationReport report={report} />
 
       {/* --------------------------- Fiyatlar ------------------------------- */}
       <PricingEditor
@@ -164,6 +163,34 @@ export default async function VariantAdminPage({ params }: { params: Promise<{ i
           isActive: r.isActive,
         }))}
       />
+
+      {canWrite && <NewPricingRulePanel variantId={variant.id} unitLabel={variant.service.unitLabel} />}
+
+      {canWrite && (
+        <EditVariantPanel
+          draft={{
+            id: variant.id,
+            serviceId: variant.serviceId,
+            slug: variant.slug,
+            internalName: variant.internalName,
+            customerLabel: variant.customerLabel,
+            tagline: variant.tagline,
+            description: variant.description,
+            badge: variant.badge,
+            isDefault: variant.isDefault,
+            isVisible: variant.isVisible,
+            isActive: variant.isActive,
+            packageItems: variant.packageItems,
+            minQuantity: variant.minQuantity,
+            maxQuantity: variant.maxQuantity,
+            quantityStep: variant.quantityStep,
+            presetQuantities: variant.presetQuantities,
+            presetOnly: variant.presetOnly,
+            refillDays: variant.refillDays,
+            sortOrder: variant.sortOrder,
+          }}
+        />
+      )}
 
       {/* -------------------------- Simülatör ------------------------------- */}
       <PriceSimulator

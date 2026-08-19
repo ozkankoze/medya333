@@ -4,7 +4,8 @@ import { writeAudit } from '@/server/audit'
 import { checkPasswordStrength, hashPassword } from '@/server/auth'
 import { db } from '@/server/db'
 import { apiError, assertSameOrigin, handleUnexpected, readJsonBody } from '@/server/http'
-import { guestClaimEmail, sendMail } from '@/server/mail'
+import { sendEmail } from '@/server/mail'
+import { appBaseUrl } from '@/server/base-url'
 import { issueClaimToken } from '@/server/orders/claim'
 import { clientIpFrom, hashIp, rateLimit, rateLimitHeaders } from '@/server/ratelimit'
 
@@ -117,7 +118,19 @@ export async function POST(req: NextRequest) {
     // Misafir siparişleri varsa: e-postaya doğrulanmış devralma bağlantısı.
     if (hadGuestOrders) {
       const token = await issueClaimToken(userId, email)
-      await sendMail(guestClaimEmail({ email, token }))
+      /**
+       * ⚠️ Bu bir SİPARİŞ bildirimi değildir (bir OrderEvent'e bağlı değil),
+       * bu yüzden Notification kaydı açılmaz ve doğrudan `sendEmail`
+       * kullanılır. Devralma token'ı yalnızca bağlantı içinde taşınır ve
+       * hiçbir log satırına yazılmaz.
+       */
+      await sendEmail({
+        to: email,
+        template: 'GUEST_CLAIM',
+        variables: {
+          claimUrl: `${appBaseUrl()}/hesabim?claim=${encodeURIComponent(token)}`,
+        },
+      })
     }
 
     return genericOk

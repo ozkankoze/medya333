@@ -53,9 +53,16 @@ export interface PublicOrderView {
   taxAmountMinor: number
   totalMinor: number
 
-  /** Müşteriye görünür olaylar, eskiden yeniye */
+  /**
+   * Müşteriye görünür olaylar, eskiden yeniye.
+   *
+   * ⚠️ HAM OLAY TÜRÜ (`PROCESSING`, `PARTIAL`, `FULFILLMENT_COMPLETED` …)
+   * BURADA DÖNMEZ. Müşteri yalnızca Türkçe etiketi ve mesajı görür; iç enum
+   * adları API cevabına, HTML'e ve React anahtarlarına sızmaz.
+   * `id` sabit bir React anahtarı sağlar — dizi indeksine gerek kalmaz.
+   */
   timeline: Array<{
-    type: string
+    id: string
     label: string
     at: string
     message: string | null
@@ -144,7 +151,7 @@ const ORDER_INCLUDE = {
   events: {
     where: { isCustomerVisible: true },
     orderBy: { createdAt: 'asc' as const },
-    select: { type: true, createdAt: true, message: true, toStatus: true },
+    select: { id: true, type: true, createdAt: true, message: true, toStatus: true },
   },
 } as const
 
@@ -170,6 +177,9 @@ const EVENT_LABELS: Record<string, string> = {
   TRACKING_LINK_SENT: 'Takip bağlantısı gönderildi',
   GUEST_CLAIMED: 'Sipariş hesaba bağlandı',
   STATUS_CHANGED: 'Durum güncellendi',
+  // ⚠️ Müşteriye "telafi" denir; iç durum adları (REPLACEMENT_PROCESSING vb.) gösterilmez.
+  REPLACEMENT_APPROVED: 'Telafi talebiniz onaylandı',
+  REPLACEMENT_COMPLETED: 'Telafi işlemi tamamlandı',
 }
 
 type OrderWithRelations = Awaited<
@@ -225,7 +235,7 @@ function toPublicView(order: NonNullable<OrderWithRelations>): PublicOrderView {
     totalMinor: order.totalMinor,
 
     timeline: order.events.map((e) => ({
-      type: e.type,
+      id: e.id,
       label: EVENT_LABELS[e.type] ?? 'Güncelleme',
       at: e.createdAt.toISOString(),
       message: e.message,

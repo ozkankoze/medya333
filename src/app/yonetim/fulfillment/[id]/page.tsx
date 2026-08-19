@@ -4,10 +4,15 @@ import { notFound, redirect } from 'next/navigation'
 import { formatQuantity } from '@/lib/money'
 import { withUnit } from '@/lib/units'
 import { ROLE_LEVEL } from '@/lib/enums'
+import { ORDER_STATUS_META } from '@/lib/orders/status'
 import { getSessionUser } from '@/server/auth'
 import { FulfillmentError } from '@/server/fulfillment/create'
 import { getFulfillmentDetail, listAssignableOperators } from '@/server/fulfillment/queue'
-import { FulfillmentStatusBadge } from '@/components/fulfillment/StatusBadge'
+import {
+  FulfillmentStatusBadge,
+  FULFILLMENT_EVENT_LABEL,
+  REPLACEMENT_STATUS_LABEL,
+} from '@/components/fulfillment/StatusBadge'
 import { OperatorActions } from '@/components/fulfillment/OperatorActions'
 
 export const dynamic = 'force-dynamic'
@@ -63,11 +68,37 @@ export default async function FulfillmentDetailPage({
             <p className="mt-1 text-body text-ink-700">
               {f.platformName} · {f.serviceName} <span className="text-ink-500">({f.variantLabel})</span>
             </p>
-            <p className="mt-1 font-mono text-small text-ink-600">
-              {f.targetHandle ? `@${f.targetHandle}` : '—'}
+            {/*
+              ⚠️ HEDEF — YALNIZCA HERKESE AÇIK BİLGİ.
+              Snapshot'ta parola, token, oturum veya yetkilendirme başlığı
+              tutulmaz; burada gösterilebilecek tek şey zaten herkesin
+              görebildiği profil/gönderi adresidir.
+            */}
+            <p className="mt-1 flex flex-wrap items-center gap-2 font-mono text-small text-ink-600">
+              <span data-testid="detail-target">
+                {f.targetHandle ? `@${f.targetHandle}` : '—'}
+              </span>
+              <span className="rounded-full bg-ink-100 px-2 py-0.5 font-sans text-caption text-ink-600">
+                {f.targetType}
+              </span>
+              {f.targetCanonicalUrl && (
+                <a
+                  href={f.targetCanonicalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  className="font-sans text-caption text-brand-700 underline underline-offset-2"
+                >
+                  Hedefi aç ↗
+                </a>
+              )}
             </p>
           </div>
-          <FulfillmentStatusBadge status={f.status} />
+          <div className="flex flex-col items-end gap-1.5">
+            <FulfillmentStatusBadge status={f.status} />
+            <span className="text-caption text-ink-500" data-testid="detail-order-status">
+              Sipariş: {ORDER_STATUS_META[f.orderStatus].label}
+            </span>
+          </div>
         </div>
 
         <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-ink-200 pt-5 sm:grid-cols-4">
@@ -148,7 +179,7 @@ export default async function FulfillmentDetailPage({
                   </p>
                 </div>
                 <span className="rounded-full bg-ink-100 px-2.5 py-0.5 text-caption font-medium text-ink-700">
-                  {r.status}
+                  {REPLACEMENT_STATUS_LABEL[r.status] ?? r.status}
                 </span>
               </li>
             ))}
@@ -165,7 +196,7 @@ export default async function FulfillmentDetailPage({
               <span className="mt-1.5 size-2 shrink-0 rounded-full bg-brand-500" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="text-small font-medium text-ink-800">
-                  {e.type}
+                  {FULFILLMENT_EVENT_LABEL[e.type] ?? e.type}
                   {e.fromStatus && e.toStatus && (
                     <span className="ml-2 font-normal text-ink-500">
                       {e.fromStatus} → {e.toStatus}

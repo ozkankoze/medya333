@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { db } from '@/server/db'
-import { orderTrackingEmail, sendMail } from '@/server/mail'
+import { notifyOrderEvent } from '@/server/notifications'
 import { createAccessToken, normalizeOrderNo, safeEmailEquals } from './order-no'
 
 /**
@@ -50,7 +50,7 @@ export async function resendTrackingLink(orderNoRaw: string, emailRaw: string): 
     data: { accessTokenHash: hash, accessExpiresAt: new Date(Date.now() + TOKEN_TTL_MS) },
   })
 
-  await db.orderEvent.create({
+  const event = await db.orderEvent.create({
     data: {
       orderId: order.id,
       type: 'TRACKING_LINK_SENT',
@@ -58,21 +58,16 @@ export async function resendTrackingLink(orderNoRaw: string, emailRaw: string): 
       actorType: 'CUSTOMER',
       isCustomerVisible: false,
     },
+    select: { id: true },
   })
 
-  await sendMail(
-    orderTrackingEmail({
-      orderNo: order.orderNo,
-      email: stored,
-      platformName: order.platform.name,
-      serviceName: order.service.name,
-      variantLabel: order.serviceVariant.customerLabel,
-      quantity: order.quantity,
-      unitLabel: order.service.unitLabel,
-      totalMinor: order.totalMinor,
-      targetHandle: order.target.handle ?? order.target.normalized,
-      status: order.status,
-      trackingToken: token,
-    }),
-  )
+  /**
+   * ⚠️ Her yeniden gönderim YENİ bir olay yazar, dolayısıyla yeni bir bildirim
+   * üretir — idempotency olay bazlıdır, sipariş bazlı değil. Kötüye kullanım
+   * rate limit ile engellenir (orders.sendlink.ip / .orderNo, 3/saat).
+   *
+   * ⚠️ `token` yalnızca burada ham hâldedir; DB'de hash'i durur ve hiçbir log
+   * satırına yazılmaz.
+   */
+  await notifyOrderEvent(event.id, { trackingToken: token })
 }

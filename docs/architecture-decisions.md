@@ -1115,32 +1115,284 @@ sürecin verdiği kanıttır.
 
 ---
 
-## Sonraki Faz — Faz 8 (onay bekliyor)
 
-Faz 7 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+## ADR-029 — Bildirim Tek Bir Olaydan Doğar, İdempotency Veritabanındadır
 
-### ⚠️ CANLIYA ÇIKIŞ DEĞERLENDİRMESİ: HAZIR DEĞİL
+**Bağlam.** Faz 7'ye kadar e-posta gönderimi beş ayrı yere gömülüydü:
+`orders/route.ts`, `orders/admin.ts`, `orders/tracking.ts`, `payments/webhook.ts`
+ve `auth/register`. Her biri kendi şablonunu kuruyor, kendi alıcısını çözüyor,
+kendi hata yönetimini yapıyordu.
 
-Kod tarafı hazırdır. Hazır olmayan şey **ortamdır** ve bunların hiçbiri kodla
-"varmış gibi" gösterilmedi:
+İki somut sonucu vardı:
 
-| # | Blocker | Neden kodla çözülemez |
+1. **Aynı e-posta iki kez gidebiliyordu.** Sağlayıcı bir webhook'u yeniden
+   gönderdiğinde ödeme tarafı idempotent'ti (PaymentEvent unique) ama e-posta
+   değildi.
+2. **Kimse "bu siparişe ne gönderdik?" sorusunu cevaplayamıyordu.** Gönderimin
+   hiçbir kaydı yoktu.
+
+**Karar.** Tek yön: `OrderEvent → NotificationService → EmailAdapter`.
+
+- Sipariş, ödeme ve fulfillment kodu artık **şablon kurmaz**. Yalnızca zaten
+  yazdığı olayı bildirim katmanına gösterir.
+- Şablon seçimi kapalı bir **allow-list**tir (`TEMPLATE_FOR_EVENT`). Listede
+  olmayan olay bildirim üretmez — "not eklendi" gibi iç olaylar müşteriye
+  e-posta göndermez ve bu, unutulabilecek bir kontrol değil, veri yapısının
+  kendisidir.
+
+**İdempotency uygulamada değil, şemada.**
+
+```prisma
+@@unique([orderEventId, channel])
+```
+
+Uygulama katmanında "önce sorgula, yoksa gönder" yazsaydık iki eşzamanlı
+tetikleme arasında yarış kalırdı. Şimdi ikinci INSERT `P2002` alır ve
+`DUPLICATE` döner. Test bunu 10 eşzamanlı tetiklemeyle doğruluyor.
+
+**Yeni paralel event sistemi kurulmadı.** Telafi akışı `FulfillmentEvent`
+kullanıyordu ve müşteriye görünür iki kilometre taşı için OrderEvent yoktu;
+bunun için ikinci bir olay sistemi icat etmek yerine `OrderEventType`'a
+`REPLACEMENT_APPROVED` ve `REPLACEMENT_COMPLETED` eklendi (yalnızca ekleme).
+
+**İlerleme bildirimi neden sadece bir kez?** `PROGRESS_UPDATED` olayı her
+ilerleme girişinde yazılsaydı, operatörün 20 kez ölçüm girmesi müşteriye 20
+e-posta demek olurdu. Bildirim yalnızca **ilk teslimde** (delivered 0 → >0)
+üretilir; gerisi zaten takip sayfasındaki ilerleme çubuğundan canlı izlenir.
+
+---
+
+## ADR-030 — Sağlayıcı Yoksa "Gönderildi" Denmez
+
+**Bağlam.** `ConsoleMailProvider` her çağrıda `{ ok: true }` dönüyordu. Yani
+sağlayıcı hiç bağlı değilken bile sistem gönderimi **başarılı sayıyordu**.
+Faz 7 raporunda bu bir blocker (B2) olarak yazılmıştı ama kod hâlâ başarı
+döndürüyordu — belge ile davranış çelişiyordu.
+
+**Karar.** Sağlayıcı arayüzüne `canDeliver` alanı eklendi ve gönderim sonucu
+iki ayrı soruya bölündü:
+
+| Soru | Alan |
+|---|---|
+| Çağrı hatasız tamamlandı mı? | `ok` |
+| **Müşteriye gerçekten ulaştı mı?** | `delivered = ok && provider.canDeliver` |
+
+`console` ve `memory` sağlayıcıları `ok: true` ama `canDeliver: false` döner.
+Bildirim kaydı `delivered`'a bakar; dolayısıyla geliştirme ortamında bile
+panel "gönderildi" yalanı söylemez.
+
+`none` sağlayıcısı ise doğrudan `ok: false` döner ve
+`[mail:FAILED] … reason=EMAIL_PROVIDER_NOT_CONFIGURED` yazar. Canlıda
+varsayılan odur.
+
+**`console` canlıda BLOCKER'dır.** İki sebeple: teslim etmediği hâlde başarı
+döndürür ve e-posta konularını sunucu log'una yazar. `EMAIL_PROVIDER=console`
+ile canlı boot denemesi `EMAIL_CONSOLE_IN_PRODUCTION` ile durdurulur.
+
+**Sonuç:** eksik ortam artık sessiz bir başarısızlık değil, **sayılabilir bir
+metrik**. `Notification.status = 'FAILED'` sayısı izlemeye bağlanabilir.
+
+---
+
+## ADR-031 — Operasyon Kuyruğunda OFFSET Değil Cursor
+
+**Bağlam.** Faz 6 E2E'si şunu yakalamıştı: 58 açık iş biriktiğinde yeni sipariş
+ilk sayfada görünmüyordu. Geçici çözüm testte sipariş numarasıyla filtrelemekti;
+gerçek sorun sayfalamanın kendisiydi.
+
+**OFFSET neden çalışmaz?** Operasyon kuyruğuna sürekli yeni iş düşer.
+`skip: (page-1)*size` ile 2. sayfadayken bir sipariş gelirse tüm kayıtlar bir
+sıra kayar: 1. sayfanın son kaydı 2. sayfanın başında **tekrar** görünür ve bir
+kayıt **tamamen atlanır**. Bu teorik bir kenar durum değil, günlük bir hatadır —
+ve atlanan kayıt hiç işlenmemiş bir müşteri siparişidir.
+
+**Karar.** Keyset (cursor) sayfalama. Sorgu "şu kayıttan sonrakiler" der;
+araya yeni kayıt girmesi sayfa sınırlarını bozmaz.
+
+**Tie-breaker bir detay değil, temeldir.** Sıralamanın son anahtarı **her zaman
+`id`**'dir:
+
+```
+newest:   createdAt DESC, id DESC
+oldest:   createdAt ASC,  id ASC
+priority: status ASC, createdAt ASC, id ASC
+```
+
+Toplu işlenen webhook'lar aynı milisaniyede birden çok fulfillment yaratabilir.
+`createdAt` eşit olduğunda sıralama kararsız kalır ve cursor mantığı çöker —
+tam olarak çözmeye çalıştığımız hatayı geri getirir. Bir test bunu kod üzerinden
+zorluyor: `SORT_ORDERS` içindeki her dizi `{ id: … }` ile bitmek zorunda.
+
+**Varsayılan sıralama değişti:** "durum önceliği" yerine **"en yeni"**.
+Şartname "yeni siparişlerin ilk sayfada görünmesi garanti edilsin" diyor; durum
+önceliğiyle sıralanan bir kuyrukta yeni bir `COMPLETED` iş ilk sayfada olmaz.
+Durum önceliği açık bir seçenek olarak duruyor.
+
+**Bilinen sınır:** `priority` sıralaması PostgreSQL'in **enum tanım sırasını**
+kullanır (`READY → PROCESSING → STARTED → PARTIAL → COMPLETED → FAILED →
+REVIEW_REQUIRED`), uygulamadaki `QUEUE_PRIORITY` haritasını değil. İlk dört
+adımda ikisi aynıdır; son üçte ayrışır. Enum sırası veritabanında
+değiştirilemediği için tek kaynak enum kabul edildi — inceleme kuyruğu zaten
+kendi sekmesinden izleniyor.
+
+---
+
+## ADR-032 — Ayırıcı Belirsizliği: `1349.90` Yüz Kat Hata Demekti
+
+**Bağlam.** Faz 5'ten beri admin fiyat girişi şu satırla kuruşa çevriliyordu:
+
+```ts
+text.replace(/\./g, '').replace(',', '.')   // "tüm noktaları sil"
+```
+
+Türkçe girdide (`1.349,90`) doğru çalışır. Ama sayısal tuş takımından ya da
+başka bir sistemden yapıştırılan `1349.90` girdisinde nokta **silinir** ve
+sonuç `134990` **lira** olur: 1.349,90 ₺ yerine 134.990,00 ₺. **Yüz kat fiyat
+hatası, hiçbir uyarı vermeden.**
+
+Bu, Faz 8'in katalog CRUD formlarını yazarken ortaya çıktı: aynı fonksiyonun
+iki kopyası vardı (`PricingEditor` ve yeni form modülü) ve ikisi de aynı hatayı
+taşıyordu.
+
+**Karar.** Ayırıcı rolü tahmin edilmez, **kurala bağlanır**:
+
+1. İki farklı ayırıcı varsa (`1.349,90`) **sonuncusu** ondalıktır.
+2. Yalnızca virgül varsa virgül ondalıktır.
+3. Yalnızca nokta varsa: tek nokta + ardından **3 hane değilse** ondalıktır
+   (`1349.90` → 1.349,90 ₺). Tam 3 hane geliyorsa binliktir (`1.234` → 1.234 ₺).
+4. Binlik grupları **katı** doğrulanır: ilk grup 1–3 hane, sonrakiler tam 3.
+   `1.2.3` sessizce 123 olmaz, **reddedilir**.
+5. Ondalık ayırıcı binlik ayırıcıyla aynı olamaz — `1,234,5` reddedilir.
+
+Geçersiz girdi `null` döner ve form hata gösterir; **asla 0 olarak
+yorumlanmaz** (0 kabul edilseydi ücretsiz sipariş açılabilirdi).
+
+**İkinci karar: tek kopya.** Fonksiyon `components/catalog/admin-client.ts`'e
+taşındı; `PricingEditor` artık onu yeniden dışa aktarıyor. İki kopya olsaydı
+bu düzeltme yalnızca birine uygulanabilir ve iki ekran aynı girdiyi farklı
+fiyata çevirirdi.
+
+Aynı sorunun küçük kardeşi `parseQuantityList`'teydi: `1.5.2` sessizce 152
+oluyordu. O da katı gruplama ile kapatıldı.
+
+---
+
+## Faz 8 Uygulama Özeti
+
+**Amaç:** PayTR beklenirken sistemi gerçek operasyon için hazırlamak.
+**Ödeme entegrasyonuna DOKUNULMADI.**
+
+### Eklenen dosyalar
+
+| Dosya | İş |
+|---|---|
+| `src/server/mail/templates.ts` | 9 Türkçe şablon + `assertSafeVariables` güvenlik kapısı |
+| `src/server/mail/provider.ts` | `none` / `console` / `resend` / `memory` sağlayıcıları, `canDeliver` ayrımı |
+| `src/server/mail/index.ts` | `sendEmail({ to, template, variables })` — tek giriş noktası |
+| `src/server/notifications/index.ts` | OrderEvent → şablon eşlemesi, idempotent kayıt |
+| `src/server/health.ts` · `src/app/api/health/route.ts` | Sağlık ucu (application · database · redis) |
+| `src/components/catalog/admin-client.ts` | Ortak mutasyon hook'u + TL↔kuruş dönüşümü |
+| `src/components/catalog/CatalogForms.tsx` | Platform/hizmet/varyant/fiyat CRUD formları |
+| `src/components/catalog/ValidationReport.tsx` | PASS/WARNING/ERROR + 8 sorun kodu için Türkçe açıklama |
+| `docs/OPERATIONS.md` | Operasyon el kitabı (14 bölüm) |
+| `prisma/migrations/20260819080000_notifications/` | `Notification` tablosu + 2 enum + 2 OrderEventType değeri |
+
+### Veritabanı değişikliği
+
+**Tamamen eklemeli.** Hiçbir tablo/kolon düşürülmedi, hiçbir satır değiştirilmedi.
+
+- `Notification` tablosu — `@@unique([orderEventId, channel])` ile idempotency
+- `NotificationChannel` enum — **yalnızca `EMAIL`** (SMS/WhatsApp bilinçli olarak yok)
+- `NotificationStatus` enum — `PENDING · SENT · FAILED · SKIPPED`
+- `OrderEventType` += `REPLACEMENT_APPROVED`, `REPLACEMENT_COMPLETED`
+
+### Değiştirilen davranışlar
+
+| Ne | Önce | Sonra |
 |---|---|---|
-| B1 | Gerçek merchant bilgisi yok | Sahte credential üretmek = ödeme almadan sipariş onaylamak |
-| B2 | E-posta sağlayıcısı yok (`ConsoleMailProvider`) | Müşteriye takip linki GİTMİYOR; sahte SMTP eklenmedi |
-| B3 | Alan adı + TLS bağlı değil | `__Secure-` çerezler ve callback'ler HTTPS ister |
-| B4 | Yönetilen PostgreSQL + Redis yok | Yedek/replica/erişim politikası altyapı kararıdır |
-| B5 | Hata izleme (Sentry) yok | DSN olmadan Sentry entegre etmek boş bağımlılık olur |
+| E-posta | 5 ayrı yerde gömülü, kayıtsız, idempotent değil | Tek katman, kayıtlı, DB kısıtıyla idempotent |
+| Sağlayıcı yok | `ok: true` ("gönderildi" yalanı) | `FAILED` + log |
+| Kuyruk sayfalama | OFFSET, 25/sayfa, en eskiden | Cursor, 50/sayfa, **en yeniden** |
+| Kuyruk arama | Yalnızca sipariş no (tam eşleşme) | Sipariş no · e-posta · hedef (kısmi) |
+| Kuyruk filtresi | Platform · hizmet · operatör | + varyant · iş durumu · sipariş durumu · tarih · atanmamış |
+| Katalog UI | Yalnızca aktif/pasif + fiyat düzenleme | Tam CRUD: platform sırası, hizmet, varyant, fiyat kademesi |
+| Doğrulama raporu | Ham kod adı (`GAP`) | PASS/WARNING/ERROR + ne oldu · neden önemli · nasıl düzeltilir |
+| Admin durum değişikliği | Her müşteri-görünür durumda e-posta | Yalnızca anlamlı kilometre taşları |
+
+### Denetimde bulunan GERÇEK hatalar
+
+1. **`1349.90` → 100× fiyat hatası** (ADR-032). İki ayrı kopyada.
+2. **`1.5.2` → 152** hazır miktar listesinde sessizce kabul ediliyordu.
+3. **Müşteri zaman çizelgesi ham olay türünü döndürüyordu** (`type: "PROCESSING"`).
+   Faz 6'da "iç enum sızmasın" kuralı konmuştu ama `timeline[].type` alanı
+   gözden kaçmıştı. Alan kaldırıldı; müşteri yalnızca Türkçe etiketi görür.
+4. **`syncOrderStatus` tüm olayları `STATUS_CHANGED` yazıyordu.** Müşteri
+   zaman çizelgesinde beş satır aynı ada sahipti ve bildirim katmanı hangi
+   kilometre taşına gelindiğini olaydan okuyamıyordu.
+5. **`"Operasyon ilerlemesi"` iç jargonu müşteriye görünüyordu.**
+6. **Katalog `data-testid`'leri benzersiz değildi** — `variant-takipci-turk`
+   Instagram, TikTok ve Facebook'ta aynı anda vardı.
+
+### Yapılmayanlar (faz sınırı)
+
+❌ PayTR / iyzico entegrasyonu · ❌ yeni ödeme sağlayıcı · ❌ sosyal medya API ·
+❌ scraping · ❌ bot · ❌ otomatik takip/beğeni/yorum · ❌ otomatik fulfillment ·
+❌ otomatik telafi · ❌ SMS · ❌ WhatsApp · ❌ WebSocket · ❌ SSE
+
+Ödeme webhook davranışı **değişmedi**; yalnızca e-posta çağrısı bildirim
+katmanına yönlendirildi. Progress modeli **değişmedi**: `delivered` hâlâ
+sunucuda `clamp(currentMetric − initialMetric, 0, requestedQuantity)` ile
+hesaplanır, istemci `percent`/`remaining` gönderemez ve **%100 teslim otomatik
+tamamlama yapmaz**.
+
+### Doğrulama sonuçları
+
+```
+tsc --noEmit                 0 hata
+next build                   başarılı
+vitest                       771 passed (26 dosya)
+playwright                   213 passed · 5 skipped (desktop + mobile)
+scripts/screenshots.mjs      6 genişlikte yatay taşma = 0px
+GET /api/health              {"status":"healthy", database: up, redis: up}
+```
+
+---
+
+## Sonraki Faz — Faz 9 (onay bekliyor)
+
+Faz 8 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+
+### ⚠️ CANLIYA ÇIKIŞ DEĞERLENDİRMESİ: HÂLÂ HAZIR DEĞİL
+
+Faz 8 **operasyonu** hazırladı; **ortam** hazır değil. Beş blocker aynen duruyor:
+
+| # | Blocker | Faz 8'de değişen |
+|---|---|---|
+| B1 | Gerçek merchant bilgisi yok | Değişmedi — **PayTR onayı bekleniyor** |
+| B2 | E-posta sağlayıcısı yok | Kod hazır (`EMAIL_PROVIDER=resend` + anahtar yeter). Sağlayıcı yokken artık **"gönderildi" denmiyor**, `FAILED` kaydediliyor |
+| B3 | Alan adı + TLS bağlı değil | Değişmedi |
+| B4 | Yönetilen PostgreSQL + Redis yok | Değişmedi. `/api/health` ile izlenebilir hâle geldi |
+| B5 | Hata izleme (Sentry) yok | Değişmedi — sahte entegrasyon eklenmedi |
+
+### PayTR onaylandığında yapılacaklar
+
+Kod değişikliği **gerekmez**; yalnızca environment:
+
+```bash
+PAYMENT_PROVIDER=paytr
+PAYMENT_ENVIRONMENT=production
+PAYTR_MERCHANT_ID=…  PAYTR_MERCHANT_KEY=…  PAYTR_MERCHANT_SALT=…
+APP_ENV=production
+```
+
+Ardından `docs/PRODUCTION_CHECKLIST.md` § 4 (PAYMENT) adımları izlenir.
 
 ### Kalan teknik borç
 
-- **Operatör kuyruğunda sayfalama yok.** 50'den fazla açık iş olduğunda en yeni
-  sipariş ilk sayfada görünmüyor. Cursor tabanlı sayfalama gerekir.
-- Ters proxy `X-Forwarded-For`'u istemciden geleni **ezerek** yazmalıdır; aksi
-  halde rate limit kimliği taklit edilebilir.
-- Garanti süresi yalnızca Instagram Takipçi'de tanımlı.
-- Admin panelinde hizmet/varyant oluşturma ve fiyat kademesi ekleme formu yok.
-- Rol atama arayüzü yok; roller DB'den veriliyor.
-- OG görseli (`og:image`) üretilmedi — gerçek marka görseli bekleniyor.
-- `Logo` hâlâ wordmark; gerçek marka asset'i geldiğinde yalnızca o dosya değişir.
+- Instagram dışındaki ürünlerde garanti süresi (`refillDays`) tanımlı değil.
+- Panelden rol atama yok; roller veritabanından veriliyor.
+- SLA / gecikme alarmı yok (`READY`'de bekleyen iş için eşik).
+- Garanti bitişi yaklaşan siparişler için hatırlatma bildirimi yok.
+- Bildirim başarısızlıkları için panel ekranı yok (şu an yalnızca DB sorgusu).
+- OG görseli üretilmedi; `Logo` hâlâ wordmark.
 - Prisma WASM şema motoru diff alamıyor; migration'lar elle yazılıyor.

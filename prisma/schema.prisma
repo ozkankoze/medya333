@@ -118,6 +118,10 @@ enum OrderEventType {
   REFUNDED
   FAILED
   NOTE_ADDED
+  /// Faz 8 — telafi (garanti) kilometre taşları. Müşteriye görünür ve
+  /// bildirim üretir; ayrıntı FulfillmentEvent'te kalır.
+  REPLACEMENT_APPROVED
+  REPLACEMENT_COMPLETED
   TARGET_CONFIRMED
   ASSIGNED
   STATUS_CHANGED
@@ -621,10 +625,11 @@ model Order {
   dueAt        DateTime? /// SLA son teslim — geciken sipariş uyarısı
 
   items       OrderItem[]
-  payments    Payment[]
-  events      OrderEvent[]
-  refunds     Refund[]
-  fulfillment Fulfillment?
+  payments      Payment[]
+  events        OrderEvent[]
+  refunds       Refund[]
+  fulfillment   Fulfillment?
+  notifications Notification[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -801,10 +806,68 @@ model OrderItem {
   @@index([orderId])
 }
 
+/// Bildirim kanalı. ⚠️ Faz 8'de YALNIZCA EMAIL uygulanmıştır.
+/// SMS/WhatsApp bilinçli olarak EKLENMEDİ; enum genişletilebilir bırakıldı.
+enum NotificationChannel {
+  EMAIL
+}
+
+enum NotificationStatus {
+  /// Kayıt açıldı, gönderim denenmedi
+  PENDING
+  SENT
+  /// ⚠️ Sağlayıcı yok veya gönderim reddedildi — "gönderildi" SAYILMAZ
+  FAILED
+  /// Bilinçli atlandı (alıcı adresi yok, şablon eşleşmedi)
+  SKIPPED
+}
+
+/// ⭐ BİLDİRİM KAYDI (Faz 8)
+///
+/// Her bildirim BİR OrderEvent'ten doğar — paralel bir event sistemi yoktur.
+/// `@@unique([orderEventId, channel])` sayesinde aynı olay için aynı kanaldan
+/// ikinci bir gönderim veritabanı seviyesinde imkânsızdır (idempotency).
+///
+/// ⚠️ Ham e-posta adresi, takip token'ı veya sağlayıcı sırrı BURAYA YAZILMAZ.
+model Notification {
+  id String @id @default(cuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  orderEventId String
+  orderEvent   OrderEvent @relation(fields: [orderEventId], references: [id], onDelete: Cascade)
+
+  channel  NotificationChannel @default(EMAIL)
+  /// Şablon anahtarı — ORDER_CREATED, PAYMENT_RECEIVED, …
+  template String
+  status   NotificationStatus  @default(PENDING)
+
+  /// ⚠️ PII minimizasyonu: yalnızca MASKELİ adres (ab***@site.com)
+  recipientMasked String
+  /// Sağlayıcının döndürdüğü kısa hata — sır içermez, 300 karakterle sınırlı
+  failureReason String?
+  /// Sağlayıcı mesaj kimliği (varsa) — destek taleplerinde iz sürmek için
+  providerMessageId String?
+  /// Hangi sağlayıcı denedi: console | resend | none
+  provider String @default("none")
+
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  sentAt    DateTime?
+
+  @@unique([orderEventId, channel])
+  @@index([orderId, createdAt])
+  @@index([status, createdAt])
+  @@index([template, createdAt])
+}
+
 model OrderEvent {
   id      String @id @default(cuid())
   orderId String
   order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  notifications Notification[]
 
   type       OrderEventType
   fromStatus OrderStatus?

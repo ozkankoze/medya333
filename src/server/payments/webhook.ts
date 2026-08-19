@@ -10,7 +10,7 @@ import {
 } from '@/lib/payments/status'
 import { writeAudit } from '@/server/audit'
 import { db } from '@/server/db'
-import { orderStatusChangedEmail, sendMail } from '@/server/mail'
+import { notifyLatestOrderEvent } from '@/server/notifications'
 import { ensureFulfillmentForPaidOrder } from '@/server/fulfillment/create'
 import { transitionOrder } from '@/server/orders/transition'
 import { recordPaymentEvent } from './events'
@@ -424,42 +424,19 @@ async function markProcessingError(
     .catch(() => undefined)
 }
 
-/** Ödeme alındı e-postası — gönderim asla akışı düşürmez. */
+/**
+ * ⭐ ÖDEME ALINDI BİLDİRİMİ
+ *
+ * ⚠️ Webhook artık e-posta İÇERİĞİ KURMAZ. Yalnızca "ödeme alındı" olayına
+ * karşılık gelen bildirimi tetikler; şablon, alıcı çözümü, idempotency ve
+ * başarısızlık kaydı `server/notifications` katmanındadır.
+ *
+ * ⚠️ Aynı webhook birden çok kez gelse bile (sağlayıcı yeniden denemesi)
+ * bildirim tablosundaki `unique(orderEventId, channel)` ikinci e-postayı
+ * engeller.
+ *
+ * ⚠️ Gönderim asla ödeme akışını düşürmez.
+ */
 async function notifyCustomer(orderId: string) {
-  const order = await db.order
-    .findUnique({
-      where: { id: orderId },
-      select: {
-        orderNo: true,
-        status: true,
-        quantity: true,
-        totalMinor: true,
-        customerEmail: true,
-        guestEmail: true,
-        platform: { select: { name: true } },
-        service: { select: { name: true, unitLabel: true } },
-        serviceVariant: { select: { customerLabel: true } },
-        target: { select: { handle: true, normalized: true } },
-      },
-    })
-    .catch(() => null)
-
-  const email = order?.customerEmail ?? order?.guestEmail
-  if (!order || !email) return
-
-  await sendMail(
-    orderStatusChangedEmail({
-      orderNo: order.orderNo,
-      email,
-      platformName: order.platform.name,
-      serviceName: order.service.name,
-      variantLabel: order.serviceVariant.customerLabel,
-      quantity: order.quantity,
-      unitLabel: order.service.unitLabel,
-      totalMinor: order.totalMinor,
-      targetHandle: order.target.handle ?? order.target.normalized,
-      status: order.status as OrderStatus,
-      trackingToken: null,
-    }),
-  )
+  await notifyLatestOrderEvent(orderId, 'PAYMENT_RECEIVED')
 }

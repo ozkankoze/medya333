@@ -62,6 +62,7 @@ belirtilmiş istisnalardır.
 | `GET /admin/fulfillments/{id}` | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `POST …/note` (iç not) | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `POST …/assign`, `…/start`, `…/progress`, `…/complete`, `…/fail`, `…/replacement` | OPERATOR | — | — | ✔ | ✔ | ✔ |
+| `GET /admin/fulfillments?q=…` (arama/filtre) | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `GET /admin/services`, `/variants`, `/pricing-rules`, `/platforms` | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `GET /admin/pricing/simulate`, `/pricing/validate` | SUPPORT | — | ✔ | ✔ | ✔ | ✔ |
 | `POST`/`PATCH` katalog (servis, varyant, fiyat kuralı, platform, sıralama) | ADMIN | — | — | — | ✔ | ✔ |
@@ -101,6 +102,7 @@ Aşan istek `429 RATE_LIMITED` + `X-RateLimit-*` başlıkları döner.
 | Uç | Anahtar | Limit | Pencere | Gerekçe |
 |---|---|---|---|---|
 | `GET /catalog/snapshot` | `catalog.read.ip` | 120 | 1 dk | Sayfa açılışında okunur; cömert |
+| `GET /api/health` | — | **yok** | — | ⚠️ Bilinçli. Sağlık yoklamasını kısmak, sağlıklı bir örneğin "ölü" işaretlenmesine yol açar. Uç iki ucuz ping'den ibarettir ve sır döndürmez. |
 | `POST /pricing/quote` | `pricing.quote.ip` | 30 | 1 dk | Miktar değiştikçe çağrılır |
 | `POST /targets/resolve` | `targets.resolve.ip` | 10 | 1 dk | Dış kaynak maliyeti + numaralandırma riski |
 | ” (oturumlu) | `targets.resolve.user` | 30 | 1 dk | Giriş yapana daha geniş alan |
@@ -161,6 +163,7 @@ arkasındaki personel birbirini kilitlemez.
 |---|---|
 | `POST /payments/webhooks/{provider}` | Sağlayıcı yeniden deneme yapar; limitlemek **ödeme kaybına** yol açar. Koruma imza + tekrar (replay) engeli + `PaymentEvent(provider, providerEventId)` unique kısıtıdır. |
 | `GET /robots.txt`, `/sitemap.xml`, `/icon.svg` | Statik, maliyetsiz. |
+| `GET /api/health` | Sağlık yoklaması kısılmaz (yukarı bkz.). |
 
 ---
 
@@ -169,5 +172,21 @@ arkasındaki personel birbirini kilitlemez.
 | # | Konu | Etki |
 |---|---|---|
 | G1 | Rate limit sayaçları IP hash'ine dayanır; CDN/proxy arkasında `X-Forwarded-For` **güvenilir olmalıdır**. Ters proxy bunu istemciden gelen değerle **ezmelidir**. | Yanlış yapılandırılırsa limit atlatılabilir |
-| G2 | Operatör kuyruğunda **sayfalama yok** (ilk 50 kayıt, eskiden yeniye). İş hacmi arttığında yeni işler görünmez. | Operasyonel |
+| ~~G2~~ | ~~Operatör kuyruğunda sayfalama yok~~ → **Faz 8'de kapatıldı**: cursor tabanlı sayfalama, varsayılan sıralama "en yeni", 50 kayıt/sayfa. | ✅ |
 | G3 | Rol değişikliği için yönetim arayüzü yok; roller DB'den atanır. | Operasyonel |
+
+---
+
+## 5. Bildirim yüzeyi (Faz 8)
+
+Bildirimler yeni bir yetki yüzeyi açmaz — hiçbir uçtan **tetiklenemezler**.
+Tek doğuş yolları bir `OrderEvent` yazılmasıdır ve o olayı yazan kod zaten
+kendi yetki kontrolünden geçmiştir.
+
+| Soru | Cevap |
+|---|---|
+| Müşteri bildirim tetikleyebilir mi? | Yalnızca dolaylı: sipariş oluşturarak veya takip linki isteyerek. İkisi de rate limitlidir. |
+| Aynı olay iki e-posta üretebilir mi? | Hayır. `Notification` tablosunda `unique(orderEventId, channel)` vardır; ikinci kayıt veritabanı seviyesinde açılamaz. |
+| Bildirim kaydında PII var mı? | Yalnızca **maskeli** alıcı (`ab***@site.com`). Ham e-posta, takip token'ı ve sağlayıcı sırrı yazılmaz. |
+| Sağlayıcı yokken ne olur? | Kayıt `FAILED` olur. **"Gönderildi" denmez.** |
+| E-postada iç bilgi görünür mü? | Hayır. `assertSafeVariables` yasaklı alan adlarını (token, secret, cvv, internalNote, failureReason, operatorId…) çalışma zamanında reddeder; testler ayrıca şablon çıktısını iç enum'lara karşı tarar. |

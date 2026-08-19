@@ -56,13 +56,13 @@ test.beforeAll(async ({ browser }) => {
   const page = await ctx.newPage()
   await loginAsAdmin(page)
   await page.goto('/yonetim/katalog')
-  const reactivate = ig(page).getByTestId('service-kaydetme').getByRole('button', {
+  const reactivate = ig(page).getByTestId('service-instagram-kaydetme').getByRole('button', {
     name: /aktifleştir/i,
   })
   if ((await reactivate.count()) > 0) {
     await reactivate.click()
     await expect(
-      ig(page).getByTestId('service-kaydetme').getByRole('button', { name: /pasifleştir/i }),
+      ig(page).getByTestId('service-instagram-kaydetme').getByRole('button', { name: /pasifleştir/i }),
     ).toBeVisible({ timeout: 15_000 })
   }
   await ctx.close()
@@ -92,7 +92,7 @@ test.describe('gerçek katalog', () => {
       'kesfet-paketi',
       'aylik-begeni-yorum-paketi',
     ]) {
-      await expect(ig(page).getByTestId(`service-${slug}`)).toBeVisible()
+      await expect(ig(page).getByTestId(`service-instagram-${slug}`)).toBeVisible()
     }
     // Faz 5.1'de aktifleşen platformlar panelde de görünür
     for (const slug of ['youtube', 'facebook', 'tiktok']) {
@@ -104,7 +104,7 @@ test.describe('gerçek katalog', () => {
     const publicCatalog = await (await page.request.get('/api/v1/catalog/snapshot')).json()
     expect(publicCatalog.platforms).toHaveLength(4)
 
-    await ig(page).getByTestId('variant-takipci-turk').click()
+    await ig(page).getByTestId('variant-instagram-takipci-turk').click()
     await expect(page.getByTestId('variant-title')).toContainText('Türk Takipçi')
     await expect(page.getByTestId('pricing-report')).toContainText('Fiyat tablosu sağlam')
     await expect(page.getByTestId('stored-price-1000')).toContainText('1.349,90')
@@ -206,7 +206,7 @@ test.describe('gerçek katalog', () => {
     const admin = await adminCtx.newPage()
     await loginAsAdmin(admin)
     await admin.goto('/yonetim/katalog')
-    const service = ig(admin).getByTestId('service-kaydetme')
+    const service = ig(admin).getByTestId('service-instagram-kaydetme')
 
     try {
       await service.getByRole('button', { name: /pasifleştir/i }).click()

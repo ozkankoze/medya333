@@ -209,13 +209,36 @@ export function auditProductionConfig(): GuardFinding[] {
   }
 
   // --- 6) Bilgilendirme: entegrasyonu OLMAYAN bileşenler --------------------
+  /**
+   * ⚠️ `console` sağlayıcısı CANLIDA BLOCKER'DIR — uyarı değil.
+   * İki sebeple: (1) gönderim yapılmadığı hâlde `ok:true` döner, yani sistem
+   * "gönderildi" sanır; (2) e-posta konuları sunucu log'una yazılır.
+   * Yapılandırma eksikse doğru cevap `none`'dır: açıkça başarısız olur.
+   */
+  if (env.EMAIL_PROVIDER === 'console') {
+    findings.push({
+      level: 'blocker',
+      code: 'EMAIL_CONSOLE_IN_PRODUCTION',
+      message:
+        'EMAIL_PROVIDER=console canlı ortamda kullanılamaz: e-posta teslim edilmediği ' +
+        'hâlde başarılı sayılır. Sağlayıcı yoksa "none" kullanın.',
+    })
+  }
+  if (env.EMAIL_PROVIDER === 'resend' && !env.RESEND_API_KEY) {
+    findings.push({
+      level: 'blocker',
+      code: 'EMAIL_PROVIDER_KEY_MISSING',
+      message: 'EMAIL_PROVIDER=resend seçili ama RESEND_API_KEY tanımlı değil.',
+    })
+  }
   if (!env.RESEND_API_KEY) {
     findings.push({
       level: 'warning',
       code: 'EMAIL_NOT_CONFIGURED',
       message:
         'Gerçek e-posta sağlayıcısı bağlı değil (RESEND_API_KEY yok). Sipariş/ödeme ' +
-        'bildirimleri yalnızca sunucu log\'una yazılır — müşteriye E-POSTA GİTMEZ.',
+        'bildirimleri GÖNDERİLEMEZ; her deneme FAILED olarak kaydedilir. ' +
+        'Müşteriye E-POSTA GİTMEZ.',
     })
   }
   if (!env.SENTRY_DSN) {

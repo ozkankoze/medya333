@@ -4,6 +4,7 @@ import type { ReplacementStatus, UserRole } from '@/lib/enums'
 import { ROLE_LEVEL } from '@/lib/enums'
 import { isWithinGuarantee } from '@/lib/fulfillment/status'
 import { writeAudit } from '@/server/audit'
+import { notifyOrderEvent } from '@/server/notifications'
 import { db } from '@/server/db'
 import { FulfillmentError } from './create'
 import { FulfillmentAccessError, type Actor } from './operate'
@@ -235,6 +236,43 @@ export async function advanceReplacement(
       before: { status: updated.status },
       after: { status: to },
     })
+
+    /**
+     * ⭐ MÜŞTERİ BİLDİRİMİ — yalnızca iki kilometre taşı.
+     *
+     * Telafi akışının ayrıntısı (DROP_DETECTED, REVIEW_REQUIRED,
+     * REPLACEMENT_PROCESSING) İÇ bilgidir ve müşteriye gösterilmez. Müşteriyi
+     * ilgilendiren iki an vardır: talebi onaylandı ve telafi tamamlandı.
+     *
+     * ⚠️ Bunlar için OrderEvent yazılır çünkü bildirim katmanının tek kaynağı
+     * OrderEvent'tir. Paralel bir bildirim event sistemi kurulmaz.
+     */
+    const customerMilestone =
+      to === 'APPROVED' ? 'REPLACEMENT_APPROVED' : to === 'COMPLETED' ? 'REPLACEMENT_COMPLETED' : null
+
+    if (customerMilestone) {
+      const fulfillment = await db.fulfillment.findUnique({
+        where: { id: updated.fulfillmentId },
+        select: { orderId: true },
+      })
+      if (fulfillment) {
+        const event = await db.orderEvent.create({
+          data: {
+            orderId: fulfillment.orderId,
+            type: customerMilestone,
+            message:
+              customerMilestone === 'REPLACEMENT_APPROVED'
+                ? 'Telafi talebiniz onaylandı.'
+                : 'Telafi işlemi tamamlandı.',
+            actorType: 'ADMIN',
+            actorId: actor.userId,
+            isCustomerVisible: true,
+          },
+          select: { id: true },
+        })
+        await notifyOrderEvent(event.id)
+      }
+    }
   }
 
   return { id: replacementId, status: to }

@@ -26,6 +26,15 @@ function walk(dir: string, filter: (p: string) => boolean): string[] {
 
 const sourceFiles = walk(SRC, (p) => /\.(ts|tsx)$/.test(p))
 const read = (p: string) => readFileSync(p, 'utf8')
+
+/**
+ * ⚠️ Yorumları çıkarır.
+ * Bu dosyadaki denetimler KODU tarar. Yorum satırları çoğu zaman tam olarak
+ * yasakladığımız kalıbı AÇIKLAR ("skip: (page-1)*size kullanılmaz") ve
+ * çıkarılmazsa test kendi belgelendirmemizi ihlal sayar.
+ */
+const stripComments = (body: string) =>
+  body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 const rel = (p: string) => path.relative(ROOT, p)
 
 /** `src/server/**` dışındaki dosyalar istemciye ulaşabilir. */
@@ -265,5 +274,95 @@ describe('robots ve sitemap', () => {
     const sitemap = read(path.join(SRC, 'app/sitemap.ts'))
     expect(sitemap).toContain('getCatalog')
     expect(sitemap).toContain('appBaseUrl')
+  })
+})
+
+// ===========================================================================
+describe('Faz 8 — operasyon denetimi', () => {
+  it('⚠️ SAĞLIK UCU sır, sürüm veya bağlantı adresi DÖNDÜRMEZ', () => {
+    const blob = stripComments(
+      read(path.join(SRC, 'app/api/health/route.ts')) + read(path.join(SRC, 'server/health.ts')),
+    )
+    for (const banned of [
+      'DATABASE_URL',
+      'REDIS_URL',
+      'AUTH_SECRET',
+      'process.env',
+      'version',
+      'err.message',
+      '(err as Error).message',
+    ]) {
+      expect(blob, `sağlık ucunda "${banned}"`).not.toContain(banned)
+    }
+  })
+
+  it('⚠️ ÖDEME SAĞLAYICISI sağlık kontrolünde çağrılmaz', () => {
+    const impl = stripComments(read(path.join(SRC, 'server/health.ts')))
+    for (const banned of ['payments', 'iyzico', 'paytr', 'PAYMENT_']) {
+      expect(impl, `sağlık kontrolünde "${banned}"`).not.toContain(banned)
+    }
+  })
+
+  it('⚠️ KUYRUK SAYFALAMASI OFFSET KULLANMAZ', () => {
+    const queue = stripComments(read(path.join(SRC, 'server/fulfillment/queue.ts')))
+    // Prisma'da OFFSET `skip: n`'dir. Cursor ile birlikte kullanilan
+    // skip degeri 1 olmalidir: yalnizca cursor kaydinin kendisini atlar.
+    const skips = [...queue.matchAll(/skip:\s*([^,\n}]+)/g)].map((m) => m[1]!.trim())
+    for (const s of skips) {
+      expect(s, `OFFSET sayfalama: skip: ${s}`).toBe('1')
+    }
+    expect(queue, 'cursor sayfalaması yok').toContain('cursor:')
+  })
+
+  it('⚠️ SIRALAMA HER ZAMAN id ile biter (kararlı sayfalama)', () => {
+    const queue = stripComments(read(path.join(SRC, 'server/fulfillment/queue.ts')))
+    const block = queue.slice(queue.indexOf('const SORT_ORDERS'), queue.indexOf('export type QueueSort'))
+    const orders = [...block.matchAll(/\[(.*?)\],?\n/gs)].map((m) => m[1]!)
+    expect(orders.length).toBeGreaterThan(0)
+    for (const o of orders) {
+      expect(o, `tie-breaker yok: ${o}`).toMatch(/\{ id: '(asc|desc)' \}\s*$/)
+    }
+  })
+
+  it('⚠️ AUDIT KAPSAMI: şart koşulan admin aksiyonları kayıt yazar', () => {
+    const catalog = read(path.join(SRC, 'server/catalog/admin.ts'))
+    const operate = read(path.join(SRC, 'server/fulfillment/operate.ts'))
+    const replacement = read(path.join(SRC, 'server/fulfillment/replacement.ts'))
+    const blob = catalog + operate + replacement
+
+    for (const action of [
+      // katalog oluştur / güncelle / aktiflik
+      'platform.create', 'platform.update', 'platform.deactivate',
+      'service.create', 'service.update', 'service.deactivate',
+      'variant.create', 'variant.update', 'variant.deactivate',
+      // fiyat
+      'pricing_rule.create', 'pricing_rule.update',
+      // fulfillment
+      'fulfillment.assign', 'fulfillment.reassign', 'fulfillment.status_change',
+      'fulfillment.progress', 'fulfillment.note',
+      // telafi
+      'fulfillment.replacement_create', 'fulfillment.replacement_advance',
+    ]) {
+      expect(blob, `audit eksik: ${action}`).toContain(`'${action}'`)
+    }
+  })
+
+  it('⚠️ AUDIT PAYLOAD\'INA hassas alanlar giremez', () => {
+    const audit = read(path.join(SRC, 'server/audit.ts'))
+    for (const key of [
+      'passwordHash',
+      'twoFactorSecret',
+      'accessTokenHash',
+      'rawInitPayload',
+      'rawResultPayload',
+    ]) {
+      expect(audit, `REDACTED listesinde yok: ${key}`).toContain(key)
+    }
+  })
+
+  it('⚠️ MÜŞTERİ GÖRÜNÜMÜ ham olay türü döndürmez', () => {
+    const lookup = stripComments(read(path.join(SRC, 'server/orders/lookup.ts')))
+    const block = lookup.slice(lookup.indexOf('timeline: order.events.map'), lookup.indexOf('steps,'))
+    expect(block, 'zaman çizelgesinde ham enum').not.toMatch(/type:\s*e\.type/)
   })
 })

@@ -5,6 +5,7 @@ import { PricingError } from '@/lib/pricing'
 import { buildConsentSnapshot, LEGAL_DOCUMENTS } from '@/lib/legal'
 import type { CreateOrderInput } from '@/lib/validation'
 import { db } from '@/server/db'
+import { notifyLatestOrderEvent } from '@/server/notifications'
 import { CouponInvalidError, resolvePrice, VariantNotFoundError } from '@/server/pricing/resolve'
 import { createAccessToken, generateOrderNo } from './order-no'
 
@@ -353,6 +354,26 @@ export async function createOrder(
 
     return order
   })
+
+  /**
+   * ⭐ BİLDİRİM — sipariş oluşturuldu.
+   *
+   * ⚠️ ÇAĞRI BURADA, ROUTE'TA DEĞİL. Route katmanına konsaydı sipariş
+   * oluşturmanın başka bir girişi (test, admin aracı, ileride bir iş akışı)
+   * bildirimi sessizce atlardı. Tek yazma noktası kuralı bildirimler için de
+   * geçerlidir.
+   *
+   * ⚠️ E-posta İÇERİĞİ burada kurulmaz; yalnızca "şu olay gerçekleşti" denir.
+   * Şablon seçimi, alıcı çözümü, idempotency ve başarısızlık kaydı
+   * `server/notifications` katmanındadır.
+   *
+   * ⚠️ `token` yalnızca burada ham hâldedir (DB'de hash'i durur) ve hiçbir log
+   * satırına yazılmaz. Bildirim servisi onu yalnızca bağlantıya gömer.
+   *
+   * ⚠️ Gönderim başarısız olsa bile sipariş DÜŞMEZ — `notifyLatestOrderEvent`
+   * exception fırlatmaz.
+   */
+  await notifyLatestOrderEvent(created.id, 'ORDER_CREATED', { trackingToken: token })
 
   return { order: created, accessToken: token, reused: false }
 }
