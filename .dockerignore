@@ -1,0 +1,69 @@
+# =============================================================================
+#  DERLEME BAĞLAMI DIŞI (Faz 10)
+#
+#  ⚠️ Bu dosya bir OPTİMİZASYON DEĞİL, GÜVENLİK SINIRIDIR.
+#     Buraya girmeyen her şey `docker build` bağlamına yüklenir ve `COPY . .`
+#     ile imaja girer. Bir kez imaja giren dosya, sonraki katmanda silinse
+#     bile katman geçmişinde KALIR ve `docker history` ile okunabilir.
+# =============================================================================
+
+# --- SIRLAR — EN ÖNEMLİ BÖLÜM ------------------------------------------------
+# `.env.example` gerçek değer içermez ama imajda da işi yoktur — o da dışarıda.
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+.npmrc
+.netrc
+
+# --- KURULUM / DERLEME ÇIKTILARI ---------------------------------------------
+# node_modules imaja `npm ci` ile YENİDEN kurulur; yerel kopya (yanlış
+# platform binary'leri, symlink'ler) taşınmaz.
+node_modules
+.next
+out
+dist
+build
+*.tsbuildinfo
+
+# --- SÜRÜM KONTROLÜ ----------------------------------------------------------
+# .git tüm geçmişi taşır: silinmiş bir commit'teki sır hâlâ oradadır.
+.git
+.gitignore
+.github
+
+# --- TEST & GELİŞTİRME -------------------------------------------------------
+tests
+test-results
+playwright-report
+playwright.config.ts
+vitest.config.ts
+screenshots
+scripts
+coverage
+.vscode
+.idea
+
+# --- YEREL ALTYAPI -----------------------------------------------------------
+docker-compose.yml
+docker-compose.*.yml
+Dockerfile
+.dockerignore
+dump.rdb
+*.log
+*.sqlite
+*.db
+
+# --- BELGELER ----------------------------------------------------------------
+docs
+README.md
+*.md
+LICENSE
+
+# --- İŞLETİM SİSTEMİ ---------------------------------------------------------
+.DS_Store
+Thumbs.db

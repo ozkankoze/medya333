@@ -30,7 +30,10 @@
     "test:e2e": "playwright test",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "db:validate-pricing": "vite-node --config vitest.config.ts scripts/validate-pricing.mts"
+    "db:validate-pricing": "vite-node --config vitest.config.ts scripts/validate-pricing.mts",
+    "db:stamp": "tsx scripts/db-stamp.mts",
+    "db:stamp:check": "tsx scripts/db-stamp.mts --check",
+    "env:check": "tsx scripts/check-env-separation.mts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",

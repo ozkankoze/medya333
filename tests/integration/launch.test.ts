@@ -169,6 +169,23 @@ describe('⭐ ÜRETİM ALAN ADI', () => {
     }
   })
 
+  it('⚠️ WEB MANIFEST üretim alan adını kullanır ve olmayan varlık uydurmaz', async () => {
+    const { default: manifest } = await import('@/app/manifest')
+    const m = manifest()
+
+    expect(m.start_url).toBe('https://www.medya333.com/')
+    expect(m.scope).toBe('https://www.medya333.com/')
+
+    // ⚠️ Olmayan varlık üretilmedi: PNG ikon ve ekran görüntüsü YOK.
+    expect(m.icons).toHaveLength(1)
+    expect(m.icons![0]!.src).toBe('/icon.svg')
+    expect(JSON.stringify(m)).not.toContain('.png')
+    expect(JSON.stringify(m)).not.toContain('screenshot')
+
+    // ⚠️ Ödeme akışında adres çubuğu bir güvenlik özelliğidir.
+    expect(m.display).toBe('browser')
+  })
+
   it('⚠️ TAKİP TOKEN\'ı bildirim kaydına YAZILMAZ', async () => {
     const res = await makeOrder('token@ornek.test', 'tokenhedef')
     expect(res.accessToken, 'takip token\'ı üretilmedi').toBeTruthy()

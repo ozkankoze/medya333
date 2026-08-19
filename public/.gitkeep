@@ -1,0 +1,7 @@
+# Statik dosya klasörü.
+#
+# Şu an boş: favicon, robots ve sitemap Next route handler olarak üretilir
+# (src/app/robots.ts, src/app/sitemap.ts, src/app/icon.svg).
+#
+# ⚠️ Klasör bilerek repoda tutulur: Dockerfile bu yolu KOPYALAR
+# (COPY /app/public ./public) ve klasör yoksa imaj derlemesi kırılır.

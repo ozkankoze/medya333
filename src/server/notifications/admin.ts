@@ -2,6 +2,7 @@ import 'server-only'
 
 import type { UserRole } from '@/lib/enums'
 import { ROLE_LEVEL } from '@/lib/enums'
+import { writeAudit } from '@/server/audit'
 import { db } from '@/server/db'
 import { notifyOrderEvent } from './index'
 
@@ -225,8 +226,30 @@ export async function retryNotification(
     })
   }
 
+  const outcome = result.outcome === 'SENT' ? 'SENT' : 'FAILED'
+
+  /**
+   * ⭐ DENETİM KAYDI (Faz 10)
+   *
+   * Yeniden gönderim ayrıcalıklı bir işlemdir: bir yönetici, müşteriye
+   * ikinci kez e-posta gitmesine sebep olur. Kim, hangi bildirimi, ne zaman
+   * tetiklemiş — bu iz olmadan "müşteriye iki kez mail gitti" şikâyeti
+   * araştırılamaz.
+   *
+   * ⚠️ Alıcı adresi, e-posta gövdesi ve şablon değişkenleri YAZILMAZ.
+   * Denetim kaydı yalnızca KİM ve HANGİ KAYIT bilgisini taşır.
+   */
+  await writeAudit({
+    actorId: actor.userId,
+    action: 'notification.retry',
+    entityType: 'Notification',
+    entityId: notificationId,
+    before: { status: existing.status, attempts: existing.attempts },
+    after: { status: outcome, attempts: existing.attempts + (fresh?.attempts ?? 1) },
+  })
+
   return {
-    outcome: result.outcome === 'SENT' ? 'SENT' : 'FAILED',
+    outcome,
     attempts: existing.attempts + (fresh?.attempts ?? 1),
   }
 }

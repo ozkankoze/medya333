@@ -74,6 +74,11 @@ export async function generateMetadata(): Promise<Metadata> {
    * oluşmaz.
    */
   alternates: { canonical: '/' },
+  /**
+   * ⚠️ Manifest çalışma zamanında üretilir (`src/app/manifest.ts`) —
+   * `start_url` derlemeye gömülmesin diye. Bağlantı burada verilir.
+   */
+  manifest: '/manifest.webmanifest',
   }
 }
 

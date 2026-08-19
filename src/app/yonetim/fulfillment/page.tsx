@@ -339,7 +339,7 @@ export default async function FulfillmentQueuePage({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
-          <table className="w-full min-w-[68rem] text-small">
+          <table className="w-full min-w-[74rem] text-small">
             <thead className="border-b border-ink-200 text-left text-caption text-ink-500">
               <tr>
                 <Th>Sipariş</Th>
@@ -350,6 +350,7 @@ export default async function FulfillmentQueuePage({
                 <Th className="w-32">İlerleme</Th>
                 <Th>Operatör</Th>
                 <Th>İş durumu</Th>
+                <Th>Süre</Th>
                 <Th>Oluşturma</Th>
               </tr>
             </thead>
@@ -397,6 +398,19 @@ export default async function FulfillmentQueuePage({
                   <td className="px-4 py-3 text-ink-700">{f.assignedToName ?? '—'}</td>
                   <td className="px-4 py-3">
                     <FulfillmentStatusBadge status={f.status} />
+                  </td>
+                  {/*
+                    ⚠️ YALNIZCA ÖLÇÜLEN SÜRE. "gecikti" / "geç kaldı" gibi bir
+                    yargı YAZILMAZ: tanımlı bir SLA olmadan hangi işin geç
+                    olduğu bilinemez (bkz. src/lib/fulfillment/waiting.ts).
+                    Renk de kullanılmaz — kırmızı bir rozet, yazılmamış bir
+                    "gecikti" cümlesidir.
+                  */}
+                  <td
+                    className="tabular whitespace-nowrap px-4 py-3 text-caption text-ink-600"
+                    data-testid="queue-row-waiting"
+                  >
+                    {f.waitingLabel ?? '—'}
                   </td>
                   <td className="px-4 py-3 text-caption text-ink-500">
                     {new Date(f.createdAt).toLocaleString('tr-TR', {

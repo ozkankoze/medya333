@@ -1,0 +1,125 @@
+# =============================================================================
+#  MEDYA 333 — ÜRETİM BENZERİ ÇALIŞTIRMA (Faz 10)
+#
+#  ⚠️ BU DOSYA BİR HOSTING KARARI DEĞİLDİR.
+#     Uygulama `node server.js` ile çalışır; Kubernetes, systemd, Fly, Render,
+#     bare metal — hepsinde aynıdır. Bu compose dosyası, imajın gerçekten
+#     çalıştığını doğrulamak ve tek sunucuda basit bir dağıtım yapmak içindir.
+#
+#  ⚠️ SIR YOKTUR. Tüm sırlar `--env-file` ile DIŞARIDAN verilir:
+#       docker compose -f docker-compose.production.yml --env-file /etc/medya333/env up -d
+#     Dosya izni: chmod 600, sahibi deploy kullanıcısı.
+#
+#  ⚠️ TLS BURADA SONLANDIRILMAZ. Önünde bir reverse proxy (Caddy/nginx/ALB)
+#     olmalıdır — sertifika, HTTP→HTTPS yönlendirmesi ve gerçek istemci IP'si
+#     oradan gelir. Bu dosya 3000 portunu YALNIZCA 127.0.0.1'e açar.
+# =============================================================================
+
+services:
+  app:
+    # ⚠️ `latest` KULLANMAYIN. Etiket commit SHA'sı olmalıdır; geri almak
+    #    (rollback) "önceki SHA'yı çalıştır" kadar basit olmalıdır.
+    image: ${APP_IMAGE:?APP_IMAGE tanımlı değil — ör. medya333:9f2c1ab}
+    restart: unless-stopped
+
+    # ⚠️ Yalnızca localhost. Dış dünyaya reverse proxy açar.
+    ports:
+      - '127.0.0.1:3000:3000'
+
+    # ⚠️ Değerler BURADA YAZILMAZ; ortamdan/`--env-file`dan geçirilir.
+    #    Bu liste aynı zamanda "uygulamanın gördüğü değişkenler" belgesidir:
+    #    burada olmayan bir değişken konteynere GİRMEZ.
+    environment:
+      APP_ENV: ${APP_ENV:?APP_ENV tanımlı değil}
+      APP_BASE_URL: ${APP_BASE_URL:?}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?}
+      DATABASE_URL: ${DATABASE_URL:?}
+      REDIS_URL: ${REDIS_URL:?}
+      AUTH_SECRET: ${AUTH_SECRET:?}
+      AUTH_URL: ${AUTH_URL:-}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      ORDER_TOKEN_SECRET: ${ORDER_TOKEN_SECRET:?}
+      IP_HASH_SALT: ${IP_HASH_SALT:?}
+      MAIL_FROM: ${MAIL_FROM:?}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-none}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:?}
+      PAYMENT_ENVIRONMENT: ${PAYMENT_ENVIRONMENT:?}
+      PAYTR_MERCHANT_ID: ${PAYTR_MERCHANT_ID:-}
+      PAYTR_MERCHANT_KEY: ${PAYTR_MERCHANT_KEY:-}
+      PAYTR_MERCHANT_SALT: ${PAYTR_MERCHANT_SALT:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-}
+      DEFAULT_TAX_RATE_BP: ${DEFAULT_TAX_RATE_BP:-2000}
+
+    # Uygulamanın kendi HEALTHCHECK'i imajın içindedir (Dockerfile).
+    # Burada yalnızca bağımlılıkların sağlıklı olmasını bekliyoruz.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    # ⚠️ Konteyner içi yazma yüzeyi daraltılır. Next.js standalone çıktısı
+    #    çalışırken diske yazmaz; geçici dosyalar için tmpfs yeterlidir.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+  # ---------------------------------------------------------------------------
+  # ⚠️ AŞAĞIDAKİ İKİ SERVİS YALNIZCA "TEK SUNUCU" KURULUMU İÇİNDİR.
+  #    Yönetilen bir PostgreSQL/Redis kullanıyorsanız bu servisleri SİLİN ve
+  #    yalnızca DATABASE_URL / REDIS_URL verin.
+  #
+  #    Yönetilen servis tercih edilmelidir: yedek, PITR ve sürüm yükseltme
+  #    sorumluluğu bu compose dosyasında ÇÖZÜLMEMİŞTİR.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:-medya333}
+    # ⚠️ Dış dünyaya port AÇILMAZ. Yalnızca compose ağı içinden erişilir.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # ⚠️ `noeviction`: rate limit sayaçlarının bellek baskısıyla ATILMASI,
+    #    korumayı sessizce devre dışı bırakır. Redis kaybı veri kaybı değildir
+    #    (kaynak-of-truth PostgreSQL), ama sessiz kayıp kabul edilemez.
+    command: >
+      redis-server
+      --save 60 1
+      --appendonly yes
+      --maxmemory-policy noeviction
+      --loglevel warning
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

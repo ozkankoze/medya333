@@ -638,7 +638,11 @@ model Order {
   @@index([assignedToId, status])
   @@index([guestEmail])
   @@index([customerEmail])
-  @@index([idempotencyKey])
+  /// ⚠️ `idempotencyKey` üzerinde AYRI bir index YOKTUR — alan zaten `@unique`
+  /// olduğu için PostgreSQL bir UNIQUE index oluşturur ve o index tüm
+  /// aramaları karşılar. İkinci bir btree index yalnızca YAZMA maliyeti ve
+  /// disk tüketirdi (Faz 10 ölçümü: iki index'ten yalnızca biri kullanılıyordu).
+  /// Migration: 20260819140000_drop_redundant_index
   @@index([dueAt])
   @@index([invoiceStatus])
 }
@@ -1107,4 +1111,30 @@ model AdapterCallLog {
 
   @@index([adapterKey, createdAt])
   @@index([success, createdAt])
+}
+
+// ============================================================================
+//  DAĞITIM KİMLİĞİ (Faz 10)
+// ============================================================================
+
+/// ⭐ BU VERİTABANI HANGİ ORTAMA AİT?
+///
+/// Ortam ayrımını yalnızca `.env` dosyalarına bırakmak yeterli değildir:
+/// staging sunucusuna yanlışlıkla üretim `DATABASE_URL`i yazıldığında hiçbir
+/// hata alınmaz — staging sessizce CANLI veriyi yazmaya başlar.
+///
+/// Bu tablo, veritabanının kendisine ait tek satırlık bir "damga"dır.
+/// Uygulama açılışta damgayı okur ve kendi aşamasıyla karşılaştırır;
+/// uyuşmazlık BLOCKER'dır (bkz. `src/server/deployment-stamp.ts`).
+///
+/// Tek satır garantisi: `id` yalnızca "singleton" olabilir (CHECK kısıtı).
+model DeploymentStamp {
+  id    String @id @default("singleton")
+  /// "production" | "staging" | "e2e" | "development"
+  stage String
+
+  /// Operatörün bıraktığı serbest not (ör. "hetzner-db-01"). SIR İÇERMEZ.
+  label     String?
+  stampedAt DateTime @default(now())
+  stampedBy String?
 }

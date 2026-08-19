@@ -1616,38 +1616,253 @@ liveness / readiness         200 ok / 200 healthy
 
 ---
 
-## Sonraki Faz — Faz 10: PAYTR PRODUCTION ACTIVATION (onay bekliyor)
+## ADR-039 — Ortam Ayrımı Veritabanının İçinde Saklanır
 
-Faz 9 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+**Bağlam.** Staging ile üretimin ayrı veritabanı kullanması bir kuraldı. Kuralı
+uygulayan hiçbir mekanizma yoktu: staging sunucusuna üretim `DATABASE_URL`i
+yazıldığında hiçbir hata alınmıyor, staging "çalışıyor" görünüyor ve her test
+canlı müşteri verisine yazıyordu.
 
-### ⚠️ CANLIYA ÇIKIŞ DEĞERLENDİRMESİ: UYGULAMA HAZIR, DIŞ SERVİSLER DEĞİL
+**Değerlendirilen seçenekler.**
 
-| # | Blocker | Faz 9'da değişen |
+1. *Yalnızca belge.* Yazıldı ama uygulanmadı — kural, bir kopyala-yapıştır
+   kadar uzaktaydı.
+2. *`.env` dosyalarını karşılaştıran bir araç.* Yararlı ama yetersiz: staging
+   sunucusundaki `.env` doğru olup ortam değişkeni panelinden yanlış bağlantı
+   verilmişse araç bunu göremez.
+3. *Bağlantı adresinin içinde ortam adı aramak* (`…/medya333_staging`).
+   Kırılgan: veritabanı adı bir kural değil, bir alışkanlıktır.
+4. **Veritabanının kendisine damga yazmak.** Seçilen.
+
+**Karar.** `DeploymentStamp` — tek satırlık bir tablo, veritabanının hangi
+ortama ait olduğunu **veritabanının içinde** saklar. Uygulama açılışta okur ve
+kendi aşamasıyla karşılaştırır.
+
+Damga bir operatör aracıyla (`npm run db:stamp`) **açıkça** yazılır; aşama
+ortamdan tahmin edilmez. Tahmin edilseydi, yanlış terminalde çalıştırılan tek
+bir komut canlı veritabanını sessizce yeniden damgalardı.
+
+**Bölge kavramı.** Kontrol aşamaya birebir değil, **bölgeye** bakar:
+`production`, `staging` ve `local` (= `development` + `e2e`). Birebir eşleşme
+arasaydık, geliştiricinin makinesinde `npm run dev` ile `npx playwright test`
+aynı veritabanını kullandığı için ikisinden biri hiç açılamazdı — ve o noktada
+ilk yapılacak iş kontrolü kapatmak olurdu. **Kapatılan kontrol, olmayan
+kontroldür.** Yerel esneklik canlıya uzanmaz.
+
+**Sonuçlar.**
+
+- Uyuşmazlık **her aşamada** blocker'dır; canlı olmayan ortamlarda uyarıya
+  düşmez. Yanlış veritabanına yazmak geri alınamaz.
+- Damgasız veritabanı uyarı üretir, boot'u durdurmaz — mevcut kurulumlar ve
+  yeni açılan boş veritabanları kırılmaz, ama "koruma kapalı" görünür olur.
+- Okunamayan damga da uyarıdır: veritabanına erişilememesi ayrı bir sorundur
+  ve kendi hatasını üretir.
+- Hata mesajlarında bağlantı adresi taşınmaz — yalnızca hata *türü*. Sürücü
+  hata metinleri host, kullanıcı adı ve bazen parola içerir.
+
+**Doğrulama.** `tests/integration/deployment-stamp.test.ts` (20 test, 4×4 bölge
+matrisi dahil) ve üretim derlemesiyle canlı deneme: `APP_ENV=staging` ile
+`development` damgalı bir veritabanına bağlanan süreç **açılmadı ve kapandı**.
+
+---
+
+## ADR-040 — Boot Hatasında Süreç Ölür, 500 Dönmez
+
+**Bağlam.** Faz 7'den beri açılış kapısı hatalı yapılandırmada `throw` ediyordu.
+Faz 10'da üretim derlemesiyle gerçek bir deneme yapıldığında görüldü ki
+**Next.js instrumentation hook'u hata verdiğinde süreci ayakta tutuyor** ve her
+isteğe 500 dönüyor.
+
+Bu, sessiz kalmaktan daha kötüdür: konteyner "çalışıyor" görünür, orchestrator
+onu sağlıklı sayabilir, load balancer trafiği ona yönlendirir ve müşteri bir
+hata sayfası görür. Dağıtım "başarılı" tamamlanmış olur.
+
+**Karar.** `register()` gövdesi bir `try/catch` içine alındı; hata durumunda
+mesaj yazılır ve `process.exit(1)` çağrılır.
+
+**Sonuçlar.**
+
+- Konteyner yeniden başlatma döngüsüne girer; dağıtım "unhealthy" olarak durur
+  ve **önceki sürüm ayakta kalır**.
+- Bu davranış hem yapılandırma kapısı hem damga kontrolü için geçerlidir.
+- Mesaj olduğu gibi yazılır; içinde sır yoktur — her iki kontrol de yalnızca
+  değişken adı ve bulgu kodu üretir.
+
+---
+
+## ADR-041 — Üretim İmajı Migration Çalıştırmaz
+
+**Bağlam.** Yaygın kalıp, konteyner başlarken `prisma migrate deploy`
+çalıştırmaktır. Cazip: tek adımda dağıtım.
+
+**Karar.** Üretim imajında Prisma CLI **yoktur** ve migration imajdan
+çalıştırılmaz. Şema değişikliği, repo checkout'u olan ayrı bir bakım adımıdır.
+
+**Gerekçe.**
+
+1. Prisma CLI bir **dev bağımlılığıdır**. İmaja koymak, "üretim imajında dev
+   bağımlılığı olmayacak" kuralını delerdi.
+2. **Şema değişikliği uygulamanın yan etkisi olmamalıdır.** İki örnek aynı anda
+   açılırsa ikisi birden migration'a girer. Prisma kilit kullanır ama yarış,
+   dağıtımın en kırılgan anında ortaya çıkar.
+3. Ölçekleme sırasında yeni açılan bir örnek de migration çalıştırmaya kalkar.
+
+**Sonuç.** `output: 'standalone'` ile imaj yalnızca `.next/standalone` taşır;
+`node_modules` olduğu gibi kopyalanmaz. Ek olarak `typescript` paketi
+(~9 MB) dosya izlemeden açıkça çıkarıldı — Next'in izleyicisi onu
+`next-server`'ın TS tanı yükleyicileri yüzünden çekiyordu.
+
+---
+
+## ADR-042 — `next build` Standalone Çıktıya `.env` Kopyalar
+
+**Bağlam.** Faz 10'da üretim çıktısı denetlenirken **ölçülerek** bulundu:
+derleme bağlamında bir `.env` varsa `next build` onu `.next/standalone/.env`
+olarak yazar. İmaj bu dizini kopyaladığı için sır imaja girerdi — ve bir kez
+katmana giren dosya sonradan silinse bile `docker history` ile okunabilir.
+
+**Karar.** İki savunma hattı:
+
+1. `.dockerignore` `.env*` kalıplarını derleme bağlamından çıkarır — kopyalanacak
+   dosya hiç oluşmaz.
+2. Derleme adımı hem bağlamda hem `.next/standalone` içinde `.env` arar ve
+   bulursa **derlemeyi kırar**. `.dockerignore` bozulursa sessizce sır taşıyan
+   bir imaj üretilmez.
+
+`tests/unit/docker.test.ts` her iki hattın da yerinde olduğunu kilitler.
+
+---
+
+## ADR-043 — N+1 İddia Edilmez, Sayılır
+
+**Bağlam.** "Bu ekranda N+1 yok" cümlesi bir kod incelemesi çıktısıdır ve
+gelecekteki bir `include` unutulmasına karşı hiçbir koruma sağlamaz.
+
+**Karar.** `src/server/db.ts` içine, `PRISMA_QUERY_METRICS=1` ile açılan bir
+**sorgu sayacı** eklendi. Testler bir işlemi önce az kayıtla, sonra kat kat
+fazla kayıtla çalıştırıp sorgu sayısının **sabit kaldığını** ölçer.
+
+**Kritik ayrıntılar.**
+
+- Sayaç yalnızca **sayar**; sorgu metni ve parametreler hiçbir yerde tutulmaz.
+  Sorgu metni müşteri e-postası, hedef hesap ve sipariş numarası içerir.
+- Ölçüm kapalıysa `readQueryCount()` **`null`** döner, `0` değil. `0` döndürmek
+  "hiç sorgu yok" yalanı olurdu ve testler sessizce boşa geçerdi.
+- Testler mutlak eşik (ör. "1 sorgu") değil, **büyüme** ölçer: Prisma bir
+  ilişkili `select` için birden fazla sorgu üretebilir; önemli olan sayının
+  kayıt sayısıyla artmamasıdır.
+- Her ölçüm ayrıca `> 0` doğrular — aksi hâlde "0 = 0" karşılaştırması hiçbir
+  şey kanıtlamadan yeşil olurdu.
+
+**Sonuç.** Kuyruk, katalog anlık görüntüsü, sipariş takibi ve admin sipariş
+listesi için N+1 yokluğu artık **ölçülmüş** bir olgudur.
+
+---
+
+## ADR-044 — Index Eklenmedi, Bir Tane Kaldırıldı
+
+**Bağlam.** "Performans için index ekleyelim" refleksi, ölçüm olmadan yazma
+maliyeti ve disk tüketen ölü index'ler üretir.
+
+**Karar.** Faz 10'da **hiçbir yeni index eklenmedi**. Mevcut index'ler
+`pg_stat_user_indexes` ile incelendi ve bir **fazlalık** bulundu:
+`Order.idempotencyKey` hem `@unique` (UNIQUE index) hem de ayrı bir `@@index`
+ile indexlenmişti. İki index aynı sütunu aynı sırada kapsıyor, planlayıcı her
+zaman yalnızca birini seçiyor, diğerinin `idx_scan` değeri 0 kalıyordu.
+
+UNIQUE index kısıt gereği kaldırılamaz; fazlalık olan düz index düşürüldü
+(`20260819140000_drop_redundant_index`). Geri alma komutu migration'ın içinde
+yazılıdır.
+
+**Sonuç.** Karar kuralı: index, **ölçülmüş** bir sorgu ihtiyacına cevaben
+eklenir. Üretimde henüz veri yoktur; gerçek yavaş sorgu profili çıkmadan
+tahmine dayalı index eklemek erken optimizasyondur.
+
+---
+
+## ADR-045 — Migration Açıklamalarında Noktalı Virgül Yasak
+
+**Bağlam.** Migration'ları uygulayan araçlar dosyayı noktalı virgülden bölerek
+ifadelere ayırır. Bir `--` açıklama satırında noktalı virgül geçtiğinde
+cümlenin kalanı ayrı bir SQL ifadesi sanılır ve migration
+`syntax error at or near "yanlış"` gibi bir hatayla düşer.
+
+Bu, Faz 10'da **iki kez** yaşandı.
+
+**Karar.** Kural teste çevrildi: `tests/unit/migration-lint.test.ts`. Yeni
+migration'ların açıklama satırlarında noktalı virgül bulunamaz. Test ayrıca
+migration dosyalarında sır/bağlantı adresi olmadığını da denetler.
+
+Kuraldan önce yazılmış ve sorunsuz uygulanmış iki dosya muaf tutuldu:
+içeriklerini şimdi değiştirmek **checksum değiştirir** ve Prisma "migration
+modified after being applied" hatası verir — yani düzeltmenin kendisi bir arıza
+olurdu. Muafiyet listesi büyümemelidir.
+
+---
+
+## Faz 10 Uygulama Özeti
+
+**Kapsam:** üretim altyapısı ve canlıya çıkış hazırlığı. Ödeme entegrasyonuna
+**dokunulmadı** (PayTR onayı bekleniyor).
+
+**Eklenen mekanizmalar**
+
+| Konu | Ne yapıldı | Doğrulama |
 |---|---|---|
-| B1 | Merchant credential yok | **Değişmedi — PayTR onayı bekleniyor.** Ödeme adapter'ı, webhook ve credential yönetimi değiştirilmedi |
-| B2 | E-posta sağlayıcısı yok | Değişmedi. Boot kapısı sıkılaştı: `resend` seçilip anahtar yoksa boot durur |
-| B3 | `www.medya333.com` DNS + TLS yok | Değişmedi. **Kod tarafı hazır**: tüm adresler `APP_BASE_URL`den üretiliyor |
-| B4 | Yönetilen PostgreSQL + Redis yok | Değişmedi. Liveness/readiness ayrımı ve erişim güvenliği kontrol listesi eklendi |
-| B5 | Hata izleme yok | Değişmedi. İskelet + PII temizliği hazır; SDK kurulmadı, sahte entegrasyon yazılmadı |
-| B6 | Yedekleme doğrulanmadı | **Yeni blocker.** Geri yükleme provası yapılmadan "yapılandırıldı" denmez |
+| Seed kapısı | Canlıda seed reddediliyor, fail-closed, kaçış kapısı yok | 3 yol elle denendi |
+| Dağıtım damgası | Veritabanı ortamını kendi içinde saklıyor; uyuşmazlık boot'u durduruyor | 20 test + canlı boot denemesi |
+| Ortam ayrımı aracı | İki `.env`in paylaştığı sırrı yakalıyor, değer yazdırmıyor | 11 test |
+| Üretim imajı | Dockerfile · .dockerignore · compose · denetim scripti | 24 statik test (imaj derlenemedi) |
+| Standalone çıktı | `output: 'standalone'`, typescript hariç tutuldu | `node server.js` gerçekten çalıştı |
+| Boot davranışı | Hata durumunda süreç `exit 1` | Canlı denemede görüldü |
+| Bekleme süresi | "Bekleme: 2s 14dk" — yargı yok, SLA hazır bırakıldı | 18 test |
+| N+1 | Sorgu sayacı + büyüme ölçümü | 8 test |
+| Index | Bir fazlalık kaldırıldı, yeni eklenmedi | `pg_stat_user_indexes` |
+| E-posta sözleşmesi | 9 şablon, gerçek gönderim olmadan | 14 test |
+| Web manifest | Çalışma zamanı `start_url`, olmayan varlık üretilmedi | launch testi |
+| Denetim | `notification.retry` artık iz bırakıyor | — |
+| Migration lint | Açıklamada `;` yasak | 4 test |
+
+**Test durumu:** 34 dosya · 904 Vitest testi · 241 Playwright E2E · 6 genişlikte
+9 ekran, **0px yatay taşma**.
+
+**Ölçülen DNS gerçeği (19 Ağustos 2026):** `www.medya333.com` şu anda bir Wix
+sitesine işaret ediyor; NS kayıtları Wix'te; SPF yalnızca Google'ı içeriyor;
+DKIM ve DMARC kaydı **yok**. Ayrıntı: `docs/PRODUCTION_RUNBOOK.md` § 9.
+
+---
+
+## Sonraki Faz — Faz 11: PAYTR PRODUCTION ACTIVATION (onay bekliyor)
+
+Faz 10 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+
+### CANLIYA ÇIKIŞ DEĞERLENDİRMESİ: HÂLÂ HAZIR DEĞİL
+
+| # | Blocker | Faz 10'da değişen |
+|---|---|---|
+| B1 | Merchant credential yok | **Değişmedi — PayTR onayı bekleniyor.** Ödeme koduna dokunulmadı |
+| B2 | E-posta sağlayıcısı yok | Sözleşme testleri eklendi; **DNS ölçüldü**: SPF Resend'i içermiyor, DKIM ve DMARC yok |
+| B3 | DNS + TLS yok | **Ölçüldü**: alan adı şu an Wix'te. Geçiş yapılmadı, TLS doğrulanamadı |
+| B4 | Yönetilen PostgreSQL + Redis yok | Değişmedi. Damga ve boot kapısı hazır |
+| B5 | Hata izleme yok | Değişmedi. SDK bilerek kurulmadı |
+| B6 | Yedekleme doğrulanmadı | Değişmedi. **Hâlâ en kritik açık madde** |
 
 ### Bu ortamdan DOĞRULANAMAYANLAR
 
-Sandbox'tan test edilemeyen ve bu yüzden **PENDING** bırakılanlar:
-
-- `medya333.com` / `www.medya333.com` DNS çözümü ve dört varyantın yönlendirmesi
+- Docker imajının derlenmesi (bu sandbox'ta Docker daemon yok)
 - TLS sertifikası ve zinciri
-- SPF / DKIM / DMARC kayıtları
 - Gerçek bir gelen kutusuna e-posta teslimi
 - Yedekten geri yükleme provası
+- Üretim yükü altında sorgu profili
 
-Bunların hiçbiri "yapıldı" olarak işaretlenmedi.
+Hiçbiri "yapıldı" olarak işaretlenmedi.
 
 ### Kalan teknik borç
 
 - Instagram dışındaki ürünlerde garanti süresi (`refillDays`) tanımlı değil.
-- SLA / hedef teslim süresi tanımlı değil — bu yüzden "gecikti" uyarısı yok.
+- SLA tanımlı değil — mimari hazır, değer yok.
 - Bildirimler için zamanlanmış yeniden deneme kuyruğu yok (elle tetiklenir).
-- Garanti bitişi yaklaşan siparişler için müşteriye hatırlatma bildirimi yok.
-- OG görseli üretilmedi; `Logo` hâlâ wordmark.
+- Garanti bitişi yaklaşan siparişler için müşteriye hatırlatma yok.
+- OG görseli ve PNG ikon üretilmedi.
 - Prisma WASM şema motoru diff alamıyor; migration'lar elle yazılıyor.
+- Staging alan adı belirlenmedi.

@@ -1,4 +1,4 @@
-# Medya 333 — Faz 9
+# Medya 333 — Faz 10
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
@@ -17,7 +17,11 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
   sağlık ucu, operasyon el kitabı)
 + **Faz 9** (canlıya çıkış hazırlığı: üretim alan adı standardı, çalışma zamanı
   canonical/OG, Sentry iskeleti + PII temizliği, bildirim paneli, rol yönetimi,
-  liveness/readiness ayrımı, DNS/SPF/DKIM/DMARC ve yedekleme kontrol listeleri).
+  liveness/readiness ayrımı, DNS/SPF/DKIM/DMARC ve yedekleme kontrol listeleri)
++ **Faz 10** (üretim altyapısı: dağıtım damgasıyla ortam izolasyonu, seed üretim
+  kapısı, standalone Docker imajı + imaj denetim scripti, ortam ayrımı doğrulama
+  aracı, ölçülmüş N+1 kanıtı, kuyrukta objektif bekleme süresi, web manifest,
+  üretim runbook'u ve canlıya çıkış kontrol listesi).
 
 **CANLI ALAN ADI: `https://www.medya333.com`**
 
@@ -28,6 +32,16 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
 >
 > Bunların hiçbiri kodla "varmış gibi" gösterilmemiştir. Altı açık madde:
 > [`docs/PRODUCTION_CHECKLIST.md` § 0](docs/PRODUCTION_CHECKLIST.md).
+>
+> **Faz 10'da ölçülen yeni gerçek:** `www.medya333.com` şu anda bir **Wix
+> sitesine** işaret ediyor; alan adının SPF kaydı yalnızca Google'ı içeriyor ve
+> **DKIM / DMARC kaydı yok**. Yani bugün Resend üzerinden gönderilen bir
+> e-posta SPF'ten geçmez. Ayrıntı ve yapılacaklar:
+> [`docs/PRODUCTION_RUNBOOK.md` § 9](docs/PRODUCTION_RUNBOOK.md).
+>
+> Adım adım canlıya çıkış: [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md) ·
+> Kontrol listesi: [`docs/LAUNCH_CHECKLIST.md`](docs/LAUNCH_CHECKLIST.md) ·
+> Ortam ayrımı: [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md)
 
 > **İş modeli:** Hizmetler **gerçek kullanıcılar** tarafından **manuel** gerçekleştirilir.
 > Bu sistem bot, sahte hesap veya otomatik sosyal medya etkileşimi ÜRETMEZ.
@@ -67,16 +81,24 @@ npm run dev                   # http://localhost:3000
 | `npm run db:generate` / `db:migrate` / `db:deploy` / `db:seed` / `db:reset` | Prisma |
 | `npm run db:validate-pricing` | Tüm fiyat tablolarını doğrular (boşluk/çakışma) |
 | `node scripts/screenshots.mjs <url>` | 12 ekranın görüntüsünü alır, 6 genişlikte yatay taşma ölçer |
+| `npm run db:stamp -- --stage=<aşama>` | ⭐ Veritabanını bir ortama damgalar (yanlış-ortam koruması) |
+| `npm run db:stamp:check` | Mevcut damgayı gösterir |
+| `npm run env:check -- <a> <b>` | ⭐ İki ortamın paylaştığı sırları bildirir (değer yazdırmaz) |
+| `./scripts/verify-image.sh <imaj>` | ⭐ Üretim imajını denetler (sır/dev bağımlılığı/root/source map) |
 | `npm run migrate:wasm` | ⚠️ Engine indirilemeyen ortamlarda migration (aşağı bkz.) |
 
 ### Üretim belgeleri
 
 | Belge | İçerik |
 |---|---|
+| [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md) | ⭐ **Adım adım canlıya çıkış** — 14 adım, her biri READY / PENDING / BLOCKED |
+| [`docs/LAUNCH_CHECKLIST.md`](docs/LAUNCH_CHECKLIST.md) | ⭐ **Kontrol listesi** — 12 grup; yapıldı mı sorusunun cevabı |
+| [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md) | ⭐ **Ortam ayrımı** — development / staging / production matrisi, dağıtım damgası |
 | [`docs/PRODUCTION_CHECKLIST.md`](docs/PRODUCTION_CHECKLIST.md) | Canlıya çıkış: blocker'lar, env tablosu, deploy/rollback/yedekleme adımları |
 | [`docs/SECURITY_MATRIX.md`](docs/SECURITY_MATRIX.md) | 5 rol × uç yetki matrisi + uç bazlı rate limit envanteri |
 | [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | **Operasyon el kitabı** — sipariş bulma, atama, ilerleme, tamamlama, telafi, fiyat değiştirme |
 | [`.env.example`](.env.example) | Gruplanmış ortam değişkenleri: APPLICATION · DATABASE · REDIS · AUTH · EMAIL · PAYMENT · MONITORING |
+| [`Dockerfile`](Dockerfile) · [`docker-compose.production.yml`](docker-compose.production.yml) | ⭐ Üretim imajı — sırsız, dev bağımlılığısız, non-root, sağlık uçlu |
 | [`docs/architecture-decisions.md`](docs/architecture-decisions.md) | ADR'ler ve faz uygulama özetleri |
 
 ### ⚠️ Üretim alan adı: `https://www.medya333.com`
@@ -280,24 +302,31 @@ tests/unit/payment-redact.test.ts     10  kart/secret arındırma
 tests/unit/fulfillment-status.test.ts 36  fulfillment state machine, progress, garanti
 tests/unit/catalog-prices.test.ts     96  ⭐ 63 GERÇEK Instagram fiyat noktası birebir
 tests/unit/catalog-expansion.test.ts  65  ⭐ YouTube 27 nokta + FB/TikTok × %125 + garanti
-tests/integration/database.test.ts    28  migration, seed, FK, unique, cascade
-tests/integration/api.test.ts         34  katalog, pricing, kupon, admin
+tests/unit/production-guard.test.ts   20  ⭐ Faz 7: açılış kapısı, aşama, sır sızdırmama
+tests/unit/production-audit.test.ts   37  ⭐ Faz 7+8: KAYNAK KODU taraması (sır/SQL/başlık/RL/OFFSET/audit)
+tests/unit/notifications.test.ts      29  ⭐ Faz 8: şablon güvenliği, TL→kuruş, ayırıcı belirsizliği
+tests/unit/docker.test.ts             24  ⭐ Faz 10: imaj tarifi — sır/dev bağımlılığı/non-root/healthcheck
+tests/unit/env-separation.test.ts     11  ⭐ Faz 10: paylaşılan sır tespiti (değer sızdırmadan)
+tests/unit/mail-contract.test.ts      14  ⭐ Faz 10: sağlayıcı sözleşmesi — GERÇEK GÖNDERİM YOK
+tests/unit/waiting.test.ts            18  ⭐ Faz 10: bekleme süresi + "gecikti" yasağı + SLA iskeleti
+tests/unit/migration-lint.test.ts      4  ⭐ Faz 10: migration SQL denetimi
+tests/integration/database.test.ts    30  migration, seed, FK, unique, cascade
+tests/integration/api.test.ts         40  katalog, pricing, kupon, admin
 tests/integration/orders.test.ts      31  sipariş, idempotency, fulfillment kapısı
 tests/integration/orders-api.test.ts  29  route güvenliği, brute force, roller
 tests/integration/payments.test.ts    36  webhook doğrulama, yarış, iade, PII
 tests/integration/payments-api.test.ts 26 ödeme uçları: sahiplik, CSRF, yetki
-tests/integration/fulfillment.test.ts 57  otomatik READY, manuel geçişler, yarış, telafi
+tests/integration/fulfillment.test.ts 59  otomatik READY, manuel geçişler, yarış, telafi
 tests/integration/fulfillment-api.test.ts 21 fulfillment uçları: yetki matrisi
-tests/integration/catalog.test.ts     18  katalog CRUD, cache, sızıntı, pasif katalog
+tests/integration/catalog.test.ts     27  katalog CRUD, cache, sızıntı, pasif katalog
 tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
-tests/unit/production-guard.test.ts   20  ⭐ Faz 7: açılış kapısı, aşama, sır sızdırmama
-tests/unit/production-audit.test.ts   26  ⭐ Faz 7+8: KAYNAK KODU taraması (sır/SQL/başlık/RL/OFFSET/audit)
 tests/integration/production-chain.test.ts 6 ⭐ Faz 7: uçtan uca zincir + webhook 10× tekrar
-tests/unit/notifications.test.ts      29  ⭐ Faz 8: şablon güvenliği, TL→kuruş, ayırıcı belirsizliği
 tests/integration/operations.test.ts  28  ⭐ Faz 8: cursor sayfalama, arama/filtre, bildirim idempotency, health
-tests/integration/launch.test.ts      22  ⭐ Faz 9: üretim alan adı, rol yükseltme engeli, bildirim paneli
+tests/integration/launch.test.ts      23  ⭐ Faz 9: üretim alan adı, rol yükseltme engeli, bildirim paneli, manifest
+tests/integration/deployment-stamp.test.ts 20 ⭐ Faz 10: ORTAM AYRIMI — staging canlı DB'ye bağlanamaz
+tests/integration/nplus1.test.ts       8  ⭐ Faz 10: N+1 ÖLÇÜMÜ (iddia değil, sayım)
                                       ───
-                                      804  (vitest)
+                                      904  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
@@ -309,6 +338,9 @@ tests/e2e/operations.spec.ts          31  ⭐ Faz 8+9: sayfalama, arama, katalog
                                           rol yönetimi, canonical/robots/sitemap, liveness, mobil
                                       ───
                                       246  (playwright, 2 proje · 241 passed, 5 skipped)
+
+6 genişlikte (375 · 390 · 430 · 768 · 1024 · 1440) 9 ekran ölçüldü:
+YATAY TAŞMA 0px  —  node scripts/screenshots.mjs <url>
 ```
 
 Entegrasyon testleri `TEST_DATABASE_URL` varsa onu kullanır, yoksa

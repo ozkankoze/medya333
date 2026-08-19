@@ -110,6 +110,15 @@ export default async function FulfillmentDetailPage({
           <Cell label="Kalan" value={formatQuantity(f.remaining)} />
           <Cell label="İlerleme" value={`%${f.percent}`} testId="detail-percent" />
           <Cell label="Atanan" value={f.assignedToName ?? 'Atanmamış'} testId="detail-assignee" />
+          {/*
+            ⚠️ Ölçülen süre — yargı değil. Tanımlı SLA olmadığı için "gecikti"
+            yazılmaz (bkz. src/lib/fulfillment/waiting.ts).
+          */}
+          <Cell
+            label={f.waitingKind === 'running' ? 'İşlemde' : 'Bekleme'}
+            value={f.waitingLabel?.split(': ')[1] ?? '—'}
+            testId="detail-waiting"
+          />
         </dl>
 
         {f.guaranteeEndsAt && (

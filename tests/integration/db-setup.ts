@@ -12,6 +12,7 @@
  * test edilmiş olur.
  */
 
+import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { PrismaPg } from '@prisma/adapter-pg'
@@ -63,7 +64,9 @@ export async function applyMigrations(url: string): Promise<string[]> {
       await client.query(
         `INSERT INTO "_prisma_migrations"(id, checksum, migration_name, finished_at, applied_steps_count)
          VALUES ($1, $2, $3, now(), 1)`,
-        [`${name}-test`, 'test', name],
+        // ⚠️ `id` sütunu VARCHAR(36); uzun migration adları taşardı.
+        // Deterministik kısa kimlik: adın SHA-1 özeti (40 → 32 karakter).
+        [createHash('sha1').update(name).digest('hex').slice(0, 32), 'test', name],
       )
       applied.push(name)
     }

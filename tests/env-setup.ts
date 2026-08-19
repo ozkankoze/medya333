@@ -27,3 +27,12 @@ process.env.ORDER_TOKEN_SECRET ??= 'test-only-order-token-secret-at-least-32-cha
 process.env.IP_HASH_SALT ??= 'test-only-ip-hash-salt'
 process.env.NEXT_PUBLIC_SITE_URL ??= 'http://localhost:3000'
 process.env.DEFAULT_TAX_RATE_BP ??= '2000'
+
+/**
+ * ⭐ SORGU SAYACI (Faz 10)
+ *
+ * N+1 testleri bir işlemin kaç SQL sorgusu ürettiğini SAYAR. Sayaç
+ * `src/server/db.ts` içinde bu değişkenle açılır ve yalnızca ARTAR —
+ * sorgu metni ve parametreler hiçbir yerde tutulmaz.
+ */
+process.env.PRISMA_QUERY_METRICS ??= '1'

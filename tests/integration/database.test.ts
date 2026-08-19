@@ -64,7 +64,7 @@ describe('migration', () => {
     ]) {
       expect(names, `${t} tablosu yok`).toContain(t)
     }
-    expect(names).toHaveLength(26)
+    expect(names).toHaveLength(27)
   })
 
   it('tüm enum tipleri oluştu ve değerleri doğru', async () => {

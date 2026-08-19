@@ -8,6 +8,10 @@ import {
   QUEUE_PRIORITY,
   type QueueBucket,
 } from '@/lib/fulfillment/status'
+import {
+  computeWaiting,
+  type WaitingKind,
+} from '@/lib/fulfillment/waiting'
 import { db } from '@/server/db'
 import type { TargetSnapshot } from './create'
 import { FulfillmentError } from './create'
@@ -119,6 +123,15 @@ export interface QueueRow {
   createdAt: string
   startedAt: string | null
   priority: number
+  /**
+   * ⭐ BEKLEME SÜRESİ (Faz 10)
+   *
+   * ⚠️ Yalnızca ÖLÇÜM. "gecikti" gibi bir yargı YOKTUR — tanımlı bir SLA
+   * olmadan böyle bir yargı üretilemez (bkz. src/lib/fulfillment/waiting.ts).
+   */
+  waitingKind: WaitingKind
+  waitingMs: number | null
+  waitingLabel: string | null
 }
 
 export interface QueuePage {
@@ -241,7 +254,7 @@ type QueueRecord = {
   order: { orderNo: string; status: string }
 }
 
-function toRow(f: QueueRecord): QueueRow {
+function toRow(f: QueueRecord, now: number): QueueRow {
   const snap = f.targetSnapshot as TargetSnapshot | null
   const p = computeFulfillmentProgress({
     requestedQuantity: f.requestedQuantity,
@@ -267,6 +280,17 @@ function toRow(f: QueueRecord): QueueRow {
     createdAt: f.createdAt.toISOString(),
     startedAt: f.startedAt?.toISOString() ?? null,
     priority: QUEUE_PRIORITY[f.status as FulfillmentStatus],
+    ...(() => {
+      const w = computeWaiting(
+        {
+          status: f.status as FulfillmentStatus,
+          createdAt: f.createdAt,
+          startedAt: f.startedAt,
+        },
+        now,
+      )
+      return { waitingKind: w.kind, waitingMs: w.ms, waitingLabel: w.label }
+    })(),
   }
 }
 
@@ -354,8 +378,15 @@ export async function listFulfillmentQueue(
   const bucketCount = (b: QueueBucket) =>
     QUEUE_BUCKETS[b].reduce((n, st) => n + (byStatus[st] ?? 0), 0)
 
+  /**
+   * ⚠️ TEK BİR "ŞİMDİ" — sayfadaki her satır AYNI ana göre ölçülür.
+   * Satır başına `Date.now()` çağırmak, uzun sayfalarda satırlar arasında
+   * milisaniyelik tutarsızlık üretir ve sıralamayı açıklanamaz kılar.
+   */
+  const now = Date.now()
+
   return {
-    items: pageRows.map((r) => toRow(r as QueueRecord)),
+    items: pageRows.map((r) => toRow(r as QueueRecord, now)),
     sort,
     bucket: params.bucket ?? 'all',
     pageSize,
@@ -514,7 +545,20 @@ export async function getFulfillmentDetail(
   const isOperator = ROLE_LEVEL[viewer.role] >= ROLE_LEVEL.OPERATOR
   const canOperate = isAdmin || (isOperator && f.assignedToUserId === viewer.userId)
 
+  // ⚠️ Ölçüm — yargı değil. Detay ekranında da "gecikti" yazmaz.
+  const waiting = computeWaiting(
+    {
+      status: f.status as FulfillmentStatus,
+      createdAt: f.createdAt,
+      startedAt: f.startedAt,
+    },
+    Date.now(),
+  )
+
   return {
+    waitingKind: waiting.kind,
+    waitingMs: waiting.ms,
+    waitingLabel: waiting.label,
     id: f.id,
     orderNo: f.order.orderNo,
     status: f.status as FulfillmentStatus,
