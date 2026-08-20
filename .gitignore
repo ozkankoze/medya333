@@ -12,13 +12,34 @@ next-env.d.ts
 # prisma — generate ile üretilir, commit edilmez
 src/generated/
 
-# env — GERÇEK SIRLAR ASLA COMMIT EDİLMEZ
+# ═══════════════════════════════════════════════════════════════════════════
+# SIRLAR — ASLA COMMIT EDİLMEZ
+#
+# ⚠️ TEK TEK SAYMAK YETMEZ. Önceki liste yalnızca `.env`, `.env.local` ve
+#    `.env.*.local` dosyalarını kapsıyordu. Oysa `docs/VERCEL_DEPLOYMENT.md`
+#    ve `npm run env:check` operatörden `.env.staging`, `.env.preview`,
+#    `.env.production` oluşturmasını ister — bunların HİÇBİRİ eski kalıba
+#    uymuyordu ve commit edilebilirlerdi.
+#
+#    Doğru yaklaşım: HEPSİNİ kapat, örneği tek tek geri al.
+# ═══════════════════════════════════════════════════════════════════════════
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
 !.env.example
+
+# Anahtar / sertifika dosyaları
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+.npmrc
+.netrc
+
+# Bulut sağlayıcı yerel yapılandırması (token içerir)
+.vercel/
 
 # test / coverage
 coverage/
@@ -28,8 +49,6 @@ playwright-report/
 
 # misc
 .DS_Store
-*.pem
-.vercel
 .turbo
 *.tsbuildinfo
 
