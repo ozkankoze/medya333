@@ -264,13 +264,23 @@ describe('çerez politikası', () => {
 // ===========================================================================
 describe('robots ve sitemap', () => {
   it('panel, hesap ve kimlik yolları taranmaya kapalı', () => {
-    const robots = read(path.join(SRC, 'app/robots.ts'))
+    /**
+     * ⚠️ Faz 11: kurallar rota dosyasından SAF fonksiyona taşındı
+     * (`lib/seo/robots-rules.ts`) ki hem canlı hem canlı-olmayan dal test
+     * edilebilsin. Tarama da o dosyaya bakar.
+     */
+    const rules = read(path.join(SRC, 'lib/seo/robots-rules.ts'))
     for (const p of [
       '/api/', '/yonetim/', '/panel/', '/hesabim', '/siparisler/', '/odeme/',
       '/giris', '/kayit', '/siparis-olusturuldu',
     ]) {
-      expect(robots, `${p} disallow listesinde yok`).toContain(p)
+      expect(rules, `${p} disallow listesinde yok`).toContain(p)
     }
+
+    // Rota dosyası yalnızca ince bir kabuktur ve saf fonksiyonu çağırır.
+    const route = read(path.join(SRC, 'app/robots.ts'))
+    expect(route).toContain('buildRobots')
+    expect(route).toContain('isLiveDeployment')
   })
 
   it('⚠️ sitemap ÖZEL ve TOKEN taşıyan adresleri İÇERMEZ', () => {

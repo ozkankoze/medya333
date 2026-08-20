@@ -1866,3 +1866,219 @@ Hiçbiri "yapıldı" olarak işaretlenmedi.
 - OG görseli ve PNG ikon üretilmedi.
 - Prisma WASM şema motoru diff alamıyor; migration'lar elle yazılıyor.
 - Staging alan adı belirlenmedi.
+
+## ADR-046 — İstemci IP'si Güvenilir Proxy Modeliyle Çözülür
+
+**Bağlam.** Faz 11 denetiminde rate limit kimliğinin şu koddan geldiği görüldü:
+
+```ts
+const forwarded = headers.get('x-forwarded-for')
+if (forwarded) return forwarded.split(',')[0]!.trim()
+return headers.get('x-real-ip') ?? headers.get('cf-connecting-ip') ?? 'unknown'
+```
+
+İki ayrı açık vardı:
+
+1. **En soldaki değer alınıyordu.** `x-forwarded-for` bir zincirdir ve her
+   proxy kendi gördüğü adresi **sona** ekler. En soldaki değer istemcinin
+   *gönderdiği* değerdir — yani saldırganın yazdığı değer.
+2. **`cf-connecting-ip` körü körüne okunuyordu.** Cloudflare arkasında
+   değilsek bu başlığı yazan tek taraf saldırgandır.
+
+**Etki.** Saldırgan her istekte farklı bir sahte IP göndererek her seferinde
+temiz bir rate limit kovası alabilirdi. `auth.login.ip` (5/dk),
+`auth.register.ip` (3/saat), `orders.create.ip` (5/dk) ve
+`orders.lookup.ip` (5/saat) limitlerinin hepsi **tamamen atlatılabilirdi** —
+yani brute force ve sipariş spam'ine karşı fiilen koruma yoktu.
+
+**Karar.** Hangi başlığa güvenileceği `TRUSTED_PROXY` ile **açıkça** seçilir:
+
+| Mod | Kaynak | Kullanım |
+|---|---|---|
+| `xff-rightmost` ⭐ | zincirin **en sağdaki** değeri | Varsayılan; tek güvenilir hop arkasında (nginx/Caddy/ALB/Vercel) doğru |
+| `vercel` | `x-vercel-forwarded-for` | Vercel'in üstünde başka bir proxy varsa |
+| `cloudflare` | `cf-connecting-ip` | Yalnızca origin'e CF dışından erişilemiyorsa |
+| `none` | yok | Fail-closed: tek kova |
+
+**Neden ortamdan tahmin edilmiyor?** `process.env.VERCEL` bakmak cazipti. Ama
+aynı kod Docker'da da çalışır ve orada o değişken yoktur — güvenlik
+davranışının dağıtım ortamına göre **kendiliğinden değişmesi** kabul
+edilemez. Varsayılan (`xff-rightmost`) her iki yolda da doğrudur.
+
+**Vercel notu.** Vercel `x-forwarded-for` başlığını **üzerine yazar ve dış
+IP'leri iletmez**; bunu tam olarak IP sahteciliğini önlemek için yapar. Yani
+Vercel'de zincir tek elemanlıdır ve "en sağdaki" = "tek" = gerçek istemci.
+
+**Ek karar: biçim doğrulaması.** Başlıktan gelen değer artık IP biçimine göre
+doğrulanır. Doğrulanmasaydı saldırgan rastgele metin göndererek rate limit
+anahtar uzayını istediği gibi genişletebilirdi.
+
+**Fail-closed anlamı.** Çözülemeyen istemci `'unknown'` alır — yani **tek
+ortak kova**. Bu aşırı kısıtlayıcıdır ama herkesin kendi kovasını almasından
+(yani limitin kapanmasından) güvenlidir.
+
+**Doğrulama.** `tests/unit/client-ip.test.ts` (21 test), aralarında "5 farklı
+sahte önek → 1 tek rate limit kimliği" kanıtı.
+
+---
+
+## ADR-047 — Serverless'te Bağlantı Havuzu Örnek Başına 1'dir
+
+**Bağlam.** `PrismaPg` altında bir `pg.Pool` açar ve `pg`nin varsayılanı
+örnek başına 10 bağlantıdır. Tek süreçli bir sunucuda bu doğrudur.
+
+Vercel'de ise **her eşzamanlı fonksiyon örneği kendi havuzunu açar** ve
+örnekler arasında paylaşım yoktur:
+
+```
+50 eşzamanlı örnek × 10 bağlantı = 500 bağlantı
+```
+
+Yönetilen PostgreSQL bunu çok önce reddeder. Kesintinin zamanlaması en
+kötüsüdür: sorun **tam da trafiğin arttığı anda** ortaya çıkar.
+
+**Karar.** `DATABASE_POOL_MAX` ortam değişkeni eklendi (varsayılan 10,
+serverless'te 1). Bir fonksiyon örneği aynı anda tek istek işlediği için
+ikinci bağlantı zaten boşta bekler.
+
+Ayrıca `idleTimeoutMillis: 10s` (donmuş bir lambda bağlantıyı sonsuza kadar
+tutmasın) ve `connectionTimeoutMillis: 5s` (erişilemeyen veritabanında istek
+asılı kalmasın, hızlı hata versin) ayarlandı.
+
+**⚠️ Bu ayar havuzlu bağlantı adresinin yerine GEÇMEZ.** İkisi birlikte
+kullanılır: sağlayıcının pooler ucu (PgBouncer / Neon / Supabase) *ve*
+küçük `max`. Boot kapısı, serverless ortamda `max > 1` görürse uyarır.
+
+---
+
+## ADR-048 — Boot Hatasında Davranış Çalışma Modeline Bağlıdır
+
+**Bağlam.** ADR-040'ta açılış hatasında `process.exit(1)` kararı verilmişti.
+Gerekçe doğruydu: Next, instrumentation hatasında süreci ayakta tutar ve her
+isteğe 500 döner; konteyner "çalışıyor" görünür.
+
+Faz 11'de bu kararın **serverless'te yanlış** olduğu görüldü:
+
+- `process.exit()` fonksiyon örneğini anında öldürür ve o örnekte işlenen
+  **diğer istekleri** de yarıda keser.
+- Platform log'una anlamlı bir hata yerine "runtime exited" düşer.
+- "Yeniden başlat, önceki sürüm ayakta kalsın" diye bir şey yoktur: her istek
+  zaten yeni bir örnektir.
+
+**Karar.** Davranış çalışma modeline göre ayrılır:
+
+| Ortam | Davranış | Sonuç |
+|---|---|---|
+| Uzun ömürlü süreç (Docker/VM) | `process.exit(1)` | Yeniden başlatma döngüsü, dağıtım unhealthy durur |
+| Serverless (Vercel/Lambda) | `throw` | Örnek 500 döner, hata platformun akışına düşer |
+
+**⚠️ Bu otomatik tespit ADR-046'nın aksine bir güvenlik kararı DEĞİLDİR;**
+süreç yaşam döngüsü kararıdır. Yanlış tarafa düşmek güvenlik açığı üretmez,
+yalnızca hatanın raporlanma biçimini değiştirir. Bu yüzden ortamdan tespit
+edilmesi kabul edilebilir.
+
+---
+
+## ADR-049 — Canlı Olmayan Dağıtımlar Hiç İndekslenmez
+
+**Bağlam.** Vercel'de her Preview dağıtımı halka açık bir adres alır. Aynı
+içerik iki adreste indekslenirse: yinelenen içerik riski doğar, arama
+sonucunda müşterinin karşısına **eski bir dağıtım** çıkabilir ve staging'deki
+test verisi aranabilir hâle gelir.
+
+**Karar.** `APP_ENV` production değilse `robots.txt` tüm siteyi kapatır
+(`Disallow: /`) ve **sitemap bildirmez** — kapalı bir ortamın haritasını
+vermek, "girme" dedikten sonra kapıyı göstermektir.
+
+⚠️ Canlıyı yanlışlıkla kapatma riski yoktur: `APP_ENV` tanımsızsa aşama zaten
+"production" sayılır (ADR-027, fail-closed).
+
+**Ek karar: kurallar saf fonksiyona taşındı.** `src/app/robots.ts` çalıştığı
+ortamın aşamasını okur; yani rota dosyasını test etmek yalnızca **o anki**
+dalı doğrular. E2E `e2e` aşamasında koştuğu için canlı çıktının doğruluğu hiç
+test edilemezdi. Kurallar `src/lib/seo/robots-rules.ts` içine alınarak
+"canlıda ne yazacak?" sorusu canlıya çıkmadan cevaplanabilir hâle geldi.
+
+---
+
+## ADR-050 — Duman Testi İki Katmandır: Okuma Canlıya, Yazma Asla
+
+**Bağlam.** Dağıtılmış bir ortamın çalıştığını doğrulamak gerekiyordu. Ama
+mevcut E2E paketi sipariş, kullanıcı, hedef ve fulfillment **kaydı
+oluşturur**. Canlıya karşı çalıştırılırsa canlı veritabanında demo kayıtlar
+oluşur — geri alınamaz ve gerçek sipariş numaralarıyla karışır.
+
+**Karar.** İki katman:
+
+| Katman | Kapsam | Nereye karşı |
+|---|---|---|
+| **Okuma** (`tests/smoke/**`) | katalog, fiyat, KDV, sağlık, yetki duvarı, başlıklar, canonical, robots, manifest | **Canlı dahil her ortam** |
+| **Yazma** (`tests/e2e/**`) | hedef doğrulama, sipariş, idempotency, misafir takibi, auth, fulfillment | Yalnızca preview/staging/yerel |
+
+**Kapı, uyarı değil.** `playwright.config.ts` hedefi kontrol eder ve canlı
+alan adı görürse Playwright **hiç başlamaz** (`tests/smoke/guard.ts`).
+Denendi: `E2E_BASE_URL=https://www.medya333.com` ile paket açılmıyor.
+
+**"Hiçbir kayıt oluşturmaz" iddiası ölçüldü.** Okuma katmanı çalıştırılmadan
+önce ve sonra Order/User/Target/Payment/Fulfillment sayıları karşılaştırıldı:
+`712/831/1415/273/173` → `712/831/1415/273/173`. Değişmedi.
+
+⚠️ **Yeni paralel bir test mimarisi kurulmadı.** Yazma senaryoları zaten
+mevcut E2E paketinde kapsanmıştır; duman testi onları KOPYALAMAZ, hedefi
+değiştirilerek aynı paket kullanılır.
+
+---
+
+## Faz 11 Uygulama Özeti
+
+**Kapsam:** Vercel'e güvenli dağıtılabilirlik. Ödeme entegrasyonuna
+**dokunulmadı**; DNS **değiştirilmedi**; canlı veritabanına **hiçbir şey
+yazılmadı** (canlı veritabanı zaten yok).
+
+| Konu | Bulgu / karar | Doğrulama |
+|---|---|---|
+| İstemci IP | **BLOCKER** — rate limit sahtecilikle atlatılabiliyordu | 21 test |
+| Bağlantı havuzu | **BLOCKER** — serverless'te bağlantı tükenmesi | boot uyarısı |
+| Boot davranışı | **BLOCKER** — `exit()` serverless'te yanlış | mod bazlı ayrım |
+| Damga kontrolü | Soğuk başlangıçta zaman aşımı eklendi | 3 sn |
+| Standalone çıktı | Vercel'de kapatıldı | `next.config.ts` |
+| robots | Canlı olmayan ortam kapatıldı; kurallar saf fonksiyona alındı | 9 + 2 test |
+| Duman testi | Okuma/yazma katmanları ayrıldı, canlı hedef kapısı kondu | 44 test + ölçüm |
+| Vercel yapılandırması | `vercel.json` (fra1) + `docs/VERCEL_DEPLOYMENT.md` | — |
+
+**Test durumu:** 36 dosya · 935 Vitest · 241 Playwright E2E · 44 duman testi.
+
+⚠️ **E2E notu:** `auth.register.ip` limiti 3/saat'tir ve E2E ortamında tüm
+istekler tek kimlik paylaşır. Paketi aynı saat içinde iki kez çalıştırmak
+kayıt testinin 429 almasına yol açar — bu bir ürün hatası değil, testin
+gerçek rate limit'e çarpmasıdır. Ardışık koşularda rate limit anahtarlarını
+temizleyin.
+
+---
+
+## Sonraki Faz — PAYTR PRODUCTION ACTIVATION (onay bekliyor)
+
+Faz 11 kapsamı tamamlandı. Yeni faza kendiliğinden geçilmez.
+
+### Dış servis durumu — hiçbiri bağlanmadı
+
+| # | Blocker | Faz 11'de değişen |
+|---|---|---|
+| B1 | Merchant credential yok | **Değişmedi — PayTR onayı bekleniyor.** Ödeme koduna dokunulmadı |
+| B2 | E-posta sağlayıcısı yok | Değişmedi. SPF/DKIM/DMARC gereksinimleri belgelendi |
+| B3 | DNS + TLS yok | **Değiştirilmedi (izin yok).** Vercel'in isteyeceği kayıt tipleri ve dört varyantın hedefi belgelendi |
+| B4 | Yönetilen PostgreSQL + Redis yok | Değişmedi. Serverless bağlantı modeli hazırlandı |
+| B5 | Hata izleme yok | Değişmedi. Release/source map yaklaşımı belgelendi |
+| B6 | Yedekleme doğrulanmadı | Değişmedi. **Hâlâ en kritik açık madde** |
+| B7 | **Vercel projesi yok** | **Yeni.** Uzak Git deposu bile yok — dağıtım henüz başlatılamaz |
+
+### Bu ortamdan doğrulanamayanlar
+
+- Vercel derlemesi ve dağıtımı (hesap/proje yok)
+- `@node-rs/argon2` yerel modülünün Vercel çalışma zamanında yüklenmesi
+- Yönetilen PostgreSQL/Redis'e gerçek bağlantı
+- TLS sertifikası
+- Gerçek gelen kutusuna e-posta teslimi
+- Yedekten geri yükleme provası
+
+Hiçbiri "yapıldı" olarak işaretlenmedi.

@@ -42,21 +42,45 @@ export async function register() {
     await checkDeploymentStamp()
   } catch (err) {
     /**
-     * ⚠️ SÜREÇ KAPATILIR — yalnızca fırlatmak YETMEZ.
-     *
-     * Next.js, instrumentation hook'u hata verdiğinde süreci ayakta tutar ve
-     * her isteğe 500 döner. Sonuç: konteyner "çalışıyor" görünür, orchestrator
-     * onu sağlıklı sayabilir, load balancer trafiği ona yönlendirir ve
-     * müşteri bir hata sayfası görür.
-     *
-     * Doğru davranış açıkça ÖLMEKTİR: konteyner yeniden başlatma döngüsüne
-     * girer, dağıtım "unhealthy" olarak durur ve önceki sürüm ayakta kalır.
-     *
      * ⚠️ Hata mesajı olduğu gibi yazılır; içinde sır YOKTUR — hem
      * `production-guard` hem damga kontrolü yalnızca DEĞİŞKEN ADI ve BULGU
      * KODU üretir (bkz. ilgili modüllerin başlıkları).
      */
     console.error(err instanceof Error ? err.message : String(err))
+
+    /**
+     * ⭐ ÇALIŞMA MODELİNE GÖRE İKİ FARKLI DOĞRU DAVRANIŞ (Faz 11)
+     *
+     * UZUN ÖMÜRLÜ SÜREÇ (Docker / VM / bare metal):
+     *   Süreç KAPATILIR. Yalnızca fırlatmak yetmez — Next.js instrumentation
+     *   hatasında süreci ayakta tutar ve her isteğe 500 döner. Konteyner
+     *   "çalışıyor" görünür, orchestrator onu sağlıklı sayabilir, load
+     *   balancer trafiği ona yönlendirir. Açıkça ölmek, yeniden başlatma
+     *   döngüsü başlatır: dağıtım "unhealthy" durur, önceki sürüm ayakta kalır.
+     *
+     * SERVERLESS (Vercel / Lambda):
+     *   `process.exit()` YANLIŞTIR. Fonksiyon örneği anında öldürülür ve o
+     *   örnekte işlenmekte olan DİĞER istekler de yarıda kesilir; platform
+     *   log'una anlamlı bir hata yerine "runtime exited" düşer. Ayrıca
+     *   "yeniden başlat, önceki sürüm ayakta kalsın" diye bir şey yoktur:
+     *   her istek zaten yeni bir örnektir.
+     *
+     *   Doğru davranış FIRLATMAKTIR: örnek 500 döner, hata platformun hata
+     *   izleme akışına düşer ve geri alma kararı insana kalır.
+     *
+     * ⚠️ Bu otomatik tespit, `TRUSTED_PROXY`nin aksine bir GÜVENLİK kararı
+     * değildir; süreç yaşam döngüsü kararıdır. Yanlış tarafa düşmek güvenlik
+     * açığı üretmez, yalnızca hatanın raporlanma biçimini değiştirir.
+     */
+    const serverless = Boolean(
+      process.env.VERCEL ?? process.env.AWS_LAMBDA_FUNCTION_NAME ?? process.env.NETLIFY,
+    )
+
+    if (serverless) {
+      console.error('[boot] Uygulama açılmadı (serverless — süreç öldürülmüyor).')
+      throw err
+    }
+
     console.error('[boot] Uygulama açılmadı. Süreç sonlandırılıyor.')
     process.exit(1)
   }

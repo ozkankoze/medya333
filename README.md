@@ -1,4 +1,4 @@
-# Medya 333 — Faz 10
+# Medya 333 — Faz 11
 
 Sosyal medya tanıtım hizmetleri sipariş platformu.
 **Faz 0** (iskelet + sihirbaz) + **Faz 1** (gerçek DB, katalog/pricing API, admin CRUD, Redis)
@@ -21,7 +21,11 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
 + **Faz 10** (üretim altyapısı: dağıtım damgasıyla ortam izolasyonu, seed üretim
   kapısı, standalone Docker imajı + imaj denetim scripti, ortam ayrımı doğrulama
   aracı, ölçülmüş N+1 kanıtı, kuyrukta objektif bekleme süresi, web manifest,
-  üretim runbook'u ve canlıya çıkış kontrol listesi).
+  üretim runbook'u ve canlıya çıkış kontrol listesi)
++ **Faz 11** (Vercel dağıtım hazırlığı: güvenilir proxy modeliyle istemci IP
+  çözümleme — **rate limit sahtecilik açığı kapatıldı**, serverless bağlantı
+  havuzu sınırı, mod bazlı boot davranışı, canlı olmayan ortamların
+  indekslenmemesi, okuma/yazma ayrımlı duman testi ve Vercel dağıtım belgesi).
 
 **CANLI ALAN ADI: `https://www.medya333.com`**
 
@@ -33,7 +37,19 @@ Sosyal medya tanıtım hizmetleri sipariş platformu.
 > Bunların hiçbiri kodla "varmış gibi" gösterilmemiştir. Altı açık madde:
 > [`docs/PRODUCTION_CHECKLIST.md` § 0](docs/PRODUCTION_CHECKLIST.md).
 >
-> **Faz 10'da ölçülen yeni gerçek:** `www.medya333.com` şu anda bir **Wix
+> **Faz 11 — Vercel:** Uygulama Vercel'e **dağıtılabilir hâle getirildi**;
+> ancak Vercel projesi, uzak Git deposu, yönetilen PostgreSQL/Redis ve
+> alan adı geçişi **henüz yok**. Dağıtım adımları ve denetim bulguları:
+> [`docs/VERCEL_DEPLOYMENT.md`](docs/VERCEL_DEPLOYMENT.md).
+>
+> **Faz 11'de kapatılan gerçek güvenlik açığı:** rate limit kimliği
+> `x-forwarded-for`'un **en soldaki** (istemcinin yazdığı) değerinden
+> okunuyordu. Saldırgan her istekte farklı bir sahte IP göndererek giriş,
+> kayıt ve sipariş limitlerini **tamamen atlatabilirdi**. Artık güven modeli
+> `TRUSTED_PROXY` ile açıkça seçiliyor ve zincirin **en sağdaki** değeri
+> kullanılıyor (ADR-046, 21 regresyon testi).
+>
+> **Faz 10'da ölçülen gerçek:** `www.medya333.com` şu anda bir **Wix
 > sitesine** işaret ediyor; alan adının SPF kaydı yalnızca Google'ı içeriyor ve
 > **DKIM / DMARC kaydı yok**. Yani bugün Resend üzerinden gönderilen bir
 > e-posta SPF'ten geçmez. Ayrıntı ve yapılacaklar:
@@ -85,12 +101,14 @@ npm run dev                   # http://localhost:3000
 | `npm run db:stamp:check` | Mevcut damgayı gösterir |
 | `npm run env:check -- <a> <b>` | ⭐ İki ortamın paylaştığı sırları bildirir (değer yazdırmaz) |
 | `./scripts/verify-image.sh <imaj>` | ⭐ Üretim imajını denetler (sır/dev bağımlılığı/root/source map) |
+| `SMOKE_BASE_URL=<url> npm run test:smoke` | ⭐ Duman testi — **hiçbir kayıt oluşturmaz**, canlıya karşı da çalışır |
 | `npm run migrate:wasm` | ⚠️ Engine indirilemeyen ortamlarda migration (aşağı bkz.) |
 
 ### Üretim belgeleri
 
 | Belge | İçerik |
 |---|---|
+| [`docs/VERCEL_DEPLOYMENT.md`](docs/VERCEL_DEPLOYMENT.md) | ⭐ **Vercel dağıtımı** — denetim bulguları, ortam matrisi, DNS hedefi, rollback |
 | [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md) | ⭐ **Adım adım canlıya çıkış** — 14 adım, her biri READY / PENDING / BLOCKED |
 | [`docs/LAUNCH_CHECKLIST.md`](docs/LAUNCH_CHECKLIST.md) | ⭐ **Kontrol listesi** — 12 grup; yapıldı mı sorusunun cevabı |
 | [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md) | ⭐ **Ortam ayrımı** — development / staging / production matrisi, dağıtım damgası |
@@ -310,6 +328,8 @@ tests/unit/env-separation.test.ts     11  ⭐ Faz 10: paylaşılan sır tespiti 
 tests/unit/mail-contract.test.ts      14  ⭐ Faz 10: sağlayıcı sözleşmesi — GERÇEK GÖNDERİM YOK
 tests/unit/waiting.test.ts            18  ⭐ Faz 10: bekleme süresi + "gecikti" yasağı + SLA iskeleti
 tests/unit/migration-lint.test.ts      4  ⭐ Faz 10: migration SQL denetimi
+tests/unit/client-ip.test.ts          21  ⭐ Faz 11: İP SAHTECİLİĞİ — rate limit bypass regresyon testi
+tests/unit/robots-rules.test.ts        9  ⭐ Faz 11: canlı / canlı-olmayan robots dalları
 tests/integration/database.test.ts    30  migration, seed, FK, unique, cascade
 tests/integration/api.test.ts         40  katalog, pricing, kupon, admin
 tests/integration/orders.test.ts      31  sipariş, idempotency, fulfillment kapısı
@@ -322,11 +342,11 @@ tests/integration/catalog.test.ts     27  katalog CRUD, cache, sızıntı, pasif
 tests/integration/redis.test.ts        8  atomik rate limit, TTL, cache
 tests/integration/production-chain.test.ts 6 ⭐ Faz 7: uçtan uca zincir + webhook 10× tekrar
 tests/integration/operations.test.ts  28  ⭐ Faz 8: cursor sayfalama, arama/filtre, bildirim idempotency, health
-tests/integration/launch.test.ts      23  ⭐ Faz 9: üretim alan adı, rol yükseltme engeli, bildirim paneli, manifest
+tests/integration/launch.test.ts      24  ⭐ Faz 9: üretim alan adı, rol yükseltme engeli, bildirim paneli, manifest
 tests/integration/deployment-stamp.test.ts 20 ⭐ Faz 10: ORTAM AYRIMI — staging canlı DB'ye bağlanamaz
 tests/integration/nplus1.test.ts       8  ⭐ Faz 10: N+1 ÖLÇÜMÜ (iddia değil, sayım)
                                       ───
-                                      904  (vitest)
+                                      935  (vitest)
 tests/e2e/order-flow.spec.ts          31  sihirbaz akışı
 tests/e2e/order-create.spec.ts        16  uçtan uca sipariş, takip, kayıt/giriş
 tests/e2e/payment.spec.ts              9  ödeme akışı, webhook ucu
@@ -338,6 +358,10 @@ tests/e2e/operations.spec.ts          31  ⭐ Faz 8+9: sayfalama, arama, katalog
                                           rol yönetimi, canonical/robots/sitemap, liveness, mobil
                                       ───
                                       246  (playwright, 2 proje · 241 passed, 5 skipped)
+
+tests/smoke/smoke.spec.ts             22  ⭐ Faz 11: DAĞITIM DUMAN TESTİ (okuma — kayıt oluşturmaz)
+                                      ───
+                                       44  (playwright, 2 proje)
 
 6 genişlikte (375 · 390 · 430 · 768 · 1024 · 1440) 9 ekran ölçüldü:
 YATAY TAŞMA 0px  —  node scripts/screenshots.mjs <url>

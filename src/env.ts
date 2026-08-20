@@ -69,6 +69,41 @@ export const env = createEnv({
      */
     APP_BASE_URL: z.string().url().optional(),
 
+    /**
+     * ⭐ GÜVENİLİR PROXY MODELİ (Faz 11) — İSTEMCİ IP'Sİ NEREDEN OKUNUR?
+     *
+     * Rate limit kimliğini istemci IP'sinden alır. Yanlış başlığa güvenmek
+     * rate limit'i TAMAMEN atlatılabilir yapar (bkz. src/server/client-ip.ts).
+     *
+     *   xff-rightmost → `x-forwarded-for` zincirinin EN SAĞDAKİ değeri.
+     *                   Tek güvenilir hop arkasında (nginx/Caddy/ALB/Vercel)
+     *                   doğrudur. ⭐ VARSAYILAN — her iki dağıtım yolunda da
+     *                   güvenlidir.
+     *   vercel        → Vercel'in yazdığı `x-vercel-forwarded-for` tercih
+     *                   edilir; Vercel'in üstünde bir proxy olsa bile korunur.
+     *   cloudflare    → `cf-connecting-ip`. YALNIZCA origin'e Cloudflare
+     *                   dışından erişilemiyorsa güvenlidir.
+     *   none          → hiçbir başlığa güvenilmez; tüm istekler tek kova.
+     *                   Aşırı kısıtlayıcıdır ama sınırsıza düşmez.
+     *
+     * ⚠️ Ortamdan otomatik tahmin EDİLMEZ: güvenlik davranışı dağıtım
+     * ortamına göre kendiliğinden değişmemelidir.
+     */
+    TRUSTED_PROXY: z.enum(['vercel', 'xff-rightmost', 'cloudflare', 'none']).default('xff-rightmost'),
+
+    /**
+     * ⭐ SUNUCU BAŞINA VERİTABANI BAĞLANTI HAVUZU ÜST SINIRI (Faz 11)
+     *
+     * ⚠️ SERVERLESS'TE HAYATİ. Vercel'de her eşzamanlı fonksiyon örneği KENDİ
+     * havuzunu açar. `pg` varsayılanı örnek başına 10'dur; 50 eşzamanlı örnek
+     * 500 bağlantı demektir ve yönetilen PostgreSQL bunu çok önce reddeder —
+     * sonuç, tam yük altında "too many connections" ile gelen tam kesintidir.
+     *
+     * Serverless'te doğru değer 1'dir: her istek zaten tek bir örnekte
+     * sıralı çalışır. Tek süreçli (Docker/VM) dağıtımda daha yüksek olmalıdır.
+     */
+    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+
     // --- Vergi ---
     /** Varsayılan KDV oranı, basis point. %20 → 2000. DB'deki TaxRate önceliklidir. */
     DEFAULT_TAX_RATE_BP: z.coerce.number().int().min(0).max(10_000).default(2000),
@@ -159,6 +194,8 @@ export const env = createEnv({
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     APP_BASE_URL: process.env.APP_BASE_URL,
+    TRUSTED_PROXY: process.env.TRUSTED_PROXY,
+    DATABASE_POOL_MAX: process.env.DATABASE_POOL_MAX,
     DEFAULT_TAX_RATE_BP: process.env.DEFAULT_TAX_RATE_BP,
     PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER,
     PAYMENT_ENVIRONMENT: process.env.PAYMENT_ENVIRONMENT,

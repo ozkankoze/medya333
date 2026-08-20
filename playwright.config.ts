@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { assertNotProductionTarget } from './tests/smoke/guard'
 
 /**
  * PLAYWRIGHT E2E YAPILANDIRMASI
@@ -9,6 +10,19 @@ import { defineConfig, devices } from '@playwright/test'
  * CI'da çalıştırmadan önce veritabanı hazır olmalıdır:
  *   npm run db:deploy && npm run db:seed && npm run build && npm run test:e2e
  */
+/**
+ * ⛔ CANLI ALAN ADI HEDEF OLARAK REDDEDİLİR (Faz 11)
+ *
+ * Bu paket sipariş, kullanıcı, hedef ve fulfillment KAYDI oluşturur. Canlı
+ * veritabanında demo kayıt üretmek geri alınamaz ve gerçek sipariş
+ * numaralarıyla karışır.
+ *
+ * Kontrol bir uyarı değil, bir KAPIDIR: eşleşme varsa Playwright hiç başlamaz.
+ * Canlıya karşı yalnızca OKUMA duman testi çalıştırılır:
+ *     SMOKE_BASE_URL=https://www.medya333.com npm run test:smoke
+ */
+assertNotProductionTarget(process.env.E2E_BASE_URL)
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,

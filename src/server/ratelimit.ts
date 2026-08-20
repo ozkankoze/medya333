@@ -2,6 +2,7 @@ import 'server-only'
 
 import { createHash } from 'node:crypto'
 import { env } from '@/env'
+import { resolveClientIp } from '@/server/client-ip'
 import { getRedis, isRedisEnabled, RedisRequiredError } from './redis'
 
 /**
@@ -229,10 +230,22 @@ export function rateLimitHeaders(r: RateLimitResult): Record<string, string> {
 // İstemci kimliği — ham IP HİÇBİR YERDE saklanmaz (KVKK)
 // ---------------------------------------------------------------------------
 
+/**
+ * ⚠️ GÜVEN MODELİ `src/server/client-ip.ts` İÇİNDEDİR — ORAYI OKUYUN.
+ *
+ * Faz 11'e kadar buradaki kod `x-forwarded-for`'un EN SOLDAKİ değerini
+ * alıyor ve `cf-connecting-ip`'e körü körüne güveniyordu. İkisi de istemcinin
+ * yazabildiği değerlerdir: saldırgan her istekte farklı bir sahte IP
+ * göndererek her seferinde temiz bir rate limit kovası alabilirdi — giriş
+ * denemesi, sipariş oluşturma ve misafir sorgulama limitleri tamamen
+ * atlatılabilirdi.
+ *
+ * Artık hangi başlığa güvenileceği `TRUSTED_PROXY` ile AÇIKÇA seçilir ve
+ * varsayılan olarak zincirin EN SAĞDAKİ (kendi proxy'mizin eklediği) değeri
+ * kullanılır.
+ */
 export function clientIpFrom(headers: Headers): string {
-  const forwarded = headers.get('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0]!.trim()
-  return headers.get('x-real-ip') ?? headers.get('cf-connecting-ip') ?? 'unknown'
+  return resolveClientIp(headers)
 }
 
 export function hashIp(ip: string): string {

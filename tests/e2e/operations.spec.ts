@@ -427,10 +427,22 @@ test.describe('üretim alan adı ve SEO', () => {
     expect(canonical).toBeTruthy()
     expect(new URL(canonical!).origin).toBe(new URL(ogUrl!).origin)
 
-    const robots = await (await request.get('/robots.txt')).text()
     const sitemap = await (await request.get('/sitemap.xml')).text()
-    expect(robots).toContain(new URL(canonical!).origin)
     expect(sitemap).toContain(new URL(canonical!).origin)
+
+    /**
+     * ⚠️ robots.txt BURADA ALAN ADI İÇERMEZ — ve bu DOĞRUDUR (Faz 11).
+     *
+     * E2E `APP_ENV=e2e` ile koşar, yani canlı olmayan bir dağıtımdır. Canlı
+     * olmayan ortamlarda robots tüm siteyi kapatır ve sitemap/host
+     * BİLDİRMEZ: aynı içeriğin iki adreste indekslenmesini engellemek için.
+     *
+     * Canlı dal (allow + disallow listesi + sitemap) saf fonksiyon üzerinden
+     * test edilir: tests/unit/robots-rules.test.ts
+     */
+    const robots = await (await request.get('/robots.txt')).text()
+    expect(robots).toContain('Disallow: /')
+    expect(robots, 'canlı olmayan ortam sitemap bildiriyor').not.toContain('Sitemap:')
   })
 
   test('⚠️ og:image UYDURULMAMIŞ (kırık önizleme yok)', async ({ page }) => {
@@ -443,11 +455,22 @@ test.describe('üretim alan adı ve SEO', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'tr-TR')
   })
 
-  test('robots özel yolları engeller', async ({ request }) => {
+  test('⚠️ canlı OLMAYAN dağıtım hiç indekslenmez', async ({ request }) => {
+    /**
+     * Vercel'de her Preview dağıtımı halka açık bir adres alır. Kapatılmazsa
+     * aynı içerik iki adreste indekslenir ve arama sonucunda müşterinin
+     * karşısına ESKİ bir dağıtım çıkabilir.
+     *
+     * ⚠️ Bu, özel yolların korumasını GEVŞETMEZ — tam tersi, TÜM site
+     * kapatıldığı için /yonetim, /hesabim ve /siparisler de kapsanır.
+     */
     const robots = await (await request.get('/robots.txt')).text()
-    for (const p of ['/yonetim/', '/panel/', '/hesabim', '/siparisler/', '/giris', '/kayit']) {
-      expect(robots, `${p} engellenmemiş`).toContain(`Disallow: ${p}`)
-    }
+
+    expect(robots).toContain('User-Agent: *')
+    expect(robots).toContain('Disallow: /')
+    // Kapalı ortamın haritası verilmez.
+    expect(robots).not.toContain('Sitemap:')
+    expect(robots).not.toContain('Allow: /')
   })
 
   test('⚠️ sitemap TOKEN taşıyan veya özel adres içermez', async ({ request }) => {

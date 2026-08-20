@@ -19,7 +19,12 @@ import 'server-only'
  */
 
 import { db } from '@/server/db'
-import { stampMismatchMessage, verifyDeploymentStamp } from '@/server/deployment-stamp'
+import {
+  resolveDeploymentStage,
+  stampMismatchMessage,
+  verifyDeploymentStamp,
+  type StampVerdict,
+} from '@/server/deployment-stamp'
 
 /**
  * DAĞITIM DAMGASI — doğru veritabanına mı bağlıyız?
@@ -30,8 +35,35 @@ import { stampMismatchMessage, verifyDeploymentStamp } from '@/server/deployment
  *
  * Detay ve bölge matrisi: docs/ENVIRONMENTS.md
  */
+/**
+ * ⭐ AÇILIŞ KONTROLÜ ZAMAN AŞIMI (Faz 11)
+ *
+ * ⚠️ SERVERLESS'TE ÖNEMLİ. Bu kontrol her SOĞUK BAŞLANGIÇTA bir veritabanı
+ * gidiş-dönüşü yapar. Veritabanı yavaş veya erişilemez olduğunda kontrolün
+ * kendisi soğuk başlangıcı kilitlerse, veritabanı sorunu bir GECİKME sorununa
+ * dönüşür ve tüm istekler zaman aşımına uğrar.
+ *
+ * Zaman aşımında kontrol "okunamadı" sayılır ve UYARI üretir — engel değil.
+ * Erişilemeyen veritabanı zaten kendi hatasını verecektir; damga kapısı onu
+ * maskelememeli, ama onun yüzünden açılışı da kilitlememelidir.
+ */
+const STAMP_CHECK_TIMEOUT_MS = 3_000
+
 export async function checkDeploymentStamp(): Promise<void> {
-  const verdict = await verifyDeploymentStamp(db)
+  // ⚠️ Aşama önce çözülür ki zaman aşımı dalı da DOĞRU aşamayı raporlasın.
+  const stage = resolveDeploymentStage()
+
+  const verdict = await Promise.race([
+    verifyDeploymentStamp(db, stage),
+    new Promise<StampVerdict>((resolve) => {
+      const t = setTimeout(
+        () => resolve({ status: 'unreadable', expected: stage, reason: 'Timeout' }),
+        STAMP_CHECK_TIMEOUT_MS,
+      )
+      // Zamanlayıcı süreci ayakta tutmasın (uzun ömürlü süreçte kapanışı geciktirir).
+      t.unref?.()
+    }),
+  ])
 
   if (verdict.status === 'mismatch') {
     /**

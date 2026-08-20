@@ -63,20 +63,25 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
 
   /**
-   * ⭐ STANDALONE ÇIKTI (Faz 10)
+   * ⭐ STANDALONE ÇIKTI — YALNIZCA VERCEL DIŞINDA (Faz 10 + Faz 11)
    *
-   * `next build`, çalışması için GEREKEN dosyaları `.next/standalone` altına
-   * izleyip kopyalar. Üretim imajı yalnızca bunu taşır:
-   *   • `node_modules` imaja GİRMEZ → dev bağımlılıkları taşınamaz
-   *   • imaj ~10× küçülür → dağıtım ve geri alma hızlanır
-   *   • saldırı yüzeyi daralır: derleme araçları, test koşucusu, Playwright,
-   *     Prisma CLI ve şema motoru üretim imajında BULUNMAZ
+   * DOCKER / VM YOLUNDA (Faz 10):
+   *   `next build`, çalışması için GEREKEN dosyaları `.next/standalone`
+   *   altına izleyip kopyalar. Üretim imajı yalnızca bunu taşır:
+   *     • `node_modules` imaja GİRMEZ → dev bağımlılıkları taşınamaz
+   *     • imaj ~10× küçülür → dağıtım ve geri alma hızlanır
+   *     • derleme araçları, test koşucusu, Playwright ve Prisma CLI imajda YOK
    *
-   * ⚠️ Bu bir HOSTING SAĞLAYICISI özelliği değildir — Next.js'in kendi
-   * çıktısıdır. `node server.js` ile herhangi bir yerde çalışır; Vercel,
-   * Docker, bare metal fark etmez.
+   * VERCEL'DE (Faz 11):
+   *   Vercel kendi çıktı formatını üretir; `standalone` orada gereksiz bir
+   *   kopyalama katmanıdır ve derleme çıktısını büyütür.
+   *
+   * ⚠️ Bu, `TRUSTED_PROXY`nin aksine bir GÜVENLİK kararı değil, PAKETLEME
+   * kararıdır — bu yüzden ortamdan tespit edilmesi güvenlidir. Yanlış tarafa
+   * düşmek yalnızca çıktı boyutunu etkiler. `VERCEL` değişkenini Vercel'in
+   * derleme ortamı yazar.
    */
-  output: 'standalone',
+  ...(process.env.VERCEL ? {} : { output: 'standalone' as const }),
 
   /**
    * ⚠️ SOURCE MAP DAVRANIŞI — BİLİNÇLİ KARAR

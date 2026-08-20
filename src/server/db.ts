@@ -40,7 +40,33 @@ export function readQueryCount(): number | null {
 }
 
 function createClient() {
-  const adapter = new PrismaPg({ connectionString: env.DATABASE_URL })
+  /**
+   * ⭐ BAĞLANTI HAVUZU — SERVERLESS'TE EN KRİTİK AYAR (Faz 11)
+   *
+   * `PrismaPg` altında bir `pg.Pool` açar. Vercel'de her eşzamanlı fonksiyon
+   * örneği KENDİ havuzunu açar ve örnekler arasında paylaşım YOKTUR.
+   * `pg` varsayılanı örnek başına 10 bağlantıdır:
+   *
+   *     50 eşzamanlı örnek × 10 = 500 bağlantı
+   *
+   * Yönetilen PostgreSQL bunu çok önce reddeder ("too many connections") ve
+   * sonuç, tam da trafiğin arttığı anda gelen TAM KESİNTİDİR.
+   *
+   * ⚠️ Serverless'te doğru değer 1'dir: bir fonksiyon örneği aynı anda tek
+   * istek işler, ikinci bağlantı boşta bekler.
+   * ⚠️ Bu ayar, HAVUZLU bağlantı adresinin (PgBouncer / Neon pooler /
+   *    Supabase pooler) yerine GEÇMEZ — onunla BİRLİKTE kullanılır.
+   *
+   * `idleTimeoutMillis`: donmuş bir lambda'nın bağlantıyı sonsuza kadar
+   * tutmaması için kısa. `connectionTimeoutMillis`: veritabanı erişilemezse
+   * istek 30 sn asılı kalmasın, hızlı hata versin.
+   */
+  const adapter = new PrismaPg({
+    connectionString: env.DATABASE_URL,
+    max: env.DATABASE_POOL_MAX,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 5_000,
+  })
 
   const client = new PrismaClient({
     adapter,

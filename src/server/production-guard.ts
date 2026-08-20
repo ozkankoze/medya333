@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { env } from '@/env'
+import { trustedProxyWarning } from '@/server/client-ip'
 
 /**
  * ⭐ ÜRETİM AÇILIŞ KAPISI (Faz 7)
@@ -289,6 +290,44 @@ export function auditProductionConfig(): GuardFinding[] {
       message:
         'SENTRY_DSN tanımlı ama Sentry SDK projeye kurulu değil — HİÇBİR OLAY ' +
         'GÖNDERİLMİYOR. Kurulum adımları: docs/PRODUCTION_CHECKLIST.md § 10.',
+    })
+  }
+
+  /**
+   * ⭐ GÜVENİLİR PROXY MODELİ (Faz 11)
+   *
+   * Rate limit kimliğini istemci IP'sinden alır. Yanlış yapılandırılmış bir
+   * güven modeli ya rate limit'i atlatılabilir yapar (`cloudflare` modu
+   * gerçekten Cloudflare arkasında değilken) ya da tüm kullanıcıları tek
+   * kovaya sıkıştırır (`none`). İkisi de sessiz kalmamalıdır.
+   */
+  const proxyWarning = trustedProxyWarning()
+  if (proxyWarning) {
+    findings.push({
+      level: 'warning',
+      code: 'TRUSTED_PROXY_RISK',
+      message: proxyWarning,
+    })
+  }
+
+  /**
+   * ⭐ SERVERLESS'TE BAĞLANTI HAVUZU (Faz 11)
+   *
+   * Vercel'de her eşzamanlı fonksiyon örneği KENDİ havuzunu açar. Yüksek bir
+   * `DATABASE_POOL_MAX`, tam yük altında "too many connections" ile gelen tam
+   * kesinti demektir. Bunu ancak dağıtım biçimini bilen kişi karara bağlar;
+   * biz yalnızca riskli bileşimi GÖRÜNÜR yaparız.
+   */
+  const onServerless = Boolean(process.env.VERCEL ?? process.env.AWS_LAMBDA_FUNCTION_NAME)
+  if (onServerless && env.DATABASE_POOL_MAX > 1) {
+    findings.push({
+      level: 'warning',
+      code: 'POOL_MAX_TOO_HIGH_FOR_SERVERLESS',
+      message:
+        `DATABASE_POOL_MAX=${env.DATABASE_POOL_MAX} — serverless ortamda her ` +
+        'fonksiyon örneği kendi havuzunu açar. Eşzamanlı örnek sayısı × bu ' +
+        'değer, veritabanının bağlantı sınırını aşabilir. Serverless\'te 1 ' +
+        'kullanın ve HAVUZLU bağlantı adresi (PgBouncer / pooler) verin.',
     })
   }
 
