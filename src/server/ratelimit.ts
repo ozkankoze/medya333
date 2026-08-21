@@ -47,6 +47,12 @@ export const RATE_LIMITS = {
   'auth.register.ip': { limit: 3, windowMs: 3_600_000 },
   'admin.api.user': { limit: 100, windowMs: 60_000 },
   'catalog.read.ip': { limit: 120, windowMs: 60_000 },
+  /**
+   * Media-proxy (profil fotoğrafı). Kimlik doğrulaması istemeyen, baytları
+   * Redis'ten okuyan bir uç — sınırsız bırakmak ucuz bir kaynak tüketim
+   * yüzeyidir. Sihirbaz sayfa başına en fazla birkaç avatar ister.
+   */
+  'media.avatar.ip': { limit: 120, windowMs: 60_000 },
 } as const
 
 export type RateLimitKey = keyof typeof RATE_LIMITS

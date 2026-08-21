@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { PlatformMark } from '@/components/wizard/PlatformMark'
@@ -91,6 +92,54 @@ export function TargetConfirmCard({
   const isVerified = data.status === 'VERIFIED'
 
   return (
+    <TargetCardBody
+      data={data}
+      isVerified={isVerified}
+      confirmed={confirmed}
+      onConfirmChange={onConfirmChange}
+      platformName={platformName}
+      platformSlug={platformSlug}
+      {...(brandColor !== undefined ? { brandColor } : {})}
+    />
+  )
+}
+
+/**
+ * ⚠️ AYRI BİLEŞEN — `useState` erken `return`'lerden SONRA çağrılamaz.
+ *
+ * INVALID/PRIVATE/NOT_FOUND dalları yukarıda erken dönüyor; görsel hata
+ * durumunu tutan hook'u orada tanımlamak React'in hook sırası kuralını
+ * ihlal ederdi. Gövde ayrı bir bileşene alınarak hook koşulsuz hâle geldi.
+ */
+function TargetCardBody({
+  data,
+  isVerified,
+  confirmed,
+  onConfirmChange,
+  platformName,
+  platformSlug,
+  brandColor,
+}: {
+  data: TargetPreviewData
+  isVerified: boolean
+  confirmed: boolean
+  onConfirmChange: (v: boolean) => void
+  platformName: string
+  platformSlug: string
+  brandColor?: string | null
+}) {
+  /**
+   * Görseller media-proxy'den gelir ve orada TTL'i dolmuş olabilir (404).
+   * Kırık `<img>` ikonu göstermek yerine sessizce marka logosuna /
+   * placeholder'a düşeriz — hedefin DOĞRULUĞU görselden bağımsızdır.
+   */
+  const [avatarBroken, setAvatarBroken] = useState(false)
+  const [postBroken, setPostBroken] = useState(false)
+
+  const showAvatar = Boolean(data.avatarUrl) && !avatarBroken
+  const showPost = Boolean(data.thumbnailUrl) && !postBroken
+
+  return (
     <Card
       className={cn(
         'p-4',
@@ -99,20 +148,35 @@ export function TargetConfirmCard({
     >
       <div className="flex items-start gap-3.5">
         {/* Avatar yalnızca doğrulanmış hedefte gelir; yoksa platform markası
-            gösterilir — baş harf monogramı "ucuz panel" hissi veriyordu. */}
+            gösterilir — baş harf monogramı "ucuz panel" hissi veriyordu.
+
+            ⚠️ ADRES HER ZAMAN KENDİ MEDIA-PROXY'MİZDİR. Instagram CDN adresi
+            buraya asla ulaşmaz (bkz. server/media/avatar-store.ts): imzalı
+            adres hem süresi dolunca kırılır hem müşteri IP'sini Meta'ya
+            sızdırırdı. */}
         <div
-          className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-[--shadow-card]"
+          className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-[--shadow-card] sm:size-20"
           aria-hidden
         >
-          {data.avatarUrl ? (
+          {showAvatar ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={data.avatarUrl} alt="" className="size-full object-cover" />
+            <img
+              src={data.avatarUrl ?? ''}
+              alt=""
+              width={80}
+              height={80}
+              loading="lazy"
+              decoding="async"
+              referrerPolicy="no-referrer"
+              className="size-full object-cover"
+              onError={() => setAvatarBroken(true)}
+            />
           ) : (
             <PlatformMark
               slug={platformSlug}
               name={platformName}
               brandColor={brandColor}
-              size={22}
+              size={30}
             />
           )}
         </div>
@@ -165,6 +229,57 @@ export function TargetConfirmCard({
           )}
         </div>
       </div>
+
+      {/* ================= GÖNDERİ GÖRSELİ ================= */}
+      {showPost && (
+        <figure className="mt-3.5">
+          <div className="relative w-full max-w-[280px] overflow-hidden rounded-xl bg-ink-100 shadow-[--shadow-card]">
+            {/**
+             * ⚠️ ORAN KORUNUR. Instagram gönderileri kare, dikey (4:5) veya
+             * yatay olabilir; sabit yükseklik vermek görseli ezerdi.
+             * `aspect-square` + `object-cover` kırpar ama BOZMAZ.
+             */}
+            <div className="aspect-square w-full">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={data.thumbnailUrl ?? ''}
+                alt="Gönderi önizlemesi"
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                className="size-full object-cover"
+                onError={() => setPostBroken(true)}
+              />
+            </div>
+          </div>
+        </figure>
+      )}
+
+      {/**
+       * ⚠️ GÖRSEL YOKSA KIRIK `<img>` GÖSTERİLMEZ.
+       *
+       * Yalnızca gönderi/video hedeflerinde ve görsel gerçekten alınamadığında
+       * nötr bir yer tutucu çıkar. Bu, hedefin GEÇERSİZ olduğu anlamına
+       * gelmez — önizleme ayrı, doğrulama ayrıdır.
+       */}
+      {!showPost && data.thumbnailUrl === null && isPostLike(data.canonicalUrl) && (
+        <div className="mt-3.5 flex w-full max-w-[280px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-ink-200 bg-ink-50 px-4 py-6 text-center">
+          <PlatformMark
+            slug={platformSlug}
+            name={platformName}
+            brandColor={brandColor}
+            size={24}
+          />
+          <p className="text-caption text-ink-500">
+            Gönderi önizlemesi alınamıyor. Bağlantının doğru olduğunu kontrol edin.
+          </p>
+        </div>
+      )}
     </Card>
   )
+}
+
+/** Kanonik adres bir gönderi/reel/video mu? (yer tutucu yalnızca onlarda) */
+function isPostLike(canonicalUrl: string): boolean {
+  return /\/(p|reel|reels|tv|video|shorts|status)\//.test(canonicalUrl)
 }

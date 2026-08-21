@@ -9,6 +9,27 @@ import { rateLimit, rateLimitHeaders, rateLimitIdentifier } from '@/server/ratel
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * ⭐ MEDYA ADRESİ KAPISI — dış CDN adresinin istemciye sızmasını YAPISAL
+ *    olarak imkânsız kılar. Hem avatar hem gönderi görseli buradan geçer.
+ *
+ * Adapter'ların `preview.avatarUrl` / `preview.thumbnailUrl` alanlarına kendi
+ * media-proxy yolumuzu koyması
+ * BEKLENİR. Ama "beklenir" bir güvenlik sınırı değildir: yarın bir adapter
+ * (veya bir yanlış birleştirme) oraya Meta'nın imzalı CDN adresini koyarsa,
+ * o adres hem HTML'e girer hem de müşterinin tarayıcısını doğrudan Meta'ya
+ * istek atmaya zorlar — tam olarak media-proxy'nin engellemek için var olduğu
+ * iki sonuç.
+ *
+ * Bu yüzden burada İZİN LİSTESİ uygulanır: yalnızca kendi proxy yolumuz geçer.
+ * Başka her şey — mutlak adresler, protokol-göreli adresler, farklı yollar —
+ * sessizce `null`'a düşer ve UI platform logosunu gösterir.
+ */
+function safeMediaPath(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  return /^\/api\/v1\/media\/avatar\/[a-f0-9]{32}$/.test(value) ? value : null
+}
+
 
 
 /**
@@ -127,9 +148,12 @@ export async function POST(req: NextRequest) {
       ...(isVerified && outcome.externalId ? { externalId: outcome.externalId } : {}),
       displayName: preview?.displayName ?? null,
       handle: preview?.handle ?? parseResult.handle ?? null,
-      // NOT: avatarUrl Faz 6'da media-proxy'e indirildikten SONRA yazılacak.
+      // ⭐ Media-proxy devreye girdi: burada saklanan artık dış CDN adresi
+      // DEĞİL, kendi proxy yolumuzdur (`safeMediaPath` bunu zorunlu kılar).
       // Dış CDN URL'sini doğrudan saklamak hotlink kırılmasına ve kullanıcı
-      // IP'sinin platforma sızmasına yol açar.
+      // IP'sinin platforma sızmasına yol açardı.
+      avatarUrl: safeMediaPath(preview?.avatarUrl),
+      thumbnailUrl: safeMediaPath(preview?.thumbnailUrl),
       followerCount: preview?.followerCount ?? null,
       isPrivate: preview?.isPrivate ?? (outcome.status === 'PRIVATE' ? true : null),
       metaSnapshot: preview?.raw ? JSON.parse(JSON.stringify(preview.raw)) : undefined,
@@ -146,7 +170,8 @@ export async function POST(req: NextRequest) {
       canonicalUrl: outcome.canonicalUrl,
       handle: preview?.handle ?? parseResult.handle ?? null,
       displayName: preview?.displayName ?? null,
-      avatarUrl: null,
+      avatarUrl: safeMediaPath(preview?.avatarUrl),
+      thumbnailUrl: safeMediaPath(preview?.thumbnailUrl),
       followerCount: preview?.followerCount ?? null,
       /** UNVERIFIED'da kullanıcıdan "Bu hedef doğru" onayı istenir */
       requiresConfirmation: outcome.status === 'UNVERIFIED',
