@@ -131,10 +131,61 @@ export const env = createEnv({
 
     // --- PLATFORM API'LERİ (Faz 6 — Faz 0'da entegrasyon YOK) ---
     YOUTUBE_API_KEY: z.string().optional(),
-    INSTAGRAM_BUSINESS_DISCOVERY_ENABLED: z.coerce.boolean().default(false),
+    /**
+     * ⭐ INSTAGRAM BUSINESS DISCOVERY — RESMÎ META GRAPH API
+     *
+     * ⚠️ HEPSİ `server` BLOĞUNDADIR. Hiçbiri `NEXT_PUBLIC_` değildir, dolayısıyla
+     *    hiçbiri istemci bundle'ına giremez: `@t3-oss/env-nextjs` server
+     *    bloğundaki bir değişkene istemciden erişilirse HATA FIRLATIR.
+     *
+     * ⚠️ TOKEN TÜRÜ ÖNEMLİ: `IG_ACCESS_TOKEN` bir **Facebook User access
+     *    token**'ıdır (host `graph.facebook.com`). `graph.instagram.com`
+     *    üzerinden alınan Instagram user token'ı `business_discovery` ucunu
+     *    DESTEKLEMEZ. Gerekli izinler: instagram_basic ·
+     *    instagram_manage_insights · pages_read_engagement.
+     *
+     * ⚠️ TOKEN'IN ÖMRÜ VAR (~60 gün). Süresi dolduğunda sistem SESSİZCE mevcut
+     *    UNVERIFIED akışına düşer; sipariş akışı DURMAZ. Kalan süreyi
+     *    `npm run ig:verify` ile ölçün.
+     */
+    /**
+     * ⚠️ `z.coerce.boolean()` KULLANILMAZ — BU BİR TUZAKTIR.
+     *
+     * `z.coerce.boolean()` altta `Boolean(value)` çağırır ve ortam değişkenleri
+     * HER ZAMAN DİZEDİR: `Boolean("false") === true`. Yani
+     * `INSTAGRAM_BUSINESS_DISCOVERY_ENABLED="false"` yazan bir operatör,
+     * bayrağı KAPATTIĞINI sanırken AÇMIŞ olur — fail-closed tasarım sessizce
+     * tersine döner ve Meta'ya istenmeyen çağrılar gider.
+     *
+     * Bu yüzden kabul edilen değerler AÇIKÇA sayılır ve dönüştürülür.
+     * (Sabitleyen test: `tests/unit/instagram-env.test.ts`)
+     */
+    INSTAGRAM_BUSINESS_DISCOVERY_ENABLED: z
+      .enum(['true', 'false', '1', '0'])
+      .default('false')
+      .transform((v) => v === 'true' || v === '1'),
+    /** Meta App ID — token yenileme ve `debug_token` için. Sır DEĞİL. */
     IG_APP_ID: z.string().optional(),
+    /** Meta App Secret — yalnızca token yenilemede kullanılır. SIR. */
     IG_APP_SECRET: z.string().optional(),
+    /** Facebook User access token (yukarıdaki uyarıya bakın). SIR. */
     IG_ACCESS_TOKEN: z.string().optional(),
+    /**
+     * ⭐ KENDİ Instagram professional hesabımızın Business Account ID'si.
+     *
+     * Business Discovery çağrısı bu ID'nin node'u ÜZERİNDEN yapılır; bu değer
+     * olmadan uç ÇAĞRILAMAZ. Yalnızca rakamlardan oluşur.
+     * Nasıl bulunur: `npm run ig:verify` (script bunu listeler).
+     */
+    IG_USER_ID: z
+      .string()
+      .regex(/^\d{1,32}$/, 'IG_USER_ID yalnızca rakamlardan oluşmalı')
+      .optional(),
+    /** Graph API sürümü. Meta sürümleri ~2 yılda emekliye ayırır. */
+    IG_GRAPH_API_VERSION: z
+      .string()
+      .regex(/^v\d+\.\d+$/, 'IG_GRAPH_API_VERSION "v25.0" biçiminde olmalı')
+      .default('v25.0'),
     TELEGRAM_BOT_TOKEN: z.string().optional(),
     X_BEARER_TOKEN: z.string().optional(),
 
@@ -210,6 +261,8 @@ export const env = createEnv({
     IG_APP_ID: process.env.IG_APP_ID,
     IG_APP_SECRET: process.env.IG_APP_SECRET,
     IG_ACCESS_TOKEN: process.env.IG_ACCESS_TOKEN,
+    IG_USER_ID: process.env.IG_USER_ID,
+    IG_GRAPH_API_VERSION: process.env.IG_GRAPH_API_VERSION,
     TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
     X_BEARER_TOKEN: process.env.X_BEARER_TOKEN,
     INVOICE_PROVIDER: process.env.INVOICE_PROVIDER,

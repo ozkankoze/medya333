@@ -34,7 +34,8 @@
     "db:stamp": "tsx scripts/db-stamp.mts",
     "db:stamp:check": "tsx scripts/db-stamp.mts --check",
     "env:check": "tsx scripts/check-env-separation.mts",
-    "test:smoke": "playwright test --config=playwright.smoke.config.ts"
+    "test:smoke": "playwright test --config=playwright.smoke.config.ts",
+    "ig:verify": "tsx scripts/verify-instagram-token.mts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",
