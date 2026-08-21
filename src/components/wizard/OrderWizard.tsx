@@ -464,7 +464,10 @@ export function OrderWizard({
   return (
     <div className="wizard-scope mx-auto grid max-w-6xl gap-8 px-5 pb-36 lg:grid-cols-[minmax(0,1fr)_360px] lg:pb-20">
       {/* ------------------------------- SOL: adımlar ------------------------------ */}
-      <div className="flex flex-col gap-10">
+      {/* ⚠️ `min-w-0` — grid sütunları varsayılan `min-width:auto` alır ve
+          içeriğinden daralamaz. Slider dar ekranda sütunu genişletip yatay
+          kaydırma üretiyordu. */}
+        <div className="flex min-w-0 flex-col gap-10">
         <section aria-labelledby="step-platform" className="scroll-mt-20">
           <StepHeading id="step-platform" step={1} title="Platform seçin" done={Boolean(platform)} />
           <StepPlatform platforms={catalog.platforms} value={platformSlug} onChange={selectPlatform} />
@@ -526,6 +529,10 @@ export function OrderWizard({
               value={quantity}
               onChange={setQuantity}
               nextTierHint={breakdown?.nextTier ?? null}
+              // ⚠️ Kademenin ilan ettiği değil, GERÇEKTE ÖDENEN birim fiyat.
+              //    Çapa tavanı devredeyken ikisi farklıdır.
+              unitPriceMinor={breakdown?.effectiveUnitPriceMinor ?? null}
+              totalMinor={breakdown?.totalMinor ?? null}
               unitLabel={service.unitLabel}
             />
             {priceError && <p className="mt-3 text-small text-danger-700">{priceError}</p>}

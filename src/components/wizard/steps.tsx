@@ -289,12 +289,23 @@ export function StepQuantity({
   value,
   onChange,
   nextTierHint,
+  unitPriceMinor,
+  totalMinor,
   unitLabel,
 }: {
   variant: CatalogVariant
   value: number
   onChange: (n: number) => void
   nextTierHint?: { minQuantity: number; unitPriceMinor: number } | null
+  /**
+   * Seçili miktardaki GÜNCEL birim fiyat (kuruş).
+   * ⚠️ Sunucunun otoritesi değildir — yalnızca gösterim. Sipariş anında
+   *    tutar `orders/create.ts` içinde YENİDEN hesaplanır ve uyuşmazsa
+   *    `PriceChangedError` ile reddedilir.
+   */
+  unitPriceMinor?: number | null
+  /** Seçili miktardaki toplam (kuruş, KDV dahil). Yalnızca gösterim. */
+  totalMinor?: number | null
   /** SADECE gösterim — fiyat hesabına girmez */
   unitLabel: string
 }) {
@@ -443,85 +454,182 @@ export function StepQuantity({
   const fromSlider = (pos: number) =>
     useLog ? snap(Math.exp(lnMin + (pos / SLIDER_STEPS) * (lnMax - lnMin))) : snap(pos)
 
-  return (
-    <div className="flex flex-col gap-4">
-      {presets.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {presets.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => onChange(snap(p))}
-              className={cn(
-                'tabular h-9 rounded-full border px-4 text-small font-medium transition-colors duration-[--duration-fast]',
-                value === p
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-ink-200 bg-white text-ink-700 hover:bg-ink-50',
-              )}
-            >
-              {withUnit(p, unitLabel)}
-            </button>
-          ))}
-        </div>
-      )}
+  /** Track üzerindeki dolgu yüzdesi — thumb'ın nerede olduğu görsel olarak nettir. */
+  const pct = useLog
+    ? (toSlider(value) / SLIDER_STEPS) * 100
+    : ((value - variant.minQuantity) / (variant.maxQuantity - variant.minQuantity)) * 100
 
-      <div className="flex items-center gap-4">
-        <input
-          id={id}
-          type="range"
-          min={useLog ? 0 : variant.minQuantity}
-          max={useLog ? SLIDER_STEPS : variant.maxQuantity}
-          step={useLog ? 1 : variant.quantityStep || 1}
-          value={toSlider(value)}
-          onChange={(e) => onChange(fromSlider(Number(e.target.value)))}
-          aria-label="Miktar"
-          aria-valuetext={withUnit(value, unitLabel)}
-          className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-ink-200 accent-brand-600"
-        />
-        <div className="relative w-40 shrink-0">
+  /**
+   * ⭐ NATIVE `<input type="range">`.
+   *
+   * ⚠️ SAHTE SLIDER YAPILMAZ. `div` + pointer olaylarıyla kurulan "custom
+   * slider"lar sürükleme, dokunma, klavye (ok tuşları, Home/End), ekran
+   * okuyucu ve `prefers-reduced-motion` davranışlarını yeniden yazmayı
+   * gerektirir ve genelde eksik yazılır. Native input bunların hepsini
+   * HAZIR getirir; biz yalnızca GÖRÜNÜMÜNÜ değiştiriyoruz.
+   *
+   * Thumb ve track `::-webkit-slider-thumb` / `::-moz-range-thumb` ile
+   * biçimlendirilir — davranış native kalır.
+   */
+  const RANGE_CLASS = cn(
+    'h-2.5 w-full cursor-pointer appearance-none rounded-full bg-transparent',
+    'focus-visible:outline-none',
+    // — WebKit / Blink —
+    '[&::-webkit-slider-runnable-track]:h-2.5 [&::-webkit-slider-runnable-track]:rounded-full',
+    '[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-6',
+    '[&::-webkit-slider-thumb]:-mt-[7px] [&::-webkit-slider-thumb]:rounded-full',
+    '[&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-white',
+    '[&::-webkit-slider-thumb]:bg-brand-600',
+    '[&::-webkit-slider-thumb]:shadow-[0_1px_4px_rgba(0,0,0,.25)]',
+    '[&::-webkit-slider-thumb]:transition-transform',
+    'hover:[&::-webkit-slider-thumb]:scale-110 active:[&::-webkit-slider-thumb]:scale-95',
+    'focus-visible:[&::-webkit-slider-thumb]:ring-4 focus-visible:[&::-webkit-slider-thumb]:ring-brand-500/35',
+    // — Firefox —
+    '[&::-moz-range-track]:h-2.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-transparent',
+    '[&::-moz-range-thumb]:size-6 [&::-moz-range-thumb]:rounded-full',
+    '[&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-white',
+    '[&::-moz-range-thumb]:bg-brand-600 [&::-moz-range-thumb]:shadow-[0_1px_4px_rgba(0,0,0,.25)]',
+  )
+
+  return (
+    // ⚠️ `min-w-0` — flex çocukları varsayılan olarak `min-width:auto` alır ve
+    //    içeriğinden daralamaz. Büyük rakam + sayı kutusu dar ekranda kabı
+    //    genişletip yatay kaydırma üretiyordu.
+    <div className="flex w-full min-w-0 flex-col gap-5">
+      {/* ============ 1 · SEÇİLEN MİKTAR — kartın en net elemanı ============ */}
+      <div className="flex w-full min-w-0 flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="flex items-baseline gap-2.5">
+          <span
+            className="tabular text-display font-semibold leading-none tracking-tight text-ink-900"
+            data-testid="quantity-display"
+          >
+            {formatQuantity(value)}
+          </span>
+          <span className="text-body text-ink-600">{unitOf(unitLabel)}</span>
+        </div>
+
+        {/* Serbest sayı girişi — slider'a alternatif, ikisi aynı state'i sürer */}
+        <div className="relative w-32 shrink-0 sm:w-36">
           <Input
             type="number"
+            inputMode="numeric"
             value={value}
             min={variant.minQuantity}
             max={variant.maxQuantity}
             step={variant.quantityStep || 1}
             onChange={(e) => onChange(snap(Number(e.target.value) || variant.minQuantity))}
-            className="tabular h-11 pr-14 text-right"
+            className="tabular h-11 pr-12 text-right"
             aria-label={`Miktar (${unitOf(unitLabel)})`}
           />
           <span
-            className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-small text-ink-500"
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-caption text-ink-500"
             aria-hidden
           >
-            {unitOf(unitLabel)}
+            adet
           </span>
         </div>
       </div>
 
-      {/* Sınırlar ham sayı olarak DEĞİL, slider'ın uçlarında bağlamıyla gösterilir */}
-      <div className="tabular -mt-2 flex justify-between text-caption text-ink-400">
-        <span>en az {withUnit(variant.minQuantity, unitLabel)}</span>
-        <span>en çok {withUnit(variant.maxQuantity, unitLabel)}</span>
+      {/* ==================== 2 · SLIDER ==================== */}
+      <div className="w-full min-w-0 pt-1">
+        <div className="relative w-full min-w-0">
+          {/* Track: dolgu + kalan. `pointer-events-none` — tıklama input'a gider. */}
+          <div
+            className="pointer-events-none absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 overflow-hidden rounded-full bg-ink-200"
+            aria-hidden
+          >
+            <div
+              className="h-full rounded-full bg-brand-600 transition-[width] duration-[--duration-fast]"
+              style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
+            />
+          </div>
+          <input
+            id={id}
+            type="range"
+            min={useLog ? 0 : variant.minQuantity}
+            max={useLog ? SLIDER_STEPS : variant.maxQuantity}
+            step={useLog ? 1 : variant.quantityStep || 1}
+            value={toSlider(value)}
+            onChange={(e) => onChange(fromSlider(Number(e.target.value)))}
+            aria-label="Miktar"
+            aria-valuetext={withUnit(value, unitLabel)}
+            className={cn(RANGE_CLASS, 'relative')}
+            data-testid="quantity-slider"
+          />
+        </div>
+
+        {/* 3 · Uçlar */}
+        <div className="tabular mt-2 flex justify-between text-caption text-ink-400">
+          <span>{formatQuantity(variant.minQuantity)}</span>
+          <span>{formatQuantity(variant.maxQuantity)}</span>
+        </div>
       </div>
 
-      {nextTierHint && (
+      {/* ==================== 4 · FİYAT ==================== */}
+      {(typeof unitPriceMinor === 'number' || typeof totalMinor === 'number') && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 rounded-[--radius-control] bg-ink-50 px-3.5 py-3"
+          data-testid="quantity-price"
+        >
+          {typeof unitPriceMinor === 'number' && unitPriceMinor > 0 && (
+            <span className="text-small text-ink-600">
+              Birim fiyat:{' '}
+              <strong className="tabular font-semibold text-ink-900">
+                {perUnit(formatUnitPriceMinor(unitPriceMinor), unitLabel)}
+              </strong>
+            </span>
+          )}
+          {typeof totalMinor === 'number' && (
+            <span className="text-small text-ink-600">
+              Toplam:{' '}
+              <strong className="tabular text-body font-semibold text-ink-900">
+                {formatMinor(totalMinor)}
+              </strong>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ============ 5 · SONRAKİ KADEME AVANTAJI ============ */}
+      {/* ⚠️ Metin SABİT DEĞİL — sayılar `findNextTier()` çıktısından gelir. */}
+      {nextTierHint && nextTierHint.minQuantity > value && (
         <div className="flex items-start gap-2.5 rounded-[--radius-control] bg-brand-50 px-3.5 py-3">
-          <span className="mt-0.5 text-brand-600" aria-hidden>
+          <span className="mt-0.5 shrink-0 text-brand-600" aria-hidden>
             <TrendIcon />
           </span>
-          <div className="text-small text-brand-900">
-            <p>
-              <strong className="font-semibold">
-                {withUnit(Math.max(0, nextTierHint.minQuantity - value), unitLabel)}
-              </strong>{' '}
-              daha ekleyerek bir sonraki fiyat seviyesine geçebilirsiniz.
-            </p>
-            <p className="mt-0.5 text-brand-700">
-              Yeni birim fiyat:{' '}
-              <strong className="font-semibold">
-                {perUnit(formatUnitPriceMinor(nextTierHint.unitPriceMinor), unitLabel)}
-              </strong>
-            </p>
+          <p className="text-small text-brand-900" data-testid="next-tier-hint">
+            <strong className="font-semibold">
+              {withUnit(nextTierHint.minQuantity - value, unitLabel)}
+            </strong>{' '}
+            daha alırsanız birim fiyatınız{' '}
+            <strong className="font-semibold">
+              {perUnit(formatUnitPriceMinor(nextTierHint.unitPriceMinor), unitLabel)}
+            </strong>
+            'ye düşer.
+          </p>
+        </div>
+      )}
+
+      {/* ============ 6 · HIZLI SEÇİM (ana yöntem DEĞİL) ============ */}
+      {presets.length > 0 && (
+        <div>
+          <p className="mb-2 text-caption text-ink-500">Hızlı seçim</p>
+          <div className="flex flex-wrap gap-2">
+            {presets.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onChange(snap(p))}
+                className={cn(
+                  'tabular h-8 rounded-full border px-3 text-caption font-medium transition-colors duration-[--duration-fast]',
+                  value === p
+                    ? 'border-brand-500 bg-brand-50 text-brand-700'
+                    : 'border-ink-200 bg-white text-ink-600 hover:bg-ink-50',
+                )}
+              >
+                {formatQuantity(p)}
+              </button>
+            ))}
           </div>
         </div>
       )}
