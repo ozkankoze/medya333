@@ -21,6 +21,30 @@ if (process.env.TEST_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL
 }
 
+/**
+ * ⚠️ SON ÇARE ADRESİ — `.env` hiç yoksa veya `DATABASE_URL` içermiyorsa.
+ *
+ * `src/env.ts` içinde `DATABASE_URL` ZORUNLUDUR (`z.string().url()`). Aşağıdaki
+ * `??=` satırları yazılırken bu alan atlanmıştı ve boşluk uzun süre GÖRÜNMEDİ:
+ * geliştirme makinelerinde `.env` zaten dolu olduğu için `dotenv` değeri
+ * sağlıyordu. `.env`'i yalnızca birkaç anahtar için oluşturan bir makinede ise
+ * `env.ts`'i IMPORT EDEN HER test dosyası import anında patlıyor —
+ * `client-ip`, `notifications`, `mail-contract`, `payment-*` dahil. Yani bu bir
+ * Instagram sorunu değil, test kurulumundaki bir boşluktu.
+ *
+ * ⚠️ BU ADRESE BAĞLANILMAZ. Yalnızca Zod'un biçim doğrulamasını geçmek için
+ *    vardır; birim testleri veritabanına hiç dokunmaz.
+ *
+ * ⚠️ GERÇEK BİR VERİTABANINA İŞARET ETMEMESİ BİLİNÇLİDİR. Yukarıdaki güvenlik
+ *    kuralı ("testler geliştirme veritabanına yazamasın") burada da geçerli:
+ *    adres kasıtlı olarak var olmayan bir sunucu/veritabanıdır. Entegrasyon
+ *    testleri bu değeri KULLANMAZ — `tests/integration/db-setup.ts` kararını
+ *    `TEST_DATABASE_URL`'e bakarak verir ve yoksa Testcontainers ile ayağa
+ *    kaldırdığı konteynerin adresini `DATABASE_URL`'e kendisi yazar.
+ */
+process.env.DATABASE_URL ??=
+  'postgresql://vitest:vitest@127.0.0.1:1/medya333_vitest_placeholder?schema=public'
+
 // Zod doğrulaması boot'ta çalışır; testlerde eksik anahtar olmasın.
 process.env.AUTH_SECRET ??= 'test-only-auth-secret-at-least-32-characters-long'
 process.env.ORDER_TOKEN_SECRET ??= 'test-only-order-token-secret-at-least-32-chars'
