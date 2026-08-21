@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { buildCsp } from '@/lib/security/csp'
 
 /**
  * ⭐ ÜRETİM DENETİMİ — KAYNAK KODU TARAMASI (Faz 7)
@@ -58,6 +59,9 @@ describe('sır sızıntısı', () => {
     'RESEND_API_KEY',
     'DATABASE_URL',
     'REDIS_URL',
+    // Instagram Graph API — token istemciye ULAŞMAMALIDIR.
+    'IG_ACCESS_TOKEN',
+    'IG_APP_SECRET',
   ]
 
   it('⚠️ hiçbir secret NEXT_PUBLIC_ olarak tanımlanmamıştır', () => {
@@ -222,13 +226,32 @@ describe('rate limit envanteri', () => {
 describe('güvenlik header yapılandırması', () => {
   const config = read(path.join(ROOT, 'next.config.ts'))
 
-  it('CSP tanımlı ve tehlikeli direktif içermiyor', () => {
+  /**
+   * ⚠️ BU TEST GEVŞETİLMEDİ — GÜÇLENDİRİLDİ.
+   *
+   * Eskiden `next.config.ts` METNİ taranıyordu: `expect(config)
+   * .not.toContain('unsafe-eval')`. Bu, politika tek bir sabit dize olduğu
+   * sürece yeterliydi. Politika artık ortama göre üretildiği için metin
+   * taraması YANLIŞ SORUYU sorar: bir dizenin dosyada geçmesi, üretimde
+   * gönderilen başlıkta olduğu anlamına gelmez — geçmemesi de olmadığı
+   * anlamına gelmez.
+   *
+   * Artık ÜRETİLEN POLİTİKA doğrulanıyor. Kapsam daralmadı, genişledi:
+   * geliştirme dalının üretim politikasını kirletmediği de sabitlendi.
+   * Ayrıntılı senaryolar: `tests/unit/csp.test.ts`
+   */
+  it('CSP tanımlı ve ÜRETİMDE tehlikeli direktif içermiyor', () => {
     expect(config).toContain('Content-Security-Policy')
-    expect(config).toContain("frame-ancestors 'none'")
-    expect(config).toContain("object-src 'none'")
-    expect(config).toContain("base-uri 'self'")
-    // `unsafe-eval` ASLA açılmaz
-    expect(config).not.toContain('unsafe-eval')
+    expect(config).toContain('buildCsp')
+
+    const production = buildCsp({ dev: false })
+    expect(production).toContain("frame-ancestors 'none'")
+    expect(production).toContain("object-src 'none'")
+    expect(production).toContain("base-uri 'self'")
+    // `unsafe-eval` ÜRETİMDE ASLA açılmaz
+    expect(production).not.toContain('unsafe-eval')
+    // Geliştirme izinleri üretime sızmaz
+    expect(production).not.toContain('ws:')
   })
 
   it('temel güvenlik başlıkları tanımlı', () => {

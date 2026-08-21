@@ -1,44 +1,23 @@
 import type { NextConfig } from 'next'
+import { buildCsp } from './src/lib/security/csp'
 
 /**
  * GÜVENLİK HEADER'LARI (Mimari §11 · Faz 7 denetimi)
  *
- * ⚠️ CSP burada TANIMLIDIR. Faz 0'da "Faz 4'te eklenecek" notu bırakılmıştı ve
- * unutulmuştu; Faz 7 denetimi bunu yakaladı.
+ * ⚠️ CSP KURALLARI ARTIK BURADA DEĞİL: `src/lib/security/csp.ts` içinde SAF bir
+ * fonksiyondadır. Sebep o dosyanın başlığında yazılı — politika ortama göre
+ * değiştiği için "canlıda ne gönderilecek?" sorusu ancak saf fonksiyon test
+ * edilerek cevaplanabilir; yapılandırma dosyasının metnini taramak yetmez.
  */
-
-/** 3D Secure sayfaları sağlayıcı alan adında açılır — çerçeveye izin verilir. */
-const PAYMENT_FRAME_SRC = [
-  'https://*.iyzipay.com',
-  'https://*.iyzico.com',
-  'https://*.paytr.com',
-]
 
 /**
- * ⚠️ `script-src 'unsafe-inline'`: Next.js hidrasyon önyükleyicisini satır içi
- * script olarak yazar. Nonce tabanlı CSP, her isteği dinamik hâle getirip
- * statik/ISR önbelleğini devre dışı bırakır. Bu yüzden satır içi script'e izin
- * verilir ama `object-src 'none'`, `base-uri 'self'` ve `frame-ancestors 'none'`
- * ile saldırı yüzeyi daraltılır. XSS'e karşı asıl savunma React'in kaçışlaması
- * ve sunucu tarafı Zod doğrulamasıdır.
+ * ⚠️ GELİŞTİRME/ÜRETİM AYRIMI BURADA YAPILIR.
+ *
+ * `next dev` süreci `NODE_ENV=development`, `next build` ve `next start` ise
+ * `production` ile çalışır. Yani bu tek satır, `'unsafe-eval'` iznini yalnızca
+ * yerel geliştirmeye hapseder; üretim derlemesine ASLA giremez.
  */
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  // Görseller: kendi sunucumuz + data/blob (SVG ikonlar, önizleme)
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  // XHR yalnızca kendi API'mize; üçüncü parti analytics YOK.
-  "connect-src 'self'",
-  `frame-src 'self' ${PAYMENT_FRAME_SRC.join(' ')}`,
-  // Ödeme formu sağlayıcıya POST edilebilir.
-  `form-action 'self' ${PAYMENT_FRAME_SRC.join(' ')}`,
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  'upgrade-insecure-requests',
-].join('; ')
+const CSP = buildCsp({ dev: process.env.NODE_ENV !== 'production' })
 
 const securityHeaders = [
   { key: 'Content-Security-Policy', value: CSP },
