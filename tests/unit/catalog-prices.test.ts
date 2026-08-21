@@ -39,6 +39,12 @@ function tiersOf(v: VariantSeed): PricingTier[] {
   }))
 }
 
+/** "1.349,90 ₺" → 134990 kuruş. Brief metnini sayıya çevirir. */
+function parseTrl(display: string): number {
+  const digits = display.replace(/[^\d,]/g, '').replace(',', '.')
+  return Math.round(Number(digits) * 100)
+}
+
 /** Kırılmaz boşluğu normalleştirir — karşılaştırma görünen metne göre yapılır. */
 function displayPrice(amountMinor: number): string {
   return formatMinor(amountMinor).replace(/\u00a0/g, ' ')
@@ -219,7 +225,14 @@ describe('gerçek fiyat listesi — 63 fiyat noktası', () => {
 
       for (const [quantity, display] of c.expected) {
         it(`${quantity} → ${display}`, () => {
-          // ⚠️ Kuruşu kuruşuna: 1.349,89 / 1.349,91 / 1.350,00 KABUL EDİLMEZ
+          /**
+           * ⚠️ ORİJİNAL SIKILIĞA GERİ DÖNDÜ — hatta daha güçlü.
+           *
+           * Serbest miktara geçerken bir ara "türetme kuralı" doğrulanıyordu
+           * (çapada +0,10 ₺ sapma vardı). Çapa tavanı eklendikten sonra sapma
+           * SIFIR: müşteri çapa miktarında tam olarak katalog fiyatını ödüyor.
+           * Kuruşu kuruşuna: 1.349,89 / 1.349,91 / 1.350,00 KABUL EDİLMEZ.
+           */
           expect(displayPrice(priceOf(variant, quantity))).toBe(display)
         })
       }
@@ -278,23 +291,52 @@ describe('gerçek fiyat listesi — 63 fiyat noktası', () => {
 describe('hazır miktar kilidi', () => {
   const turk = variantOf('takipci', 'turk')
 
-  it('listede olmayan miktar REDDEDİLİR (7.342)', () => {
-    expect(() => priceOf(turk, 7_342)).toThrowError(
-      expect.objectContaining({ code: 'QUANTITY_NOT_ALLOWED' }),
+  it('⭐ listede olmayan miktar artık KABUL EDİLİR (7.342)', () => {
+    // Eskiden QUANTITY_NOT_ALLOWED fırlatıyordu. Serbest miktara geçildi:
+    // 7.342 → 5.000–9.999 bandı → 115 kr birim fiyat.
+    expect(priceOf(turk, 7_342)).toBe(115 * 7_342)
+  })
+
+  it('⭐ SERBEST MİKTAR — 501 artık KABUL EDİLİR', () => {
+    // Eskiden `QUANTITY_NOT_ALLOWED` fırlatıyordu (presetOnly). Katalog
+    // FLAT_TIER'a geçtiği için 500–999 bandının birim fiyatı uygulanır.
+    expect(priceOf(turk, 501)).toBe(140 * 501)
+    expect(priceOf(turk, 567)).toBe(140 * 567)
+    expect(priceOf(turk, 1_847)).toBe(135 * 1_847)
+    expect(priceOf(turk, 12_436)).toBe(100 * 12_436)
+  })
+
+  it('⚠️ min/max SINIRI DURUYOR — serbestlik sınırsızlık değildir', () => {
+    expect(() => priceOf(turk, turk.minQuantity - 1)).toThrowError(
+      expect.objectContaining({ code: 'BELOW_MINIMUM' }),
+    )
+    expect(() => priceOf(turk, turk.maxQuantity + 1)).toThrowError(
+      expect.objectContaining({ code: 'ABOVE_MAXIMUM' }),
     )
   })
 
-  it('hazır miktarın 1 fazlası bile reddedilir (501)', () => {
-    expect(() => priceOf(turk, 501)).toThrowError(
-      expect.objectContaining({ code: 'QUANTITY_NOT_ALLOWED' }),
-    )
-  })
-
-  it('tüm gerçek varyantlar hazır miktar kilitlidir', () => {
+  it('ölçülebilir varyantlar serbest, sabit paketler kilitli', () => {
     for (const service of SERVICES.instagram ?? []) {
       for (const v of service.variants) {
-        expect(v.presetOnly, `${service.slug}/${v.slug}`).toBe(true)
+        const isBundle = v.maxQuantity === 1
+        expect(v.presetOnly, `${service.slug}/${v.slug}`).toBe(isBundle)
         expect(v.presetQuantities.length).toBeGreaterThan(0)
+        // Kademe modu da buna uymalı — ikisi ayrışırsa fiyat sessizce bozulur.
+        for (const t of v.tiers) {
+          expect(t.mode, `${service.slug}/${v.slug}`).toBe(isBundle ? 'PACKAGE' : 'FLAT_TIER')
+        }
+      }
+    }
+  })
+
+  it('⚠️ birim fiyatlar miktar arttıkça ARTMAZ (eğri monoton)', () => {
+    for (const service of SERVICES.instagram ?? []) {
+      for (const v of service.variants) {
+        if (v.maxQuantity === 1) continue
+        const units = v.tiers.map((t) => t.unitPriceMinor)
+        for (let i = 1; i < units.length; i++) {
+          expect(units[i]!, `${service.slug}/${v.slug} kademe ${i}`).toBeLessThanOrEqual(units[i - 1]!)
+        }
       }
     }
   })
@@ -407,16 +449,28 @@ describe('KDV — fiyatlar KDV DAHİL, brütten ayrıştırılır', () => {
 })
 
 describe('gösterim yardımcıları', () => {
-  it('paket kademelerinde "…’den başlar" tutarı PAKET TOPLAMIDIR', () => {
+  it('⭐ ölçülebilir hizmette "…’den başlar" tutarı EN DÜŞÜK BİRİM FİYATTIR', () => {
+    // Serbest miktara geçildi: giriş fiyatı artık bir paket toplamı değil,
+    // eğrinin en ucuz birim fiyatı (1.000.000 bandı → 25 kr).
     const v = variantOf('takipci', 'yabanci')
-    const entry = entryPriceOf(tiersOf(v))
-    expect(entry).toEqual({ kind: 'package', amountMinor: 32_490, quantity: 500 })
+    expect(entryPriceOf(tiersOf(v))).toMatchObject({ kind: 'unit', amountMinor: 25 })
   })
 
-  it('listPriceAtQuantity katalogdaki fiyatı birebir döner', () => {
+  it('sabit paketlerde giriş fiyatı HÂLÂ paket toplamıdır', () => {
+    const kesfet = variantOf('kesfet-paketi', 'kesfet')
+    expect(entryPriceOf(tiersOf(kesfet))).toEqual({
+      kind: 'package',
+      amountMinor: 100_000,
+      quantity: 1,
+    })
+  })
+
+  it('⭐ listPriceAtQuantity her miktarda fiyat döner (artık null değil)', () => {
     const v = variantOf('begeni', 'turk')
-    expect(listPriceAtQuantity(tiersOf(v), 2_500)).toBe(79_990)
-    expect(listPriceAtQuantity(tiersOf(v), 2_501)).toBeNull()
+    // Çapa noktası: 799,90 ₺ / 2.500 = 31,996 kr → 32 kr
+    expect(listPriceAtQuantity(tiersOf(v), 2_500)).toBe(32 * 2_500)
+    // Eskiden null dönerdi; artık aynı bandın birim fiyatı uygulanır.
+    expect(listPriceAtQuantity(tiersOf(v), 2_501)).toBe(32 * 2_501)
   })
 })
 
@@ -487,14 +541,27 @@ describe('katalog bütünlüğü', () => {
     }
   })
 
-  it('tüm fiyat kademeleri PACKAGE modundadır ve pozitif fiyatlıdır', () => {
+  it('kademeler moduna uygun ve POZİTİF fiyatlıdır', () => {
     for (const s of SERVICES.instagram ?? []) {
       for (const v of s.variants) {
+        const isBundle = v.maxQuantity === 1
         for (const t of v.tiers) {
-          expect(t.mode).toBe('PACKAGE')
-          expect(t.packagePriceMinor).toBeGreaterThan(0)
-          expect(t.minQuantity).toBe(t.maxQuantity)
-          expect(t.unitPriceMinor).toBe(0)
+          if (isBundle) {
+            // Sabit paketler DEĞİŞMEDİ: tutar okunur, çarpılmaz.
+            expect(t.mode).toBe('PACKAGE')
+            expect(t.packagePriceMinor).toBeGreaterThan(0)
+            expect(t.minQuantity).toBe(t.maxQuantity)
+            expect(t.unitPriceMinor).toBe(0)
+          } else {
+            expect(t.mode).toBe('FLAT_TIER')
+            expect(t.unitPriceMinor).toBeGreaterThan(0)
+            // ⭐ `packagePriceMinor` artık ÇAPA TAVANI taşıyor (null DEĞİL).
+            //    Gerçek katalog fiyatının birebir korunmasını o sağlıyor.
+            expect(t.packagePriceMinor).toBe(t.sourcePackagePriceMinor)
+            expect(t.packagePriceMinor!).toBeGreaterThan(0)
+            // ⚠️ Band artık TEK miktara kilitli DEĞİL — aralık kapsar.
+            expect(t.maxQuantity === null || t.maxQuantity > t.minQuantity).toBe(true)
+          }
         }
       }
     }

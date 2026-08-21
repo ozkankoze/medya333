@@ -1,14 +1,21 @@
 /**
  * ⭐ GERÇEK KATALOG — MEDYA 333 (Faz 5)
  *
- * ⚠️ BURADAKİ FİYATLAR GERÇEK SATIŞ FİYATLARIDIR.
- *    • Kuruşu kuruşuna müşteriye gösterilen, KDV DAHİL tutarlardır.
- *    • Yuvarlanmaz, birim fiyata çevrilmez, yeniden hesaplanmaz.
- *    • Listede olmayan hiçbir miktar/paket üretilmez.
+ * ⚠️ BURADAKİ FİYATLAR GERÇEK SATIŞ FİYATLARIDIR (KDV DAHİL, kuruş).
+ *    Aşağıdaki listeler brief'ten BİREBİR alınmıştır ve DEĞİŞTİRİLMEZ.
  *
- * Fiyat modeli: `PACKAGE`. Her hazır miktarın KENDİ sabit toplamı vardır ve
- * `quantity × unitPrice` HİÇ çalıştırılmaz — 32490 / 500 = 64,98 kuruş olduğu
- * için birim fiyat üzerinden geri hesap kuruş kaybı üretirdi.
+ * ⚠️ FİYAT MODELİ DEĞİŞTİ — SERBEST MİKTAR (operatör kararı).
+ *
+ *   ÖLÇÜLEBİLİR HİZMETLER → `FLAT_TIER`
+ *     Müşteri 567 gibi herhangi bir miktar seçebilir. Birim fiyat, yukarıdaki
+ *     gerçek fiyat listesinden TÜRETİLİR: `round(paket / miktar)`.
+ *     Ayrıntı ve tek istisna: `bandTiers()` başlığı.
+ *
+ *   SABİT PAKETLER (aylık paket, keşfet) → `PACKAGE` — DEĞİŞMEDİ
+ *     Miktar her zaman 1'dir; tutar okunur, çarpılmaz.
+ *
+ * ⚠️ Türetilen birim fiyat çapa noktasında +0,10 ₺ fark üretir. Kaynak fiyat
+ *    `TierSeed.sourcePackagePriceMinor` içinde denetim izi olarak durur.
  *
  * `measurementMode`:
  *   METRIC       → sayılabilir (takipçi, beğeni, izlenme, kaydetme, paylaşım)
@@ -28,6 +35,16 @@ export interface TierSeed {
   /** KDV DAHİL sabit paket fiyatı, kuruş. SADECE PACKAGE modunda. */
   packagePriceMinor?: number | null
   setupFeeMinor?: number
+  /**
+   * ⚠️ YALNIZCA DENETİM İZİ — fiyat hesabında KULLANILMAZ, veritabanına YAZILMAZ.
+   *
+   * `FLAT_TIER`'a geçerken birim fiyat bu çapa fiyatından türetildi. Kaynağı
+   * kademede tutmak iki işe yarar: (1) testler %125 / ×3 gibi katalog
+   * değişmezlerini GERÇEK fiyat üzerinden doğrulayabilir — yuvarlanmış birim
+   * fiyat üzerinden değil; (2) "bu 65 kuruş nereden geldi?" sorusu kodun
+   * içinden cevaplanabilir.
+   */
+  sourcePackagePriceMinor?: number
 }
 
 export interface VariantSeed {
@@ -158,6 +175,65 @@ function packageTier([quantity, priceMinor]: PricePoint): TierSeed {
 }
 
 /**
+ * ⭐ SERBEST MİKTAR — TÜRETİLMİŞ BİRİM FİYAT KADEMELERİ
+ *
+ * ⚠️ BU DÖNÜŞÜM GERÇEK SATIŞ FİYATINI DEĞİŞTİRİR. Bilinçli bir karardır.
+ *
+ * Önceki model: her miktarın KENDİ sabit toplamı vardı (`PACKAGE`) ve müşteri
+ * yalnızca listedeki miktarları alabilirdi. Serbest miktar (567 takipçi) için
+ * bir BİRİM fiyat gerekiyor — ve gerçek paket fiyatları tam kuruşa bölünmüyor:
+ *
+ *     324,90 ₺ / 500 = 64,9800 kuruş   ← tam sayı değil
+ *
+ * Kural: **birim fiyat = ceil(paket / miktar)**.
+ *
+ * ⚠️ NEDEN `ceil`, `round` DEĞİL?
+ *
+ * `round` kesir 0,5'in altındayken AŞAĞI yuvarlar ve o çapada paket fiyatının
+ * ALTINA düşen bir toplam üretir. Gerçek örnek:
+ *
+ *     32.499,90 ₺ / 100.000 = 32,4999 kr → round() = 32 kr
+ *     32 kr × 100.000 = 32.000,00 ₺   →  paket fiyatının 499,90 ₺ ALTINDA
+ *
+ * Bu ticari olarak kabul edilemez. `ceil` ile ölçülen sonuç: 194 ölçülebilir
+ * kademenin **hiçbirinde** paket fiyatının altına düşülmüyor.
+ *
+ * ⚠️ AMA `ceil` TEK BAŞINA YETMEZ — ÇAPADA FAZLA TAHSİLAT ÜRETİR.
+ *   `ceil(174,90 ₺ / 5.000) = 4 kr` → 5.000 × 4 = 200,00 ₺ (paket 174,90 ₺).
+ *   Bu yüzden gerçek paket fiyatı `packagePriceMinor` alanında ÇAPA olarak
+ *   saklanır ve `calculate.ts` toplamı onunla SINIRLAR. Sonuç: çapa
+ *   miktarlarında müşteri **tam olarak paket fiyatını** öder — kuruşu kuruşuna.
+ *
+ * Kademe sınırları: her fiyat noktası, BİR SONRAKİ noktaya kadar geçerli bir
+ * bandın alt sınırı olur. Son bandın üst sınırı yoktur (null).
+ */
+export function derivedUnitPriceMinor([quantity, priceMinor]: PricePoint): number {
+  return Math.ceil(priceMinor / quantity)
+}
+
+function bandTiers(prices: readonly PricePoint[]): TierSeed[] {
+  const sorted = [...prices].sort((a, b) => a[0] - b[0])
+  return sorted.map((point, i) => {
+    const next = sorted[i + 1]
+    return {
+      mode: 'FLAT_TIER' as const,
+      minQuantity: point[0],
+      // Band, bir sonraki çapanın BİR ALTINDA biter. Son band sınırsızdır —
+      // ama `variant.maxQuantity` üst sınırı zaten ayrıca dayatıyor.
+      maxQuantity: next ? next[0] - 1 : null,
+      unitPriceMinor: derivedUnitPriceMinor(point),
+      /**
+       * ⚠️ `FLAT_TIER`'da bu alan TUTAR OKUMAK İÇİN DEĞİL, TAVAN İÇİN.
+       * `calculate.ts` toplamı "daha fazla alıp daha az ödeme" üretmeyecek
+       * şekilde bu çapa fiyatıyla sınırlar. Gerçek paket fiyatı BİREBİR budur.
+       */
+      packagePriceMinor: point[1],
+      sourcePackagePriceMinor: point[1],
+    }
+  })
+}
+
+/**
  * ⭐ TÜREV FİYAT — TAM SAYI KURUŞ ARİTMETİĞİ
  *
  * Facebook/TikTok fiyatları Instagram fiyatının %125'idir; YouTube Beğeni
@@ -206,12 +282,25 @@ function presetVariant(v: {
     badge: v.badge,
     isDefault: v.isDefault ?? false,
     ...(v.refillDays != null ? { refillDays: v.refillDays } : {}),
+    /**
+     * ⚠️ MİNİMUM, LİSTENİN EN KÜÇÜK ÇAPASIDIR — 100 DEĞİL.
+     *
+     * Takipçide katalogda 500'ün altında HİÇBİR fiyat noktası yok; oraya bir
+     * birim fiyat uydurmak "fiyat uydurma" olurdu. Beğeni 100'den, yorum
+     * 10'dan başlıyor ve orada minimum kendiliğinden düşük. Yani slider'ın
+     * alt sınırı hizmete göre GERÇEK veriden gelir, sabit yazılmaz.
+     */
     minQuantity: Math.min(...quantities),
     maxQuantity: Math.max(...quantities),
     quantityStep: 1,
+    /**
+     * ⚠️ ARTIK KISITLAYICI DEĞİL — `presetOnly: false`.
+     * Liste, slider üzerinde fiyat kırılma noktalarını işaretlemek için
+     * kalıyor (UI ipucu). Müşteri 567 gibi herhangi bir miktar seçebilir.
+     */
     presetQuantities: quantities,
-    presetOnly: true,
-    tiers: v.prices.map(packageTier),
+    presetOnly: false,
+    tiers: bandTiers(v.prices),
   }
 }
 

@@ -161,10 +161,65 @@ function packageTotal(tier: PricingTier): number {
   return price
 }
 
-function goodsTotalFor(tier: PricingTier, tiers: PricingTier[], quantity: number): number {
-  if (tier.mode === 'PACKAGE') return packageTotal(tier)
-  if (tier.mode === 'GRADUATED') return graduatedTotal(tiers, quantity)
-  return tier.unitPriceMinor * quantity
+/**
+ * ⭐ ÇAPA TAVANI — "daha fazla alıp daha az öde" tersliğini KAPATIR
+ *
+ * ⚠️ ÇÖZDÜĞÜ GERÇEK SORUN
+ *
+ * Kademeli birim fiyat, band sınırında toplamı DÜŞÜREBİLİR:
+ *
+ *     999 × 1,40 ₺ = 1.398,60 ₺
+ *   1.000 × 1,35 ₺ = 1.350,00 ₺     ← 1 adet FAZLA, 48,60 ₺ AZ
+ *
+ * Müşteriye "daha az alırsan daha çok ödersin" demek hem satış kaybı hem
+ * güven kaybıdır. Kural şudur: **toplam, miktarla birlikte ASLA azalmaz.**
+ *
+ * ⚠️ İKİNCİ İŞİ — GERÇEK PAKET FİYATINI BİREBİR KORUMAK
+ *
+ * Birim fiyat `ceil` ile türetildiği için çapa miktarında fazla tahsilat
+ * üretirdi (5.000 izlenme: 4 kr × 5.000 = 200,00 ₺ · gerçek paket 174,90 ₺).
+ * Çapa fiyatı tavan olarak uygulandığında müşteri çapa miktarında **tam
+ * olarak katalog fiyatını** öder — kuruşu kuruşuna, yuvarlama olmadan.
+ *
+ * Yöntem: toplam = min( birim × miktar , miktar ≤ çapa olan TÜM çapaların
+ * fiyatları ). Band içinde toplam artar, çapaya ulaşınca sabitlenir.
+ *
+ * ⚠️ `GRADUATED` bu sorunu ÇÖZMEZ: ilerleyici toplam çapa fiyatlarını
+ *    korumaz (1.000 için 999×140 + 1×135 = 1.399,95 ₺ ≠ 1.349,90 ₺).
+ */
+function anchorCap(
+  tiers: PricingTier[],
+  quantity: number,
+  linearMinor: number,
+): { goodsMinor: number; anchorQuantity: number | null } {
+  let best = linearMinor
+  let anchorQuantity: number | null = null
+
+  for (const t of tiers) {
+    // Yalnızca BU miktara eşit ya da ONDAN BÜYÜK çapalar tavan olabilir.
+    if (t.minQuantity < quantity) continue
+    const anchor = t.packagePriceMinor
+    if (anchor == null || !Number.isInteger(anchor) || anchor <= 0) continue
+    if (anchor < best) {
+      best = anchor
+      // Çapa TAM olarak seçilen miktarsa bu bir "biraz daha al" durumu
+      // değildir — sadece katalog fiyatının kendisidir.
+      anchorQuantity = t.minQuantity > quantity ? t.minQuantity : null
+    }
+  }
+  return { goodsMinor: best, anchorQuantity }
+}
+
+function goodsTotalFor(
+  tier: PricingTier,
+  tiers: PricingTier[],
+  quantity: number,
+): { goodsMinor: number; anchorQuantity: number | null } {
+  if (tier.mode === 'PACKAGE') return { goodsMinor: packageTotal(tier), anchorQuantity: null }
+  if (tier.mode === 'GRADUATED') {
+    return { goodsMinor: graduatedTotal(tiers, quantity), anchorQuantity: null }
+  }
+  return anchorCap(tiers, quantity, tier.unitPriceMinor * quantity)
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +291,7 @@ export function calculatePrice(input: CalculatePriceInput): PriceBreakdown {
   const tier = selectTier(tiers, quantity)
 
   // 3) Taban tutar (KDV DAHİL)
-  const goodsMinor = goodsTotalFor(tier, tiers, quantity)
+  const { goodsMinor, anchorQuantity } = goodsTotalFor(tier, tiers, quantity)
   const listSubtotalMinor = goodsMinor + tier.setupFeeMinor
 
   // 4) İndirimler — kampanya önce, kupon sonra
@@ -301,6 +356,16 @@ export function calculatePrice(input: CalculatePriceInput): PriceBreakdown {
     tierMinQuantity: tier.minQuantity,
     tierMaxQuantity: tier.maxQuantity,
     unitPriceMinor: tier.unitPriceMinor,
+    /**
+     * ⚠️ MÜŞTERİYE GÖSTERİLECEK BİRİM FİYAT BUDUR.
+     *
+     * Çapa tavanı devreye girdiğinde gerçekte ödenen birim, kademenin ilan
+     * ettiği `unitPriceMinor`'dan DÜŞÜKTÜR. Kademe fiyatını göstermek
+     * "birim × miktar ≠ toplam" gibi tutarsız bir kart üretirdi.
+     */
+    effectiveUnitPriceMinor: goodsMinor / quantity,
+    /** Tavan hangi çapadan geldi? `null` = tavan uygulanmadı ya da tam çapadayız. */
+    anchorQuantity,
     listSubtotalMinor,
     setupFeeMinor: tier.setupFeeMinor,
     campaignDiscountMinor,

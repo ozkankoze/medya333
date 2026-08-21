@@ -95,6 +95,19 @@ export interface PriceBreakdown {
   tierMinQuantity: number
   tierMaxQuantity: number | null
   unitPriceMinor: number
+  /**
+   * Gerçekte ödenen birim fiyat (kuruş, KESİRLİ olabilir).
+   *
+   * ⚠️ MÜŞTERİYE GÖSTERİLECEK OLAN BUDUR. Çapa tavanı devreye girdiğinde
+   *    kademenin ilan ettiği `unitPriceMinor`'dan küçüktür; kademe fiyatını
+   *    göstermek "birim × miktar ≠ toplam" gibi tutarsız bir kart üretirdi.
+   */
+  effectiveUnitPriceMinor: number
+  /**
+   * Tavanı sağlayan çapa miktarı. `null` = tavan uygulanmadı ya da müşteri
+   * zaten tam çapadadır. Dolu ise UI "X adede kadar aynı fiyat" diyebilir.
+   */
+  anchorQuantity: number | null
 
   listSubtotalMinor: number
   setupFeeMinor: number
