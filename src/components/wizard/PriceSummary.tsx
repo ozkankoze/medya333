@@ -103,8 +103,18 @@ export function PriceSummaryCard({
   const eta = formatDuration(etaMinutes)
 
   return (
-    <div className="rounded-[--radius-card] border border-ink-200 bg-white p-6 shadow-[--shadow-card]">
-      <h3 className="text-caption font-semibold uppercase tracking-wide text-ink-500">
+    /**
+     * ⚠️ CHECKOUT KARTI — sayfanın en ağır görsel elemanı OLMALIDIR.
+     * Diğer kartlarla aynı gölgeyi paylaşırsa "bir kutu daha" gibi okunur ve
+     * kullanıcı ödeme noktasını kaybeder.
+     */
+    <div className="relative overflow-hidden rounded-[--radius-card] border border-ink-200 bg-white p-5 shadow-[--shadow-checkout] sm:p-6">
+      {/* Altın hairline — markanın tek görsel imzası, 1px */}
+      <span
+        className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-gold-500/70 to-transparent"
+        aria-hidden
+      />
+      <h3 className="text-caption font-semibold uppercase tracking-wider text-ink-500">
         Sipariş Özeti
       </h3>
 
@@ -118,10 +128,14 @@ export function PriceSummaryCard({
 
           <div className="flex items-end justify-between gap-3" aria-live="polite">
             <div>
-              <p className="text-small text-ink-600">{indicative ? 'Başlangıç fiyatı' : 'Toplam'}</p>
+              <p className="text-small font-medium text-ink-700">
+                {indicative ? 'Başlangıç fiyatı' : 'Toplam'}
+              </p>
               <p className="text-caption text-ink-400">KDV dahil</p>
             </div>
-            <p className="tabular text-h1 leading-none text-ink-900">
+            {/* ⚠️ `tabular` şart: slider sürüklenirken rakam genişliği
+                değişirse tutar sağa sola zıplar ve ucuz görünür. */}
+            <p className="tabular text-h1 leading-none text-ink-950">
               {formatMinor(breakdown.totalMinor)}
             </p>
           </div>
@@ -172,7 +186,14 @@ export function MobilePriceBar({
   hint?: string | null
 }) {
   return (
-    <div className="sticky-price-bar fixed inset-x-0 bottom-0 z-40 border-t border-ink-200 bg-white/95 px-4 pt-3 backdrop-blur-md lg:hidden">
+    /**
+     * ⚠️ ÇUBUK TAM OPAK. Önceden `bg-white/95 + backdrop-blur` idi; blur
+     * uygulanmayan/kapatılmış ortamlarda (bazı Android WebView'ları, "azaltılmış
+     * saydamlık" ayarı, ekran görüntüsü boru hatları) arkadaki metin çubuğun
+     * içinden okunuyor ve TUTARIN ÜSTÜNE biniyordu. Ödeme tutarının okunurluğu
+     * cam efektinden önce gelir.
+     */
+    <div className="sticky-price-bar fixed inset-x-0 bottom-0 z-40 border-t border-ink-200 bg-white px-4 pt-3 shadow-[--shadow-checkout] lg:hidden">
       <div className="mx-auto flex max-w-2xl items-center gap-3">
         <div className="min-w-0 flex-1" aria-live="polite">
           <p className="text-caption text-ink-500">
@@ -186,8 +207,10 @@ export function MobilePriceBar({
           {continueLabel}
         </Button>
       </div>
+      {/* ⚠️ İpucu FİYATIN ALTINDA ayrı satırda — çubuğun içinde sıkışıp
+          tutarın üstüne binmemesi için `mt-2` ve kendi satırı var. */}
       {disabled && hint && (
-        <p className="mx-auto mt-1.5 max-w-2xl text-caption text-ink-500">{hint}</p>
+        <p className="mx-auto mt-2 max-w-2xl text-caption leading-snug text-ink-500">{hint}</p>
       )}
     </div>
   )

@@ -32,44 +32,67 @@ export default async function HomePage() {
   return (
     <>
       {/* ================================ HERO ================================= */}
-      <section className="mx-auto max-w-6xl px-5 pt-14 pb-10 sm:pt-20 sm:pb-14">
-        <div className="flex flex-col gap-6">
-          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-ink-200 bg-white px-3.5 py-1.5 text-caption font-medium text-ink-600">
-            <span className="size-1.5 rounded-full bg-success-600" aria-hidden />
-            Gerçek kullanıcılar · Bot ve sahte hesap yok
-          </span>
+      {/**
+       * ⚠️ HERO KOYU BİR BANT — başlık ve alt bilgiyle aynı yüzey. Sayfa
+       * "koyu çerçeve / açık çalışma alanı" ritmine oturur: marka anları
+       * (logo, vaat, CTA) koyuda parlar, sipariş sihirbazı ise açık ve
+       * sakin zeminde kalır. Ödeme yapılan yer asla koyulaştırılmaz.
+       *
+       * ⚠️ ALTIN YÜZEY OLARAK KULLANILMAZ. Geniş altın alan logodaki değeri
+       * ucuzlatır. Altın burada üç yerde ve toplam birkaç pikseldir:
+       * hairline, rozet noktası ve CTA gradyanı.
+       */}
+      <section className="relative overflow-hidden bg-ink-975">
+        {/* Sol üstten gelen çok yumuşak sıcak ışık — logonun stüdyo aydınlatması */}
+        <span
+          className="pointer-events-none absolute -left-40 -top-52 size-[36rem] rounded-full bg-gold-500/[0.07] blur-3xl"
+          aria-hidden
+        />
+        <div className="relative mx-auto max-w-6xl px-5 pt-16 pb-16 sm:pt-24 sm:pb-20">
+          <div className="flex flex-col gap-6">
+            <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-caption font-medium text-white/75 backdrop-blur-sm">
+              <span className="size-1.5 rounded-full bg-gold-400" aria-hidden />
+              Gerçek kullanıcılar · Bot ve sahte hesap yok
+            </span>
 
-          <h1 className="max-w-3xl text-balance text-h1 text-ink-900 sm:text-display">
-            Sosyal Medyanızı Büyütün
-          </h1>
+            <h1 className="max-w-3xl text-balance text-h1 text-white sm:text-display">
+              Sosyal Medyada Fark Yaratın
+            </h1>
 
-          <p className="max-w-xl text-pretty text-lg leading-relaxed text-ink-600">
-            {platformSentence ? `${platformSentence} hesaplarınız için ` : ''}gerçek kullanıcılarla
-            yürütülen tanıtım hizmetleri. Hazır paketlerden birini seçin, KDV dahil net fiyatı
-            anında görün, siparişinizi adım adım takip edin.
-          </p>
+            <p className="max-w-xl text-pretty text-lg leading-relaxed text-white/65">
+              {platformSentence ? `${platformSentence} hesaplarınız için ` : ''}gerçek
+              kullanıcılarla yürütülen tanıtım hizmetleri. İhtiyacınız kadar miktar belirleyin,
+              KDV dahil net fiyatı anında görün, siparişinizi adım adım takip edin.
+            </p>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Link href="#siparis" className={buttonVariants({ size: 'lg' })}>
-              Şimdi Başla
-            </Link>
-            <Link
-              href="#hizmetler"
-              className={buttonVariants({ variant: 'secondary', size: 'lg' })}
-            >
-              Hizmetleri İncele
-            </Link>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Link href="#siparis" className={buttonVariants({ size: 'lg' })}>
+                Şimdi Başla
+              </Link>
+              <Link
+                href="#hizmetler"
+                className={buttonVariants({ variant: 'onDark', size: 'lg' })}
+              >
+                Hizmetleri İncele
+              </Link>
+            </div>
+
+            {/* ⚠️ SAHTE SOSYAL KANIT YOK.
+                Bu sayılar KATALOGDAN türetilir — "10.000+ mutlu müşteri" gibi
+                doğrulanamayan iddialar bilinçli olarak kullanılmaz. */}
+            <dl className="mt-4 flex flex-wrap gap-x-10 gap-y-4 border-t border-white/10 pt-6">
+              <Stat value={String(platformCount)} label="Platform" />
+              <Stat value={String(serviceCount)} label="Hizmet" />
+              <Stat value="KDV dahil" label="Tüm fiyatlar" />
+            </dl>
           </div>
-
-          {/* ⚠️ SAHTE SOSYAL KANIT YOK.
-              Bu sayılar KATALOGDAN türetilir — "10.000+ mutlu müşteri" gibi
-              doğrulanamayan iddialar bilinçli olarak kullanılmaz. */}
-          <dl className="mt-2 flex flex-wrap gap-x-10 gap-y-4">
-            <Stat value={String(platformCount)} label="Platform" />
-            <Stat value={String(serviceCount)} label="Hizmet" />
-            <Stat value="KDV dahil" label="Tüm fiyatlar" />
-          </dl>
         </div>
+
+        {/* Koyu bandı açık gövdeden ayıran altın hairline */}
+        <span
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-gold-500/50 to-transparent"
+          aria-hidden
+        />
       </section>
 
       {/* ============================= HİZMET KEŞFİ ============================ */}
@@ -85,8 +108,10 @@ export default async function HomePage() {
                 Hizmetler
               </h2>
               <p className="mt-2 max-w-xl text-small leading-relaxed text-ink-600">
-                Platformu açın, hizmeti seçin — sipariş sihirbazı doğru adımdan başlar.
-                Fiyatlar hazır paketler hâlindedir; ara miktar yoktur.
+                {/* ⚠️ Bu cümle önce "ara miktar yoktur" diyordu; serbest miktar
+                    slider'ı geldikten sonra ÜRÜNÜ YANLIŞ anlatıyordu. */}
+                Platformu açın, hizmeti seçin — sipariş sihirbazı doğru adımdan başlar. Miktarı
+                sipariş adımında serbestçe belirlersiniz; birim fiyat miktara göre kademelenir.
               </p>
             </div>
             <Link href="#siparis" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
@@ -126,7 +151,7 @@ export default async function HomePage() {
           <div className="grid gap-10 sm:grid-cols-3">
             <Trust
               title="Gerçek kullanıcılar"
-              body="Tüm hizmetler gerçek kişiler tarafından manuel olarak gerçekleştirilir. Bot, sahte hesap veya otomatik etkileşim sistemi kullanılmaz."
+              body="İşlem yapan hesaplar, gerçek kişilerin oluşturdukları hesaplardır."
             />
             <Trust
               title="Şeffaf fiyatlandırma"
@@ -160,8 +185,9 @@ function Stat({ value, label }: { value: string; label: string }) {
   return (
     <div>
       <dt className="sr-only">{label}</dt>
-      <dd className="tabular text-h2 leading-none text-ink-900">{value}</dd>
-      <dd className="mt-1 text-caption text-ink-500">{label}</dd>
+      {/* ⚠️ Koyu hero bandının içinde — renkler ink-* DEĞİL beyaz opaklığı. */}
+      <dd className="tabular text-h2 leading-none text-white">{value}</dd>
+      <dd className="mt-1 text-caption uppercase tracking-wider text-white/45">{label}</dd>
     </div>
   )
 }

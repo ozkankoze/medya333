@@ -140,12 +140,26 @@ function TargetCardBody({
   const showPost = Boolean(data.thumbnailUrl) && !postBroken
 
   return (
+    /**
+     * ⚠️ RENKLİ KUTU DEĞİL. Önceden doğrulanmış hedef yeşil, doğrulanmamış
+     * sarı bir kutuydu; ikisi de "uyarı" gibi okunuyordu ve premium bir
+     * önizleme kartına benzemiyordu. Artık yüzey NÖTR, durum yalnızca
+     * rozette ve ince bir sol kenarda taşınıyor.
+     */
     <Card
       className={cn(
-        'p-4',
-        isVerified ? 'border-success-600/30 bg-success-100/25' : 'border-warning-600/30 bg-warning-100/25',
+        'relative overflow-hidden p-4 sm:p-5',
+        'transition-shadow duration-[--duration-base] hover:shadow-[--shadow-hover]',
+        isVerified ? 'border-ink-200' : 'border-ink-200',
       )}
     >
+      <span
+        className={cn(
+          'absolute inset-y-0 left-0 w-[3px]',
+          isVerified ? 'bg-success-600' : 'bg-warning-600',
+        )}
+        aria-hidden
+      />
       <div className="flex items-start gap-3.5">
         {/* Avatar yalnızca doğrulanmış hedefte gelir; yoksa platform markası
             gösterilir — baş harf monogramı "ucuz panel" hissi veriyordu.
@@ -155,7 +169,11 @@ function TargetCardBody({
             adres hem süresi dolunca kırılır hem müşteri IP'sini Meta'ya
             sızdırırdı. */}
         <div
-          className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-[--shadow-card] sm:size-20"
+          className={cn(
+            'relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white sm:size-20',
+            'shadow-[--shadow-card] ring-1 ring-ink-200',
+            isVerified && 'ring-2 ring-success-600/25',
+          )}
           aria-hidden
         >
           {showAvatar ? (
@@ -183,7 +201,7 @@ function TargetCardBody({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-body font-semibold text-ink-900">
+            <span className="truncate text-h3 leading-tight text-ink-950">
               {data.displayName ?? (data.handle ? `@${data.handle}` : data.normalized)}
             </span>
             {isVerified ? (
@@ -203,8 +221,11 @@ function TargetCardBody({
           </p>
 
           {typeof data.followerCount === 'number' && (
-            <p className="mt-1 text-small text-ink-700">
-              <span className="tabular font-medium">{formatQuantity(data.followerCount)}</span> takipçi
+            <p className="mt-2 inline-flex items-baseline gap-1.5 rounded-full bg-ink-50 px-2.5 py-1">
+              <span className="tabular text-small font-semibold text-ink-950">
+                {formatQuantity(data.followerCount)}
+              </span>
+              <span className="text-caption text-ink-500">takipçi</span>
             </p>
           )}
 

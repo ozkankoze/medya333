@@ -49,11 +49,17 @@ export const SelectableCard = React.forwardRef<HTMLButtonElement, SelectableCard
       aria-pressed={selected}
       className={cn(
         'group relative flex w-full flex-col items-start gap-1 rounded-[--radius-card] border bg-white p-4 text-left',
-        'transition-[transform,border-color,box-shadow] duration-[--duration-fast] ease-[--ease-out-soft]',
-        'hover:-translate-y-0.5 hover:shadow-[--shadow-lifted]',
+        'transition-[transform,border-color,box-shadow] duration-[--duration-base] ease-[--ease-out-soft]',
+        'hover:-translate-y-0.5 hover:border-ink-300 hover:shadow-[--shadow-hover]',
+        'active:translate-y-0 active:duration-[--duration-fast]',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+        /**
+         * ⚠️ SEÇİLİ DURUM RENKTEN İBARET DEĞİLDİR. `ring-2` + hafif marka
+         * zemini, seçimi renk körlüğünde ve düşük kontrastlı ekranlarda da
+         * ayırt edilebilir kılar; tek başına kenarlık rengi yetersizdi.
+         */
         selected
-          ? 'border-brand-500 ring-1 ring-brand-500 shadow-[--shadow-lifted]'
+          ? 'border-brand-500 bg-brand-50/40 ring-2 ring-brand-500/25 shadow-[--shadow-hover]'
           : 'border-ink-200 shadow-[--shadow-card]',
         className,
       )}

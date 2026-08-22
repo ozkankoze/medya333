@@ -10,8 +10,9 @@ import { Logo } from '@/components/brand/Logo'
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex max-w-md flex-col px-5 py-16">
+      {/* ⚠️ `plate` şart: altın logo açık zeminde okunmaz (bkz. Logo.tsx). */}
       <div className="mb-6 flex justify-center">
-        <Logo />
+        <Logo plate />
       </div>
 
       <div className="rounded-[--radius-card] border border-ink-200 bg-white p-7 shadow-[--shadow-card]">

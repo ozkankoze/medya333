@@ -469,13 +469,13 @@ export function OrderWizard({
           kaydırma üretiyordu. */}
         <div className="flex min-w-0 flex-col gap-10">
         <section aria-labelledby="step-platform" className="scroll-mt-20">
-          <StepHeading id="step-platform" step={1} title="Platform seçin" done={Boolean(platform)} />
+          <StepHeading id="step-platform" step={1} title="Platform seçin" done={Boolean(platform)} active={!platform} />
           <StepPlatform platforms={catalog.platforms} value={platformSlug} onChange={selectPlatform} />
         </section>
 
         {platform && (
           <section ref={serviceRef} aria-labelledby="step-service" className="animate-in scroll-mt-20">
-            <StepHeading id="step-service" step={2} title="Hizmet seçin" done={Boolean(service)} />
+            <StepHeading id="step-service" step={2} title="Hizmet seçin" done={Boolean(service)} active={Boolean(platform) && !service} />
             <StepService services={platform.services} value={serviceId} onChange={selectService} />
 
             {/* Tek varyant varsa seçici HİÇ gösterilmez */}
@@ -495,7 +495,7 @@ export function OrderWizard({
 
         {service && platform && (
           <section ref={targetRef} aria-labelledby="step-target" className="animate-in scroll-mt-20">
-            <StepHeading id="step-target" step={3} title="Hedefinizi girin" done={targetReady} />
+            <StepHeading id="step-target" step={3} title="Hedefinizi girin" done={targetReady} active={Boolean(service) && !targetReady} />
             <StepTarget
               service={service}
               platform={platform}
@@ -523,7 +523,7 @@ export function OrderWizard({
             Platform → Hizmet → Hedef → Doğrulama → Miktar → Fiyat */}
         {variant && service && quantity != null && targetReady && (
           <section ref={quantityRef} aria-labelledby="step-quantity" className="animate-in scroll-mt-20">
-            <StepHeading id="step-quantity" step={4} title="Miktar belirleyin" done={Boolean(breakdown)} />
+            <StepHeading id="step-quantity" step={4} title="Miktar belirleyin" done={Boolean(breakdown)} active={targetReady} />
             <StepQuantity
               variant={variant}
               value={quantity}
@@ -541,7 +541,7 @@ export function OrderWizard({
 
         {breakdown && service && platform && variant && targetReady && (
           <section aria-labelledby="step-review" className="animate-in scroll-mt-20">
-            <StepHeading id="step-review" step={5} title="Sipariş özeti" />
+            <StepHeading id="step-review" step={5} title="Sipariş özeti" active />
             <div className="rounded-[--radius-card] border border-ink-200 bg-white p-6 shadow-[--shadow-card]">
               <div className="flex items-center gap-3 pb-4">
                 <PlatformTile

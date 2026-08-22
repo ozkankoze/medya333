@@ -10,6 +10,7 @@
   /* --- Renk: nötr taban + TEK marka aksanı ---------------------------- */
   --color-ink-50: oklch(0.985 0 0);
   --color-ink-100: oklch(0.967 0.001 286);
+  --color-ink-150: oklch(0.945 0.002 286);
   --color-ink-200: oklch(0.92 0.004 286);
   --color-ink-300: oklch(0.871 0.006 286);
   --color-ink-400: oklch(0.705 0.015 286);
@@ -19,22 +20,54 @@
   --color-ink-800: oklch(0.274 0.006 286);
   --color-ink-900: oklch(0.21 0.006 286);
   --color-ink-950: oklch(0.141 0.005 286);
+  /* Koyu yüzeyler (başlık, hero bandı, alt bilgi) — logonun zeminiyle aynı */
+  --color-ink-975: oklch(0.1 0.004 286);
 
-  /* Marka aksanı — derin indigo. Güven veren, "ucuz panel" olmayan ton. */
-  --color-brand-50: oklch(0.97 0.014 265);
-  --color-brand-100: oklch(0.93 0.032 265);
-  --color-brand-300: oklch(0.79 0.09 265);
-  --color-brand-500: oklch(0.58 0.19 265);
-  --color-brand-600: oklch(0.51 0.2 265);
-  --color-brand-700: oklch(0.44 0.18 265);
-  --color-brand-900: oklch(0.3 0.12 265);
+  /* --- MARKA AKSANI: ALTIN ---------------------------------------------
+     ⚠️ Eskiden derin indigoydu; logo altın olduğu için marka rampası da
+     altına taşındı. Böylece koddaki 100'den fazla `brand-*` kullanımı tek
+     yerden döner ve hiçbir yer "eski mavi" kalmaz.
+
+     ⚠️ RAMPADA KONTRAST KURALI VARDIR — değiştirirken bozmayın:
+       · 50/100/300 → YÜZEY (üstüne koyu metin gelir)
+       · 500        → KENARLIK / RING / NOKTA (beyaz üstünde görünür)
+       · 600/700    → METİN ve DOLU DÜĞME ZEMİNİ. Beyaz üstünde ≥4.5:1
+                      okunur, üstüne beyaz metin geldiğinde de ≥4.5:1.
+                      Bu yüzden 600 "parlak altın" DEĞİL, koyu antik
+                      altındır. Parlak metalik için `gold-*` kullanın. */
+  --color-brand-50: oklch(0.976 0.018 88);
+  --color-brand-100: oklch(0.945 0.042 87);
+  --color-brand-300: oklch(0.855 0.085 84);
+  --color-brand-500: oklch(0.705 0.115 80);
+  --color-brand-600: oklch(0.48 0.095 74);
+  --color-brand-700: oklch(0.415 0.085 72);
+  --color-brand-900: oklch(0.3 0.06 70);
+
+  /* --- ALTIN: PARLAK METALİK -------------------------------------------
+     Logodaki metalik altın. Marka anlarında kullanılır: logo, ayraç
+     hairline'ları, koyu zemindeki CTA gradyanı, slider tutamağı.
+
+     ⚠️ AÇIK ZEMİNDE METİN RENGİ OLARAK KULLANMAYIN — 500 ve üstü beyaz
+     üstünde 3:1'in altında kalır. Açık zeminde yazı için `brand-600/700`. */
+  --color-gold-50: oklch(0.985 0.012 92);
+  --color-gold-100: oklch(0.962 0.032 90);
+  --color-gold-200: oklch(0.925 0.055 88);
+  --color-gold-300: oklch(0.875 0.085 86);
+  --color-gold-400: oklch(0.825 0.105 84);
+  --color-gold-500: oklch(0.775 0.12 82);
+  --color-gold-600: oklch(0.7 0.12 79);
+  --color-gold-700: oklch(0.56 0.1 75);
+  --color-gold-800: oklch(0.45 0.085 72);
 
   --color-success-100: oklch(0.94 0.05 155);
   --color-success-600: oklch(0.55 0.14 155);
   --color-success-700: oklch(0.47 0.13 155);
-  --color-warning-100: oklch(0.95 0.06 85);
-  --color-warning-600: oklch(0.63 0.14 75);
-  --color-warning-700: oklch(0.52 0.13 70);
+  /* ⚠️ UYARI TONU MARKA ALTININDAN AYRIŞTIRILDI. Marka altına döndükten
+     sonra "Doğrulanamadı" rozeti marka rengiyle aynı okunuyordu; uyarı
+     bilinçli olarak kehribar/turuncuya (hue 62) kaydırıldı. */
+  --color-warning-100: oklch(0.95 0.055 68);
+  --color-warning-600: oklch(0.62 0.155 58);
+  --color-warning-700: oklch(0.5 0.145 52);
   --color-danger-100: oklch(0.94 0.04 25);
   --color-danger-600: oklch(0.58 0.2 25);
   --color-danger-700: oklch(0.5 0.19 25);
@@ -44,6 +77,13 @@
     'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
     sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+
+  /* Miktar/fiyat gibi BÜYÜK RAKAMLAR için — başlıktan ayrı ölçek.
+     Sıkı letter-spacing + tabular rakamlar, sürüklerken zıplamayı önler. */
+  --text-metric: 3rem;
+  --text-metric--line-height: 1;
+  --text-metric--letter-spacing: -0.035em;
+  --text-metric--font-weight: 650;
 
   --text-display: 3.75rem;
   --text-display--line-height: 1.05;
@@ -79,6 +119,10 @@
   --radius-control: 0.625rem;
 
   --shadow-card: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.06);
+  /* Kart hover'ı — yükselme hissi, ağırlık değil */
+  --shadow-hover: 0 8px 20px -6px rgb(16 24 40 / 0.1), 0 2px 6px -2px rgb(16 24 40 / 0.05);
+  /* Checkout kartı: biraz daha belirgin, hâlâ yumuşak */
+  --shadow-checkout: 0 12px 32px -12px rgb(16 24 40 / 0.14), 0 2px 8px -3px rgb(16 24 40 / 0.06);
   --shadow-lifted: 0 4px 8px -2px rgb(16 24 40 / 0.06), 0 2px 4px -2px rgb(16 24 40 / 0.04);
   --shadow-drawer: 0 20px 40px -12px rgb(16 24 40 / 0.18);
 
@@ -112,9 +156,11 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* Erişilebilirlik: görünür focus ring — asla kaldırılmaz */
+  /* Erişilebilirlik: görünür focus ring — asla kaldırılmaz.
+     ⚠️ brand-500 DEĞİL brand-600: parlak altın halka beyaz zeminde 3:1'in
+     altında kalıyor ve klavye kullanıcısı odağı kaybediyordu. */
   :focus-visible {
-    outline: 2px solid var(--color-brand-500);
+    outline: 2px solid var(--color-brand-600);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -176,14 +222,25 @@
     height: 0.5rem;
   }
 
+  /**
+   * ⚠️ TUTAMAK RENGİ BURADA TANIMLANIR, Tailwind SINIFIYLA DEĞİL.
+   *
+   * Bu blok `@layer utilities` içinde ve Tailwind'in kendi utility'lerinden
+   * SONRA geliyor; aynı katmanda sonra gelen kazandığı için, bileşende
+   * yazılan `[&::-webkit-slider-thumb]:bg-…` sınıfı buradaki `background`
+   * kısayolu tarafından eziliyordu ve tutamak beyaz kalıyordu. Metalik
+   * gradyan bu yüzden doğrudan buraya yazıldı.
+   */
   input[type='range']::-webkit-slider-thumb {
     appearance: none;
     width: 1.375rem;
     height: 1.375rem;
     border-radius: 9999px;
-    background: #fff;
-    border: 2px solid var(--color-brand-600);
-    box-shadow: var(--shadow-card);
+    background: linear-gradient(180deg, var(--color-gold-300), var(--color-gold-600));
+    border: 2px solid #fff;
+    box-shadow:
+      0 1px 4px rgb(16 24 40 / 0.3),
+      0 0 0 1px var(--color-gold-700);
     cursor: grab;
     transition: transform var(--duration-fast) var(--ease-out-soft);
   }
@@ -197,8 +254,11 @@
     width: 1.375rem;
     height: 1.375rem;
     border-radius: 9999px;
-    background: #fff;
-    border: 2px solid var(--color-brand-600);
+    background: linear-gradient(180deg, var(--color-gold-300), var(--color-gold-600));
+    border: 2px solid #fff;
+    box-shadow:
+      0 1px 4px rgb(16 24 40 / 0.3),
+      0 0 0 1px var(--color-gold-700);
     cursor: grab;
   }
 
