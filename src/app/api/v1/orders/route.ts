@@ -114,6 +114,8 @@ export async function POST(req: NextRequest) {
           currency: result.order.currency,
           trackingToken: null,
           reused: true,
+          // Tekrarlı istekte yeni e-posta gönderilmez; iddia da edilmez.
+          emailSent: false,
         },
         { status: 200, headers: { 'Cache-Control': 'no-store' } },
       )
@@ -149,6 +151,8 @@ export async function POST(req: NextRequest) {
         /** Başarı ekranındaki "Siparişimi Görüntüle" linki için — tek seferlik döner */
         trackingToken: result.accessToken,
         reused: false,
+        /** ⚠️ Başarı ekranı e-posta iddiasını BUNA göre kurar. */
+        emailSent: result.emailSent,
       },
       { status: 201, headers: { 'Cache-Control': 'no-store' } },
     )

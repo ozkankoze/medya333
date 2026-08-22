@@ -369,6 +369,7 @@ export function OrderWizard({
         orderNo?: string
         totalMinor?: number
         trackingToken?: string | null
+        emailSent?: boolean
         error?: { code: string; message: string }
       }
 
@@ -385,6 +386,8 @@ export function OrderWizard({
         trackingToken: json.trackingToken ?? null,
         email: customer.email.trim().toLowerCase(),
         summary: `${platform.name} · ${service.name} — ${withUnit(breakdown.quantity, service.unitLabel)}`,
+        // ⚠️ Varsayılan FALSE. Alan gelmiyorsa "gönderildi" İDDİA EDİLMEZ.
+        emailSent: json.emailSent === true,
       }
 
       // ⚠️ Takip token'ı URL'e KOYULMAZ — tarayıcı geçmişine, sunucu erişim

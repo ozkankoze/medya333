@@ -1,5 +1,6 @@
 import { FulfillmentProgress } from '@/components/orders/FulfillmentProgress'
 import { PayButton } from '@/components/payments/PayButton'
+import { WhatsappPayButton, manualPaymentNumber } from '@/components/payments/WhatsappPayButton'
 import { Money } from '@/components/primitives/Money'
 import { StatusBadge } from '@/components/primitives/StatusBadge'
 import { formatMinor } from '@/lib/money'
@@ -61,7 +62,12 @@ export function OrderView({
               hiçbir işlem başlatılmamıştır.
             </p>
             <div className="mt-4">
-              <PayButton orderNo={order.orderNo} trackingToken={trackingToken ?? null} />
+              {/* ⚠️ Manuel ödeme açıkken sağlayıcıya gidilmez (bkz. WhatsappPayButton). */}
+              {manualPaymentNumber() !== null ? (
+                <WhatsappPayButton orderNo={order.orderNo} />
+              ) : (
+                <PayButton orderNo={order.orderNo} trackingToken={trackingToken ?? null} />
+              )}
             </div>
           </div>
         )}

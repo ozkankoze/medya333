@@ -12,6 +12,8 @@ export interface CreatedOrderPayload {
   trackingToken: string | null
   email: string
   summary: string
+  /** ⚠️ Sunucu e-postayı GERÇEKTEN gönderebildi mi? Ekran iddiasını buna kurar. */
+  emailSent?: boolean
 }
 
 export function OrderCreatedScreen() {
@@ -49,6 +51,7 @@ export function OrderCreatedScreen() {
       trackingToken={data.trackingToken}
       email={data.email}
       summary={data.summary}
+      emailSent={data.emailSent ?? false}
       onNewOrder={() => {
         try {
           sessionStorage.removeItem(ORDER_CREATED_STORAGE_KEY)

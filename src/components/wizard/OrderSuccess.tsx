@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { PayButton } from '@/components/payments/PayButton'
+import { WhatsappPayButton, manualPaymentNumber } from '@/components/payments/WhatsappPayButton'
 import { Money } from '@/components/primitives/Money'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +26,7 @@ export function OrderSuccess({
   trackingToken,
   email,
   summary,
+  emailSent = false,
   onNewOrder,
 }: {
   orderNo: string
@@ -32,8 +34,15 @@ export function OrderSuccess({
   trackingToken: string | null
   email: string
   summary: string
+  /** Sunucu e-postayı GERÇEKTEN gönderebildi mi? */
+  emailSent?: boolean
   onNewOrder: () => void
 }) {
+  /**
+   * ⚠️ Manuel ödeme açıkken sağlayıcıya HİÇ gidilmez. Bu bir "ödeme yöntemi"
+   * değil, ödeme sağlayıcısı bağlanana kadarki geçici köprüdür.
+   */
+  const manual = manualPaymentNumber() !== null
   const [copied, setCopied] = useState(false)
 
   const trackHref = trackingToken
@@ -90,12 +99,24 @@ export function OrderSuccess({
             />
             Durum: Ödeme bekleniyor
           </p>
+          {/**
+            * ⚠️ MANUEL AKIŞTA "OTOMATİK" DENMEZ. Sağlayıcı bağlıyken ödeme
+            * webhook'la doğrulanıp sipariş kendiliğinden ilerler; WhatsApp
+            * akışında ise siparişi ödemeye çeviren tek şey operatörün elle
+            * onayıdır. İki durumda aynı cümleyi yazmak yalan olurdu.
+            */}
           <p className="mt-1.5 text-small leading-relaxed text-warning-700/90">
-            Siparişiniz <strong>ödeme tamamlanana kadar işleme alınmaz</strong>. Ödemenizi
-            tamamladığınızda sipariş otomatik olarak işleme hazır hâle gelir.
+            Siparişiniz <strong>ödeme tamamlanana kadar işleme alınmaz</strong>.{' '}
+            {manual
+              ? 'Ödemenizi tamamlamak için WhatsApp üzerinden bize ulaşın; ödemeniz onaylandığında sipariş işleme alınır.'
+              : 'Ödemenizi tamamladığınızda sipariş otomatik olarak işleme hazır hâle gelir.'}
           </p>
           <div className="mt-4">
-            <PayButton orderNo={orderNo} trackingToken={trackingToken} />
+            {manual ? (
+              <WhatsappPayButton orderNo={orderNo} />
+            ) : (
+              <PayButton orderNo={orderNo} trackingToken={trackingToken} />
+            )}
           </div>
         </div>
 
@@ -107,9 +128,23 @@ export function OrderSuccess({
           </span>
         </div>
 
-        <p className="mt-5 text-small text-ink-600">
-          Sipariş özeti ve takip bağlantısı <strong>{email}</strong> adresine gönderildi.
-        </p>
+        {/**
+          * ⚠️ GÖNDERİLMEDİYSE "GÖNDERİLDİ" DENMEZ.
+          *
+          * Bu cümle koşulsuzdu: e-posta sağlayıcısı yapılandırılmamışken bile
+          * müşteriye "gönderildi" diyordu. Sunucu katmanı bu kuralı zaten
+          * uyguluyordu (`EMAIL_PROVIDER=none` → FAILED); delik arayüzdeydi.
+          */}
+        {emailSent ? (
+          <p className="mt-5 text-small text-ink-600">
+            Sipariş özeti ve takip bağlantısı <strong>{email}</strong> adresine gönderildi.
+          </p>
+        ) : (
+          <p className="mt-5 text-small text-ink-600">
+            <strong>Sipariş numaranızı kaydedin.</strong> Siparişinizi bu numarayla istediğiniz
+            zaman takip edebilirsiniz.
+          </p>
+        )}
 
         {/* ------------------------------- İKİ CTA ------------------------------- */}
         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -133,8 +168,7 @@ export function OrderSuccess({
         </div>
 
         <p className="mt-6 text-caption leading-relaxed text-ink-500">
-          Hizmetlerimiz gerçek kullanıcılar tarafından manuel olarak gerçekleştirilir. Bot, sahte
-          hesap veya otomatik etkileşim sistemi kullanılmaz.
+          Herhangi bir soru, sorun veya öneriniz için 7/24 ulaşabilirsiniz.
         </p>
       </div>
     </div>

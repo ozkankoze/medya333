@@ -82,6 +82,15 @@ export interface CreateOrderResult {
   accessToken: string | null
   /** Idempotency sayesinde mevcut sipariş döndürüldüyse true */
   reused: boolean
+  /**
+   * ⚠️ E-POSTA GERÇEKTEN GİTTİ Mİ?
+   *
+   * Başarı ekranı "…adresine gönderildi" yazıyordu — sağlayıcı
+   * yapılandırılmamışken bile. Bu, müşteriye söylenen DÜPEDÜZ YANLIŞ bir
+   * cümleydi ve projenin kendi kuralını ("sağlayıcı yoksa gönderildi denmez")
+   * sunucu tarafında tutup arayüzde deliyordu. Sonuç artık yukarı taşınıyor.
+   */
+  emailSent: boolean
 }
 
 /** İsteğin anlamlı parçalarından parmak izi — aynı key + farklı gövde = çakışma. */
@@ -120,7 +129,7 @@ export async function createOrder(
   })
   if (existing) {
     if (existing.requestHash !== requestHash) throw new IdempotencyConflictError()
-    return { order: existing, accessToken: null, reused: true }
+    return { order: existing, accessToken: null, reused: true, emailSent: false }
   }
 
   // --- 1) Varyant + katalog ---------------------------------------------
@@ -373,7 +382,16 @@ export async function createOrder(
    * ⚠️ Gönderim başarısız olsa bile sipariş DÜŞMEZ — `notifyLatestOrderEvent`
    * exception fırlatmaz.
    */
-  await notifyLatestOrderEvent(created.id, 'ORDER_CREATED', { trackingToken: token })
+  const notified = await notifyLatestOrderEvent(created.id, 'ORDER_CREATED', {
+    trackingToken: token,
+  })
 
-  return { order: created, accessToken: token, reused: false }
+  return {
+    order: created,
+    accessToken: token,
+    reused: false,
+    // ⚠️ Yalnızca 'SENT' başarıdır. 'SKIPPED'/'FAILED'/'NOT_APPLICABLE'
+    //    hepsi "müşteriye e-posta ULAŞMADI" demektir.
+    emailSent: notified.outcome === 'SENT',
+  }
 }

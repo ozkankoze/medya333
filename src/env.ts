@@ -227,6 +227,25 @@ export const env = createEnv({
     NEXT_PUBLIC_SITE_NAME: z.string().default('Medya 333'),
     /** Fiyatların KDV dahil gösterildiğini UI'da belirtmek için */
     NEXT_PUBLIC_PRICES_TAX_INCLUSIVE: z.coerce.boolean().default(true),
+
+    /**
+     * ⭐ MANUEL ÖDEME (GEÇİCİ) — PayTR onayı gelene kadar
+     *
+     * Açıkken "Ödemeye Geç" düğmesi ödeme sağlayıcısı yerine WhatsApp'a
+     * yönlendirir; tahsilat elden alınır, siparişi "ödendi" yapan tek şey
+     * operatörün yönetim panelinden yaptığı ELLE onaydır.
+     *
+     * ⚠️ `z.coerce.boolean()` KULLANILMAZ — `Boolean("false") === true`
+     * olduğu için bayrağı kapatmak isteyen operatör onu AÇARDI. Aynı tuzak
+     * `INSTAGRAM_BUSINESS_DISCOVERY_ENABLED` tarafında da yaşandı.
+     */
+    NEXT_PUBLIC_MANUAL_PAYMENT_ENABLED: z
+      .enum(['true', 'false', '1', '0'])
+      .default('false')
+      .transform((v) => v === 'true' || v === '1'),
+
+    /** Manuel ödeme için WhatsApp numarası — uluslararası biçim, ör. 905xxxxxxxxx */
+    NEXT_PUBLIC_WHATSAPP_NUMBER: z.string().optional(),
   },
 
   runtimeEnv: {
@@ -277,6 +296,8 @@ export const env = createEnv({
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_SITE_NAME: process.env.NEXT_PUBLIC_SITE_NAME,
     NEXT_PUBLIC_PRICES_TAX_INCLUSIVE: process.env.NEXT_PUBLIC_PRICES_TAX_INCLUSIVE,
+    NEXT_PUBLIC_MANUAL_PAYMENT_ENABLED: process.env.NEXT_PUBLIC_MANUAL_PAYMENT_ENABLED,
+    NEXT_PUBLIC_WHATSAPP_NUMBER: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER,
   },
 
   emptyStringAsUndefined: true,
