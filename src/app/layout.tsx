@@ -3,6 +3,7 @@ import { appBaseUrl } from '@/server/base-url'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { SiteHeader } from '@/components/layout/SiteHeader'
 import { SupportFab } from '@/components/layout/SupportFab'
+import { GoogleAdsTag } from '@/components/analytics/GoogleAdsTag'
 // Tipografi: Inter Variable, TAMAMEN self-host (npm paketi).
 // next/font/google yerine bu tercih edildi: derleme Google'a bağımlı olmaz
 // (kapalı CI ağlarında build kırılmaz) ve kullanıcı tarayıcısı hiçbir zaman
@@ -93,6 +94,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="tr-TR">
+      {/* ⚠️ Google Ads etiketi TÜM SAYFALARDA, TEK KEZ. Kök düzende
+          durduğu için her rota otomatik kapsanır; ayrıca eklenmemelidir
+          (bkz. GoogleAdsTag → dönüşüm çiftlenmesi notu). */}
+      <GoogleAdsTag />
       <body className="flex min-h-dvh flex-col antialiased">
         {/* Klavye kullanıcısı menüyü atlayıp içeriğe geçebilmeli */}
         <a

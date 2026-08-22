@@ -24,7 +24,7 @@ function directive(csp: string, name: string): string {
 }
 
 describe('⚠️ ÜRETİM — gevşetme yok', () => {
-  const prod = buildCsp({ dev: false })
+  const prod = buildCsp({ dev: false, googleAds: false })
 
   it('`unsafe-eval` HİÇBİR direktifte yok', () => {
     expect(prod).not.toContain('unsafe-eval')
@@ -60,7 +60,7 @@ describe('⚠️ ÜRETİM — gevşetme yok', () => {
 })
 
 describe('GELİŞTİRME — Fast Refresh çalışabilmeli', () => {
-  const dev = buildCsp({ dev: true })
+  const dev = buildCsp({ dev: true, googleAds: false })
 
   it("script-src 'unsafe-eval' içerir", () => {
     expect(directive(dev, 'script-src')).toContain("'unsafe-eval'")
@@ -85,8 +85,8 @@ describe('GELİŞTİRME — Fast Refresh çalışabilmeli', () => {
 
 describe('⚠️ İKİ ORTAM ARASINDAKİ TEK FARK ÖLÇÜLÜR', () => {
   it('yalnızca script-src, connect-src ve upgrade-insecure-requests değişir', () => {
-    const prodSet = new Set(buildCsp({ dev: false }).split('; '))
-    const devSet = new Set(buildCsp({ dev: true }).split('; '))
+    const prodSet = new Set(buildCsp({ dev: false, googleAds: false }).split('; '))
+    const devSet = new Set(buildCsp({ dev: true, googleAds: false }).split('; '))
 
     const onlyInProd = [...prodSet].filter((d) => !devSet.has(d))
     const onlyInDev = [...devSet].filter((d) => !prodSet.has(d))
@@ -100,5 +100,59 @@ describe('⚠️ İKİ ORTAM ARASINDAKİ TEK FARK ÖLÇÜLÜR', () => {
       "connect-src 'self' ws: wss:",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     ])
+  })
+})
+
+/**
+ * ⭐ GOOGLE ADS — ETİKET VE POLİTİKA AYNI ANDA AÇILIR
+ *
+ * ⚠️ Bu testlerin varlık sebebi çok belirli bir sessiz arıza: script sayfaya
+ * eklenir, tarayıcı CSP yüzünden engeller, konsolda kimse bakmaz ve
+ * DÖNÜŞÜMLER HİÇ DÜŞMEZ. Reklam bütçesi haftalarca körlemesine harcanır.
+ * Alan adları Google'ın kendi CSP kılavuzundan alınmıştır.
+ */
+describe('Google Ads dönüşüm takibi — CSP', () => {
+  const off = buildCsp({ dev: false, googleAds: false })
+  const on = buildCsp({ dev: false, googleAds: true })
+
+  it('⚠️ ETİKET KAPALIYKEN hiçbir Google alan adı politikada YOK', () => {
+    for (const host of ['googletagmanager', 'googleadservices', 'doubleclick', 'googlesyndication']) {
+      expect(off, host).not.toContain(host)
+    }
+    // Kapalıyken politika eskisiyle birebir aynı kalmalı.
+    expect(directive(off, 'img-src')).toBe("img-src 'self' data: blob:")
+    expect(directive(off, 'connect-src')).toBe("connect-src 'self'")
+  })
+
+  it('etiket açıkken gtag.js YÜKLENEBİLİR', () => {
+    expect(directive(on, 'script-src')).toContain('https://www.googletagmanager.com')
+  })
+
+  it('etiket açıkken dönüşüm işaretçileri GÖNDERİLEBİLİR', () => {
+    const connect = directive(on, 'connect-src')
+    for (const origin of [
+      'https://www.googleadservices.com',
+      'https://googleads.g.doubleclick.net',
+      'https://pagead2.googlesyndication.com',
+    ]) {
+      expect(connect, origin).toContain(origin)
+    }
+  })
+
+  it('⚠️ TÜRKİYE ALAN ADI ŞART — dönüşüm pikseli www.google.com.tr\'ye gider', () => {
+    // Google pikseli kullanıcının ülke alan adına atar; `www.google.com`
+    // tek başına Türkiye trafiğinde YETMEZ.
+    expect(directive(on, 'img-src')).toContain('https://www.google.com.tr')
+    expect(directive(on, 'connect-src')).toContain('https://www.google.com.tr')
+  })
+
+  it('⚠️ Google izinleri ödeme/kilit direktiflerini BOZMAZ', () => {
+    for (const origin of PAYMENT_FRAME_SRC) {
+      expect(directive(on, 'frame-src')).toContain(origin)
+    }
+    expect(on).toContain("frame-ancestors 'none'")
+    expect(on).toContain("object-src 'none'")
+    expect(on).toContain("base-uri 'self'")
+    expect(on).not.toContain('unsafe-eval')
   })
 })

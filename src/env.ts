@@ -246,6 +246,22 @@ export const env = createEnv({
 
     /** Manuel ödeme için WhatsApp numarası — uluslararası biçim, ör. 905xxxxxxxxx */
     NEXT_PUBLIC_WHATSAPP_NUMBER: z.string().optional(),
+
+    /**
+     * ⭐ GOOGLE ADS DÖNÜŞÜM KİMLİĞİ — ör. "AW-18368487204"
+     *
+     * ⚠️ KODA GÖMÜLMEZ, ORTAM DEĞİŞKENİNDEN GELİR. Sabit yazılsaydı her
+     * Vercel önizleme (preview) dağıtımı da dönüşüm gönderirdi ve gerçek
+     * kampanya verisi test trafiğiyle kirlenirdi. Ortam değişkeni sayesinde
+     * etiket YALNIZCA production'da çalışır.
+     *
+     * ⚠️ Biçim doğrulanır: yanlış yazılmış bir kimlik sessizce hiçbir şey
+     * yapmaz — boot'ta patlaması, aylarca veri kaybetmekten iyidir.
+     */
+    NEXT_PUBLIC_GOOGLE_ADS_ID: z
+      .string()
+      .regex(/^AW-\d{6,}$/, 'NEXT_PUBLIC_GOOGLE_ADS_ID "AW-1234567890" biçiminde olmalı')
+      .optional(),
   },
 
   runtimeEnv: {
@@ -298,6 +314,7 @@ export const env = createEnv({
     NEXT_PUBLIC_PRICES_TAX_INCLUSIVE: process.env.NEXT_PUBLIC_PRICES_TAX_INCLUSIVE,
     NEXT_PUBLIC_MANUAL_PAYMENT_ENABLED: process.env.NEXT_PUBLIC_MANUAL_PAYMENT_ENABLED,
     NEXT_PUBLIC_WHATSAPP_NUMBER: process.env.NEXT_PUBLIC_WHATSAPP_NUMBER,
+    NEXT_PUBLIC_GOOGLE_ADS_ID: process.env.NEXT_PUBLIC_GOOGLE_ADS_ID,
   },
 
   emptyStringAsUndefined: true,

@@ -244,7 +244,7 @@ describe('güvenlik header yapılandırması', () => {
     expect(config).toContain('Content-Security-Policy')
     expect(config).toContain('buildCsp')
 
-    const production = buildCsp({ dev: false })
+    const production = buildCsp({ dev: false, googleAds: false })
     expect(production).toContain("frame-ancestors 'none'")
     expect(production).toContain("object-src 'none'")
     expect(production).toContain("base-uri 'self'")

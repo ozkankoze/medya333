@@ -17,6 +17,48 @@
  *    dalında verilir ve bu, `tests/unit/csp.test.ts` ile sabitlenmiştir.
  */
 
+/**
+ * ⭐ GOOGLE ADS DÖNÜŞÜM TAKİBİ — İZİN VERİLEN ALAN ADLARI
+ *
+ * ⚠️ BU LİSTE TAHMİN DEĞİL. Google'ın kendi CSP kılavuzundan alınmıştır
+ * (developers.google.com/tag-platform/security/guides/csp → "Google Ads:
+ * Conversion, Remarketing, Conversion Linker"). Eksik bir alan adı, etiketin
+ * SESSİZCE çalışmaması demektir: script yüklenir, hiçbir dönüşüm düşmez ve
+ * bu haftalarca fark edilmez — bütçe körlemesine harcanır.
+ *
+ * ⚠️ `www.google.com.tr` ŞART. Google dönüşüm pikselini kullanıcının ülke
+ * alan adına atar (`www.google.<TLD>`); Türkiye'den gelen trafikte
+ * `www.google.com` tek başına YETMEZ.
+ */
+const GOOGLE_ADS_SCRIPT = [
+  'https://www.googletagmanager.com',
+  'https://www.googleadservices.com',
+  'https://googleads.g.doubleclick.net',
+  'https://pagead2.googlesyndication.com',
+  'https://www.google.com',
+] as const
+
+const GOOGLE_ADS_IMG = [
+  'https://www.googletagmanager.com',
+  'https://www.googleadservices.com',
+  'https://googleads.g.doubleclick.net',
+  'https://pagead2.googlesyndication.com',
+  'https://www.google.com',
+  'https://www.google.com.tr',
+] as const
+
+const GOOGLE_ADS_CONNECT = [
+  'https://www.googletagmanager.com',
+  'https://www.googleadservices.com',
+  'https://googleads.g.doubleclick.net',
+  'https://pagead2.googlesyndication.com',
+  'https://ad.doubleclick.net',
+  'https://www.google.com',
+  'https://www.google.com.tr',
+] as const
+
+const GOOGLE_ADS_FRAME = ['https://www.googletagmanager.com', 'https://td.doubleclick.net'] as const
+
 /** 3D Secure sayfaları sağlayıcı alan adında açılır — çerçeveye izin verilir. */
 export const PAYMENT_FRAME_SRC = [
   'https://*.iyzipay.com',
@@ -34,6 +76,15 @@ export interface CspOptions {
    *    bunu derleme zamanında garanti eder.
    */
   dev: boolean
+  /**
+   * Google Ads etiketi bu ortamda YÜKLENİYOR MU?
+   *
+   * ⚠️ AYNI FAIL-CLOSED KURALI. Etiket yokken Google alan adlarını politikaya
+   * eklemek, kullanılmayan bir saldırı yüzeyini açık bırakmaktır. Bayrak
+   * `NEXT_PUBLIC_GOOGLE_ADS_ID` tanımlıysa açılır; yani politika ile sayfada
+   * gerçekten yüklenen script TEK KAYNAKTAN türer.
+   */
+  googleAds: boolean
 }
 
 /**
@@ -66,26 +117,34 @@ export interface CspOptions {
  * ⚠️ ÜRETİMDE ASLA VERİLMEZ. Üretim derlemesinde Fast Refresh yoktur; bu izin
  *    orada yalnızca XSS'in kod çalıştırmasını kolaylaştırırdı.
  */
-export function buildCsp({ dev }: CspOptions): string {
+export function buildCsp({ dev, googleAds }: CspOptions): string {
   const scriptSrc = ["'self'", "'unsafe-inline'"]
   if (dev) scriptSrc.push("'unsafe-eval'")
+  if (googleAds) scriptSrc.push(...GOOGLE_ADS_SCRIPT)
 
   // HMR, aynı köken üzerinde bir WebSocket açar. CSP3'te `'self'` çoğu
   // tarayıcıda `ws://` şemasını da kapsar, ama bu davranış tarayıcılar
   // arasında tutarlı DEĞİLDİR; geliştirmede açıkça izin veriyoruz.
   const connectSrc = ["'self'"]
   if (dev) connectSrc.push('ws:', 'wss:')
+  if (googleAds) connectSrc.push(...GOOGLE_ADS_CONNECT)
+
+  const imgSrc = ["'self'", 'data:', 'blob:']
+  if (googleAds) imgSrc.push(...GOOGLE_ADS_IMG)
+
+  const frameSrc = ["'self'", ...PAYMENT_FRAME_SRC]
+  if (googleAds) frameSrc.push(...GOOGLE_ADS_FRAME)
 
   const directives = [
     "default-src 'self'",
     `script-src ${scriptSrc.join(' ')}`,
     "style-src 'self' 'unsafe-inline'",
     // Görseller: kendi sunucumuz + data/blob (SVG ikonlar, önizleme)
-    "img-src 'self' data: blob:",
+    `img-src ${imgSrc.join(' ')}`,
     "font-src 'self' data:",
-    // XHR yalnızca kendi API'mize; üçüncü parti analytics YOK.
+    // XHR kendi API'mize; Google Ads açıkken yalnızca dönüşüm uç noktalarına.
     `connect-src ${connectSrc.join(' ')}`,
-    `frame-src 'self' ${PAYMENT_FRAME_SRC.join(' ')}`,
+    `frame-src ${frameSrc.join(' ')}`,
     // Ödeme formu sağlayıcıya POST edilebilir.
     `form-action 'self' ${PAYMENT_FRAME_SRC.join(' ')}`,
     "frame-ancestors 'none'",

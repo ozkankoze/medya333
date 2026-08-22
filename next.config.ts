@@ -17,7 +17,16 @@ import { buildCsp } from './src/lib/security/csp'
  * `production` ile çalışır. Yani bu tek satır, `'unsafe-eval'` iznini yalnızca
  * yerel geliştirmeye hapseder; üretim derlemesine ASLA giremez.
  */
-const CSP = buildCsp({ dev: process.env.NODE_ENV !== 'production' })
+/**
+ * ⚠️ CSP İLE SAYFADAKİ ETİKET AYNI DEĞİŞKENDEN TÜRER. `NEXT_PUBLIC_GOOGLE_ADS_ID`
+ * yoksa ne script yüklenir ne de Google alan adları politikaya girer; ikisinin
+ * ayrı ayrı açılıp kapanması "etiket var ama CSP engelliyor" sessiz arızasını
+ * üretirdi.
+ */
+const CSP = buildCsp({
+  dev: process.env.NODE_ENV !== 'production',
+  googleAds: Boolean(process.env.NEXT_PUBLIC_GOOGLE_ADS_ID),
+})
 
 const securityHeaders = [
   { key: 'Content-Security-Policy', value: CSP },
