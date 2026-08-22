@@ -243,7 +243,10 @@ const DERIVED_MAP: ReadonlyArray<
   readonly [service: string, variant: string, igService: string, igVariant: string]
 > = [
   ['takipci', 'yabanci', 'takipci', 'yabanci'],
-  ['takipci', 'turk', 'takipci', 'turk'],
+  // ⚠️ ['takipci', 'turk', …] KALDIRILDI — Facebook ve TikTok'ta Türk takipçi
+  //    tedarik edilemediği için varyant katalogdan çıkarıldı. Instagram'ın
+  //    kendi `takipci/turk` varyantı DURUYOR ve catalog-prices.test.ts
+  //    tarafından ayrıca doğrulanıyor.
   ['begeni', 'turk', 'begeni', 'turk'],
   ['goruntulenme', 'video', 'goruntulenme', 'video'],
   ['yorum', 'turk', 'yorum', 'turk'],
@@ -349,10 +352,12 @@ describe('Facebook / TikTok — Instagram × %125', () => {
         (n, s) => n + s.variants.reduce((m, v) => m + v.tiers.length, 0),
         0,
       )
-    expect(count('facebook')).toBe(51)
-    expect(count('tiktok')).toBe(58)
-    expect(PRICE_POINTS_BY_PLATFORM.facebook).toBe(51)
-    expect(PRICE_POINTS_BY_PLATFORM.tiktok).toBe(58)
+    // ⚠️ 51 → 43 ve 58 → 50: "Türk Takipçi" bu iki platformdan KALDIRILDI
+    //    (tedarik yok). Her biri 8 fiyat noktası götürdü.
+    expect(count('facebook')).toBe(43)
+    expect(count('tiktok')).toBe(50)
+    expect(PRICE_POINTS_BY_PLATFORM.facebook).toBe(43)
+    expect(PRICE_POINTS_BY_PLATFORM.tiktok).toBe(50)
   })
 })
 
@@ -404,11 +409,12 @@ describe('katalog toplamı', () => {
       (n, list) => n + list.reduce((m, s) => m + s.variants.reduce((k, v) => k + v.tiers.length, 0), 0),
       0,
     )
-    expect(total).toBe(199)
-    expect(TOTAL_PRICE_POINTS).toBe(199)
+    // 199 → 183: FB ve TikTok "Türk Takipçi" varyantları (2 × 8) kaldırıldı.
+    expect(total).toBe(183)
+    expect(TOTAL_PRICE_POINTS).toBe(183)
     expect(
       Object.values(PRICE_POINTS_BY_PLATFORM).reduce((a, b) => a + b, 0),
-    ).toBe(199)
+    ).toBe(183)
   })
 
   it('EXPECTED_PRICE_POINTS tablosu seed ile birebir tutarlıdır', () => {

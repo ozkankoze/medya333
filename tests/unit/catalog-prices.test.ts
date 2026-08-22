@@ -248,8 +248,9 @@ describe('gerçek fiyat listesi — 63 fiyat noktası', () => {
       0,
     )
     expect(seedTotal).toBe(63)
-    // Faz 5.1 sonrası katalogun TAMAMI: 63 Instagram + 27 YouTube + 51 FB + 58 TikTok
-    expect(TOTAL_PRICE_POINTS).toBe(199)
+    // Katalogun TAMAMI: 63 Instagram + 27 YouTube + 43 FB + 50 TikTok
+    // ⚠️ FB/TikTok "Türk Takipçi" kaldırıldığı için 199 değil 183.
+    expect(TOTAL_PRICE_POINTS).toBe(183)
   })
 
   it('Instagram fiyat noktası dağılımı brief ile birebir aynıdır', () => {

@@ -89,7 +89,8 @@ describe('türetme kuralı — ceil', () => {
 })
 
 describe('⭐ ÇAPA TAVANI — katalog fiyatı BİREBİR korunur', () => {
-  it('TÜM 194 ölçülebilir çapada sapma SIFIR', () => {
+  // 194 → 178: FB ve TikTok "Türk Takipçi" (2 × 8 çapa) katalogdan çıktı.
+  it('TÜM 178 ölçülebilir çapada sapma SIFIR', () => {
     let checked = 0
     for (const [, list] of Object.entries(SERVICES)) {
       for (const svc of list) {
@@ -103,7 +104,7 @@ describe('⭐ ÇAPA TAVANI — katalog fiyatı BİREBİR korunur', () => {
         }
       }
     }
-    expect(checked).toBe(194)
+    expect(checked).toBe(178)
   })
 
   it('100.000 yabancı: birim 33 kr ama ÖDENEN katalog fiyatı', () => {

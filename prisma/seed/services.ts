@@ -470,7 +470,9 @@ const YT_BEGENI: readonly PricePoint[] = scalePrices(TURK_BEGENI, 300)
 const DERIVED_PERCENT = 125
 
 const D_YABANCI_TAKIPCI = scalePrices(YABANCI_TAKIPCI, DERIVED_PERCENT)
-const D_TURK_TAKIPCI = scalePrices(TURK_TAKIPCI, DERIVED_PERCENT)
+/* ⚠️ `D_TURK_TAKIPCI` KALDIRILDI — Facebook/TikTok'ta Türk takipçi tedarik
+   edilemiyor (bkz. `derivedFollowerVariants`). Geri gelirse burada yeniden
+   türetin: `scalePrices(TURK_TAKIPCI, DERIVED_PERCENT)`. */
 const D_TURK_BEGENI = scalePrices(TURK_BEGENI, DERIVED_PERCENT)
 const D_IZLENME = scalePrices(VIDEO_IZLENME, DERIVED_PERCENT)
 const D_TURK_YORUM = scalePrices(TURK_YORUM, DERIVED_PERCENT)
@@ -495,13 +497,17 @@ function derivedFollowerVariants(platformKey: string): VariantSeed[] {
       isDefault: true,
       prices: D_YABANCI_TAKIPCI,
     }),
-    presetVariant({
-      slug: 'turk',
-      internalName: `${platformKey}-Takipci-Turk`,
-      customerLabel: 'Türk Takipçi',
-      description: 'Takipçiler Türk’tür, düşüş oranı %1 - %5 aralığındadır.',
-      prices: D_TURK_TAKIPCI,
-    }),
+    /**
+     * ⚠️ "TÜRK TAKİPÇİ" BİLİNÇLİ OLARAK YOK.
+     *
+     * Bu fonksiyonun İKİ çağıranı var: Facebook ve TikTok. Bu iki platformda
+     * Türk takipçi tedarik EDİLEMİYOR; satın alınabilir bir seçenek olarak
+     * göstermek teslim edilemeyecek bir söz olurdu. Instagram'ın kendi
+     * `turk` varyantı ayrı tanımlıdır ve DURUYOR.
+     *
+     * ⚠️ Bu varyantı geri eklemeden önce tedarik tarafını doğrulayın; fiyat
+     * listesinin nasıl türetileceği `D_TURK_TAKIPCI` notunda yazılı.
+     */
   ]
 }
 
@@ -1032,16 +1038,16 @@ export const EXPECTED_PRICE_POINTS = {
   'youtube/abone/yabanci': 7,
   'youtube/izlenme/standart': 7,
   'youtube/begeni/standart': 10,
-  // --- Facebook (Faz 5.1, Instagram × %125) — 51 ---
+  // --- Facebook (Faz 5.1, Instagram × %125) — 43 ---
+  // ⚠️ 'facebook/takipci/turk' KALDIRILDI (tedarik yok) — platform toplamı 51 → 43.
   'facebook/takipci/yabanci': 10,
-  'facebook/takipci/turk': 8,
   'facebook/begeni/turk': 10,
   'facebook/goruntulenme/video': 9,
   'facebook/yorum/turk': 7,
   'facebook/paylasim/standart': 7,
-  // --- TikTok (Faz 5.1, Instagram × %125) — 58 ---
+  // --- TikTok (Faz 5.1, Instagram × %125) — 50 ---
+  // ⚠️ 'tiktok/takipci/turk' KALDIRILDI (tedarik yok) — platform toplamı 58 → 50.
   'tiktok/takipci/yabanci': 10,
-  'tiktok/takipci/turk': 8,
   'tiktok/begeni/turk': 10,
   'tiktok/goruntulenme/video': 9,
   'tiktok/yorum/turk': 7,
@@ -1053,8 +1059,8 @@ export const EXPECTED_PRICE_POINTS = {
 export const PRICE_POINTS_BY_PLATFORM = {
   instagram: 63,
   youtube: 27,
-  facebook: 51,
-  tiktok: 58,
+  facebook: 43,
+  tiktok: 50,
 } as const
 
-export const TOTAL_PRICE_POINTS = 199
+export const TOTAL_PRICE_POINTS = 183
