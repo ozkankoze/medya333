@@ -1,6 +1,8 @@
-import { env } from '@/env'
 import { buttonVariants } from '@/components/ui/button'
+import { manualPaymentNumber, whatsappPaymentHref } from '@/lib/support'
 import { cn } from '@/lib/utils'
+
+export { manualPaymentNumber }
 
 /**
  * MANUEL ÖDEME — WHATSAPP'A YÖNLENDİRME
@@ -20,28 +22,9 @@ import { cn } from '@/lib/utils'
  * webhook doğrulaması ve `PayButton` yerinde duruyor. Geri dönüş bir kod
  * değişikliği değil, `NEXT_PUBLIC_MANUAL_PAYMENT_ENABLED=false` ayarıdır.
  *
- * ⚠️ NUMARA KODA GÖMÜLMEZ. `wa.me` bağlantısı istemcide çalıştığı için
- * numara zaten herkese açıktır; yine de ortam değişkeninden gelir ki
- * değiştirmek için deploy gerekmesin.
+ * ⚠️ Numara ve bağlantı üretimi `lib/support` içindedir — destek düğmesiyle
+ * AYNI kaynaktan gelir (bkz. oradaki not).
  */
-
-/** Boşluk, parantez, tire ve baştaki "+" temizlenir — wa.me sade rakam ister. */
-function waDigits(raw: string): string {
-  return raw.replace(/[^\d]/g, '')
-}
-
-export function manualPaymentNumber(): string | null {
-  if (!env.NEXT_PUBLIC_MANUAL_PAYMENT_ENABLED) return null
-  const digits = waDigits(env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? '')
-  // ⚠️ Numara yoksa düğme HİÇ ÇIKMAZ. Bozuk bir wa.me bağlantısı göstermek,
-  //    müşteriyi ödeme yapamayacağı bir ekrana götürmekten daha kötüdür.
-  return digits.length >= 10 ? digits : null
-}
-
-export function whatsappPaymentHref(orderNo: string, phone: string): string {
-  const text = `${orderNo} nolu siparişim için ödeme yapmak istiyorum.`
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
-}
 
 export function WhatsappPayButton({
   orderNo,

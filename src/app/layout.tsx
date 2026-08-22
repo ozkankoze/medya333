@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { appBaseUrl } from '@/server/base-url'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { SiteHeader } from '@/components/layout/SiteHeader'
+import { SupportFab } from '@/components/layout/SupportFab'
 // Tipografi: Inter Variable, TAMAMEN self-host (npm paketi).
 // next/font/google yerine bu tercih edildi: derleme Google'a bağımlı olmaz
 // (kapalı CI ağlarında build kırılmaz) ve kullanıcı tarayıcısı hiçbir zaman
@@ -108,6 +109,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </main>
 
         <SiteFooter />
+
+        {/* Sağ altta sabit WhatsApp destek düğmesi. Numara tanımlı değilse
+            hiç render edilmez; üçüncü taraf sohbet scripti YÜKLENMEZ. */}
+        <SupportFab />
       </body>
     </html>
   )

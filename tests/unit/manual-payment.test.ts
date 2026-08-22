@@ -9,16 +9,17 @@ import { describe, expect, it } from 'vitest'
  * yanlış sipariş no = yanlış siparişin tahsilatı.
  */
 
-/** `WhatsappPayButton.tsx` içindeki iki saf yardımcının aynısı. */
-function waDigits(raw: string): string {
-  return raw.replace(/[^\d]/g, '')
-}
+/**
+ * ⚠️ `waDigits` ve `whatsappPaymentHref` GERÇEK kaynaktan içe aktarılır —
+ * kopyalanmaz. Kopya bir yardımcı, üründeki regex değiştiğinde testin
+ * "geçmeye devam ederek" hatayı gizlemesi demekti.
+ */
+import { waDigits, whatsappPaymentHref } from '@/lib/support'
 
-function whatsappPaymentHref(orderNo: string, phone: string): string {
-  const text = `${orderNo} nolu siparişim için ödeme yapmak istiyorum.`
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
-}
-
+/**
+ * `supportWhatsappNumber` / `manualPaymentNumber` `env`'e bağlı olduğu için
+ * burada kuralları saf hâlde yeniden ifade ediliyor: bayrak + 10 hane.
+ */
 function manualPaymentNumber(enabled: boolean, raw: string | undefined): string | null {
   if (!enabled) return null
   const digits = waDigits(raw ?? '')
