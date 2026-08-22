@@ -450,11 +450,23 @@ describe('KDV — fiyatlar KDV DAHİL, brütten ayrıştırılır', () => {
 })
 
 describe('gösterim yardımcıları', () => {
-  it('⭐ ölçülebilir hizmette "…’den başlar" tutarı EN DÜŞÜK BİRİM FİYATTIR', () => {
-    // Serbest miktara geçildi: giriş fiyatı artık bir paket toplamı değil,
-    // eğrinin en ucuz birim fiyatı (1.000.000 bandı → 25 kr).
+  it('⭐ karta basılan tutar EN KÜÇÜK SİPARİŞİN TOPLAMIDIR, birim fiyat değil', () => {
     const v = variantOf('takipci', 'yabanci')
-    expect(entryPriceOf(tiersOf(v))).toMatchObject({ kind: 'unit', amountMinor: 25 })
+    const entry = entryPriceOf(tiersOf(v))
+
+    // `amountMinor` hâlâ en ucuz BİRİM fiyattır — yalnızca varyantlar arası
+    // yüzde farkı için kullanılır (bkz. VariantPicker).
+    expect(entry).toMatchObject({ kind: 'unit', amountMinor: 25 })
+
+    /**
+     * ⚠️ MÜŞTERİYE GÖSTERİLEN ALAN BU. 25 kuruşluk birim fiyata ancak
+     * 1.000.000 takipçi alan biri ulaşır; "0,25 ₺'den başlar" yazmak
+     * müşteriye asla karşılaşmayacağı bir rakam vaat ediyordu.
+     * En küçük sipariş 500 takipçidir ve KATALOG FİYATI 324,90 ₺'dir —
+     * 65 kr × 500 = 325,00 ₺ DEĞİL; çapa tavanı uygulanır.
+     */
+    expect(entry?.minOrderQuantity).toBe(500)
+    expect(entry?.minOrderMinor).toBe(32_490)
   })
 
   it('sabit paketlerde giriş fiyatı HÂLÂ paket toplamıdır', () => {
@@ -463,6 +475,9 @@ describe('gösterim yardımcıları', () => {
       kind: 'package',
       amountMinor: 100_000,
       quantity: 1,
+      // Sabit pakette en küçük sipariş zaten paketin kendisidir.
+      minOrderMinor: 100_000,
+      minOrderQuantity: 1,
     })
   })
 

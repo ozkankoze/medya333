@@ -9,6 +9,8 @@
  */
 
 import type { PricingTier } from './types'
+// ⚠️ Tek yönlü bağımlılık: calculate.ts tiers.ts'i İÇE AKTARMAZ, döngü yok.
+import { anchorCap } from './calculate'
 
 export interface TierOverlap {
   aId: string
@@ -257,17 +259,36 @@ export function sortTiersForDisplay(tiers: PricingTier[]): PricingTier[] {
 export interface EntryPrice {
   /** 'package' → gösterilecek tutar bir PAKET TOPLAMIDIR, birim fiyat DEĞİL */
   kind: 'unit' | 'package'
+  /**
+   * kind='package' → en düşük paket toplamı
+   * kind='unit'    → EN DÜŞÜK BİRİM FİYAT
+   *
+   * ⚠️ MÜŞTERİYE GÖSTERİLECEK ALAN BU DEĞİL. Birim fiyat yalnızca varyantlar
+   * arası karşılaştırma içindir (bkz. `VariantPicker` yüzde farkı). Kartta
+   * gösterilecek tutar `minOrderMinor`'dır.
+   */
   amountMinor: number
   /** Paket fiyatının hangi miktara ait olduğu (kind === 'package') */
   quantity: number | null
+  /** ⭐ EN KÜÇÜK SİPARİŞİN TOPLAM TUTARI — kartlarda gösterilen budur. */
+  minOrderMinor: number
+  /** O toplamın kaç adede karşılık geldiği. */
+  minOrderQuantity: number
 }
 
 /**
  * Kartlarda gösterilen "…'den başlar" tutarı.
  *
- * ⚠️ Sabit paket kademelerinde birim fiyat YOKTUR (0'dır). Birim fiyat
- * üzerinden "0,00 ₺'den başlar" yazmak müşteriye yanlış bilgi olurdu;
- * bu yüzden paket modunda EN DÜŞÜK PAKET TOPLAMI gösterilir.
+ * ⚠️ EN DÜŞÜK BİRİM FİYAT GÖSTERİLMEZ — YANILTICIDIR.
+ *
+ * Takipçide en düşük birim fiyat 25 kuruştur ama o fiyata ancak 1.000.000
+ * takipçi alan biri ulaşır. Kartta "0,25 ₺ / takipçi'den başlar" yazmak,
+ * müşteriye asla karşılaşmayacağı bir rakamı vaat eder: minimum sipariş
+ * 500 takipçidir ve 324,90 ₺'dir. Bu yüzden `minOrderMinor` alanı
+ * EN KÜÇÜK SİPARİŞİN gerçek toplamını taşır ve kartlar onu basar.
+ *
+ * ⚠️ Sabit paket kademelerinde birim fiyat YOKTUR (0'dır); orada en düşük
+ * paket toplamı hem `amountMinor` hem `minOrderMinor` olur.
  */
 export function entryPriceOf(tiers: readonly PricingTier[]): EntryPrice | null {
   const packages = tiers.filter((t) => t.mode === 'PACKAGE' && (t.packagePriceMinor ?? 0) > 0)
@@ -275,19 +296,39 @@ export function entryPriceOf(tiers: readonly PricingTier[]): EntryPrice | null {
     const cheapest = packages.reduce((best, t) =>
       (t.packagePriceMinor ?? 0) < (best.packagePriceMinor ?? 0) ? t : best,
     )
+    const amountMinor = cheapest.packagePriceMinor ?? 0
     return {
       kind: 'package',
-      amountMinor: cheapest.packagePriceMinor ?? 0,
+      amountMinor,
       quantity: cheapest.minQuantity,
+      minOrderMinor: amountMinor,
+      minOrderQuantity: cheapest.minQuantity,
     }
   }
 
   const units = tiers.filter((t) => t.unitPriceMinor > 0)
   if (units.length === 0) return null
+
+  /**
+   * Satın alınabilecek EN KÜÇÜK miktar ve onun gerçek tutarı.
+   *
+   * ⚠️ `birim × miktar` YETMEZ: çapa tavanı yüzünden 65 kr × 500 = 325,00 ₺
+   * çıkar ama gerçekte ödenen 324,90 ₺'dir. Kart ile ödeme ekranı arasında
+   * 10 kuruşluk fark bırakmamak için motorun kullandığı `anchorCap` aynen
+   * çağrılır.
+   */
+  const minQuantity = Math.min(...units.map((t) => t.minQuantity))
+  const covering = units.filter((t) => tierCoversQuantity(t, minQuantity))
+  const linearTier = covering.length > 0 ? covering[0] : undefined
+  const linearMinor = (linearTier?.unitPriceMinor ?? 0) * minQuantity
+  const { goodsMinor } = anchorCap([...tiers], minQuantity, linearMinor)
+
   return {
     kind: 'unit',
     amountMinor: Math.min(...units.map((t) => t.unitPriceMinor)),
     quantity: null,
+    minOrderMinor: goodsMinor + (linearTier?.setupFeeMinor ?? 0),
+    minOrderQuantity: minQuantity,
   }
 }
 

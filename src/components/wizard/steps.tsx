@@ -132,8 +132,10 @@ export function StepService({
     <div className="grid gap-3 sm:grid-cols-2">
       {services.map((s) => {
         const selected = s.id === value
-        // ⚠️ Sabit paket kademelerinde birim fiyat YOKTUR (0). "0,00 ₺/adet'ten
-        // başlar" yazmamak için giriş fiyatı kademe tipine göre seçilir.
+        // ⚠️ EN DÜŞÜK BİRİM FİYAT DEĞİL, EN KÜÇÜK SİPARİŞİN TOPLAMI gösterilir.
+        // "0,25 ₺ / takipçi'den başlar" yazmak yanıltıcıydı: o birim fiyata
+        // ancak 1.000.000 takipçi alan biri ulaşıyor, minimum sipariş ise
+        // 500 takipçi / 324,90 ₺.
         const entry = entryPriceOf(s.variants.flatMap((v) => v.tiers))
         return (
           <SelectableCard key={s.id} selected={selected} onClick={() => onChange(s.id)} className="h-full gap-1.5">
@@ -151,8 +153,8 @@ export function StepService({
             {entry && (
               <span className="mt-auto pt-2 text-caption text-ink-500">
                 {entry.kind === 'package'
-                  ? `${formatMinor(entry.amountMinor)}'den başlar`
-                  : `${perUnit(formatUnitPriceMinor(entry.amountMinor), s.unitLabel)}'den başlar`}
+                  ? `${formatMinor(entry.minOrderMinor)}'den başlar`
+                  : `${withUnit(entry.minOrderQuantity, s.unitLabel)} · ${formatMinor(entry.minOrderMinor)}'den başlar`}
               </span>
             )}
           </SelectableCard>

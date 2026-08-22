@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { PlatformTile } from '@/components/wizard/PlatformMark'
 import { formatMinor } from '@/lib/money'
 import { entryPriceOf } from '@/lib/pricing'
-import { perUnit, unitOf } from '@/lib/units'
+import { unitOf, withUnit } from '@/lib/units'
 import type { CatalogSnapshot } from '@/server/catalog/snapshot'
 
 /**
@@ -90,12 +90,14 @@ export function ServiceExplorer({ catalog }: { catalog: CatalogSnapshot }) {
                           {service.shortDescription}
                         </span>
                       )}
-                      {/* ⚠️ Sabit pakette birim fiyat YOKTUR; "0,00 ₺/adet" yazılmaz. */}
+                      {/* ⚠️ EN KÜÇÜK SİPARİŞİN TOPLAMI — en düşük birim fiyat DEĞİL.
+                          Birim fiyat müşterinin asla göremeyeceği bir taban
+                          (1.000.000 adetlik kademe) olduğu için yanıltıcıydı. */}
                       {entry && (
                         <span className="tabular mt-auto pt-2 text-caption text-ink-500">
                           {entry.kind === 'package'
-                            ? `${formatMinor(entry.amountMinor)}'den başlayan fiyatlarla`
-                            : `${perUnit(formatMinor(entry.amountMinor), service.unitLabel)}'den başlayan fiyatlarla`}
+                            ? `${formatMinor(entry.minOrderMinor)}'den başlayan fiyatlarla`
+                            : `${withUnit(entry.minOrderQuantity, service.unitLabel)} · ${formatMinor(entry.minOrderMinor)}'den başlar`}
                         </span>
                       )}
                       <span className="sr-only">

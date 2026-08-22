@@ -187,7 +187,12 @@ function packageTotal(tier: PricingTier): number {
  * ⚠️ `GRADUATED` bu sorunu ÇÖZMEZ: ilerleyici toplam çapa fiyatlarını
  *    korumaz (1.000 için 999×140 + 1×135 = 1.399,95 ₺ ≠ 1.349,90 ₺).
  */
-function anchorCap(
+/**
+ * ⚠️ DIŞARIYA AÇIK: `entryPriceOf` de bu tavanı kullanır. Kart üzerindeki
+ * "…'den başlar" tutarı ile ödeme ekranındaki tutarın AYNI koddan gelmesi
+ * gerekir; iki ayrı hesap 10 kuruşluk sessiz farklar üretiyordu.
+ */
+export function anchorCap(
   tiers: PricingTier[],
   quantity: number,
   linearMinor: number,
