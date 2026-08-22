@@ -249,8 +249,9 @@ export function OrderWizard({
         normalized: parsed.normalized,
         canonicalUrl: parsed.canonicalUrl,
         handle: parsed.handle ?? null,
-        message:
-          'Bu platform için otomatik doğrulama yapılamıyor. Hedefi kontrol edip onaylayın.',
+        // ⚠️ Ağ hatası dahi olsa metin bir ARIZA gibi okunmaz; kullanıcıya
+        //    yapması gereken tek şey söylenir. Onay kutusu zaten zorunludur.
+        message: 'Hedefinizi kontrol edin, doğruluğundan emin olun.',
       }
 
       try {

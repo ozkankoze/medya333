@@ -48,7 +48,13 @@ const BD_ACTIVE = isBusinessDiscoveryConfigured()
 
 const PROFILE_FALLBACK_REASON =
   // ⚠️ MÜŞTERİ METNİ — teknik terim kullanılmaz ("API", "adapter", "oEmbed").
-  'Instagram profil bilgilerini otomatik olarak alamıyoruz. Hesabın doğru olduğunu kontrol edip onaylayın.'
+  //
+  // ⚠️ TON: bu bir HATA DEĞİL. Önceki metin ("otomatik olarak alamıyoruz")
+  // sistemde bir arıza varmış gibi okunuyordu; oysa Instagram'ın kişisel
+  // hesaplar için önizleme vermemesi OLAĞAN durumdur. Metin kullanıcıya
+  // yapması gereken tek şeyi söyler. Yine de SAHTE BİR DOĞRULAMA İDDİA
+  // ETMEZ — hedefin doğruluğu hâlâ kullanıcının onayına bağlıdır.
+  'Instagram profilinizi kontrol edin, doğruluğundan emin olun.'
 
 const POST_FALLBACK_REASON =
   'Instagram gönderileri için otomatik önizleme bulunmuyor. Bağlantının doğru olduğunu kontrol edip onaylayın.'

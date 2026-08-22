@@ -86,7 +86,7 @@ describe('bayrak KAPALI — entegrasyon öncesi davranış birebir korunur', () 
       status: 'UNVERIFIED',
       method: 'format_only',
       requiresConfirmation: true,
-      reason: 'Instagram profil bilgilerini otomatik olarak alamıyoruz. Hesabın doğru olduğunu kontrol edip onaylayın.',
+      reason: 'Instagram profilinizi kontrol edin, doğruluğundan emin olun.',
     })
   })
 

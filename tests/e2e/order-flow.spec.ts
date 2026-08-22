@@ -124,7 +124,10 @@ test.describe('sipariş akışı', () => {
     await expect(page.locator('svg.animate-spin')).toBeVisible()
 
     // Instagram fallback: UNVERIFIED + kanonik URL + onay kutusu
-    await expect(page.getByText('Doğrulanamadı')).toBeVisible({ timeout: 15_000 })
+    // ⚠️ Rozet kaldırıldı (bkz. TargetConfirmCard): doğrulanmamış hedef
+    //    yeşil rozet ALMAZ ve onay kutusu ister.
+    await expect(page.getByRole('checkbox').first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('Doğrulandı', { exact: true })).toHaveCount(0)
     await expect(page.getByText('https://www.instagram.com/medya333/')).toBeVisible()
     await expect(page.locator('svg.animate-spin')).toHaveCount(0)
 

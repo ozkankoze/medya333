@@ -153,10 +153,12 @@ function TargetCardBody({
         isVerified ? 'border-ink-200' : 'border-ink-200',
       )}
     >
+      {/* Sol kenar: doğrulanmışta yeşil, doğrulanmamışta NÖTR gri.
+          Kehribar kenar da rozetle aynı "uyarı" tonunu üretiyordu. */}
       <span
         className={cn(
           'absolute inset-y-0 left-0 w-[3px]',
-          isVerified ? 'bg-success-600' : 'bg-warning-600',
+          isVerified ? 'bg-success-600' : 'bg-ink-300',
         )}
         aria-hidden
       />
@@ -204,11 +206,17 @@ function TargetCardBody({
             <span className="truncate text-h3 leading-tight text-ink-950">
               {data.displayName ?? (data.handle ? `@${data.handle}` : data.normalized)}
             </span>
-            {isVerified ? (
-              <Badge tone="success">Doğrulandı</Badge>
-            ) : (
-              <Badge tone="warning">Doğrulanamadı</Badge>
-            )}
+            {/**
+             * ⚠️ DOĞRULANMAMIŞ HEDEFTE ROZET YOKTUR — "Doğrulanamadı" rozeti
+             * KALDIRILDI. Turuncu bir rozet, olağan bir durumu (Instagram
+             * kişisel hesaplar için önizleme vermez) sistem hatası gibi
+             * gösteriyordu.
+             *
+             * ⚠️ BİLGİ GİZLENMİYOR: doğrulanmış hedef hâlâ yeşil "Doğrulandı"
+             * rozeti alır, doğrulanmamış olan almaz. Ayrım rozetin VARLIĞINDA
+             * taşınır ve zorunlu onay kutusu aşağıda durmaya devam eder.
+             */}
+            {isVerified && <Badge tone="success">Doğrulandı</Badge>}
           </div>
 
           {data.handle && data.displayName && (
@@ -232,8 +240,7 @@ function TargetCardBody({
           {!isVerified && (
             <>
               <p className="mt-2 text-small text-ink-700">
-                {data.message ??
-                  'Bu platform için otomatik doğrulama yapılamıyor. Hedefin doğru olduğunu kontrol edin.'}
+                {data.message ?? 'Hedefinizi kontrol edin, doğruluğundan emin olun.'}
               </p>
               <label className="mt-3 flex cursor-pointer items-start gap-2.5">
                 <input

@@ -164,7 +164,11 @@ test.describe('10-11 · paket ve hedef', () => {
     await openService(page, 'instagram', 'takipci')
     await stepSection(page, 'target').locator('input').first().fill('@medya333')
 
-    await expect(page.getByText('Doğrulanamadı')).toBeVisible({ timeout: 15_000 })
+    // ⚠️ "Doğrulanamadı" ROZETİ KALDIRILDI — olağan bir durumu hata gibi
+    //    gösteriyordu. Doğrulanmamış hedefin işareti artık: yeşil
+    //    "Doğrulandı" rozetinin YOKLUĞU + zorunlu onay kutusu.
+    await expect(page.getByRole('checkbox').first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('Doğrulandı', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('checkbox').first()).toBeVisible()
     // ⚠️ Teknik adapter detayı müşteriye SIZMAZ
     const text = await stepSection(page, 'target').innerText()
