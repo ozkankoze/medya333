@@ -270,6 +270,46 @@ export function auditProductionConfig(): GuardFinding[] {
         'Müşteriye E-POSTA GİTMEZ.',
     })
   }
+  /**
+   * ⭐ INSTAGRAM BUSINESS DISCOVERY — YARIM YAPILANDIRMA SESSİZ KALMASIN
+   *
+   * İki yönlü kontrol, çünkü iki yönlü de yanılgı üretir:
+   *
+   *   (a) Bayrak AÇIK ama credential eksik → operatör "Instagram önizlemesi
+   *       çalışıyor" sanır, oysa her hedef UNVERIFIED'a düşer. Sahte başarı
+   *       değil ama SAHTE BEKLENTİ üretir.
+   *   (b) Credential VAR ama bayrak kapalı → üretim ortamında hiçbir işe
+   *       yaramayan bir SIR duruyor demektir. Kullanılmayan secret, sızma
+   *       yüzeyidir; ya açılmalı ya silinmelidir.
+   *
+   * ⚠️ BLOCKER DEĞİL, UYARI: Instagram önizlemesi bir zenginleştirmedir;
+   *    yokluğunda sipariş akışı eksiksiz çalışır. Siteyi bu yüzden
+   *    kapatmak orantısız olurdu.
+   */
+  const igCredentials = Boolean(env.IG_ACCESS_TOKEN && env.IG_USER_ID)
+  if (env.INSTAGRAM_BUSINESS_DISCOVERY_ENABLED && !igCredentials) {
+    const missing = [
+      !env.IG_ACCESS_TOKEN && 'IG_ACCESS_TOKEN',
+      !env.IG_USER_ID && 'IG_USER_ID',
+    ].filter(Boolean)
+    findings.push({
+      level: 'warning',
+      code: 'INSTAGRAM_API_INCOMPLETE',
+      message:
+        `INSTAGRAM_BUSINESS_DISCOVERY_ENABLED=true ama eksik değişken(ler): ${missing.join(', ')}. ` +
+        'Instagram profil önizlemesi ÇALIŞMAZ; her hedef doğrulanmadan kullanıcı onayına düşer.',
+    })
+  }
+  if (!env.INSTAGRAM_BUSINESS_DISCOVERY_ENABLED && (env.IG_ACCESS_TOKEN || env.IG_APP_SECRET)) {
+    findings.push({
+      level: 'warning',
+      code: 'INSTAGRAM_CREDENTIALS_IDLE',
+      message:
+        'Instagram sırrı tanımlı ama INSTAGRAM_BUSINESS_DISCOVERY_ENABLED kapalı — ' +
+        'hiçbir işe yaramayan bir sır ortamda duruyor. Ya bayrağı açın ya değişkenleri kaldırın.',
+    })
+  }
+
   if (!env.SENTRY_DSN) {
     findings.push({
       level: 'warning',
