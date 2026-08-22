@@ -1,5 +1,10 @@
 import { buttonVariants } from '@/components/ui/button'
-import { manualPaymentNumber, whatsappPaymentHref } from '@/lib/support'
+import {
+  manualPaymentNumber,
+  whatsappConversionSendTo,
+  whatsappPaymentHref,
+} from '@/lib/support'
+import { WhatsappConversionLink } from '@/components/analytics/WhatsappConversionLink'
 import { cn } from '@/lib/utils'
 
 export { manualPaymentNumber }
@@ -39,19 +44,17 @@ export function WhatsappPayButton({
   if (!phone) return null
 
   return (
-    <a
+    <WhatsappConversionLink
       href={whatsappPaymentHref(orderNo, phone)}
-      target="_blank"
-      // ⚠️ `noopener`: yeni sekme `window.opener` üzerinden bu sayfayı
-      //    yönlendirebilirdi. `noreferrer` sipariş numaralı adresi WhatsApp'a
-      //    Referer olarak sızdırmaz.
-      rel="noopener noreferrer"
+      // Destek düğmesiyle AYNI dönüşüm eylemi: ikisi de "müşteri WhatsApp'tan
+      // bize ulaştı" demektir; Ads tarafında ayrıştırmaya gerek duyulmadı.
+      sendTo={whatsappConversionSendTo()}
       className={cn(buttonVariants({ size: 'lg', block: true }), className)}
-      data-testid="whatsapp-pay"
+      testId="whatsapp-pay"
     >
       <WhatsappIcon />
       {label}
-    </a>
+    </WhatsappConversionLink>
   )
 }
 

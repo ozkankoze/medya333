@@ -1,5 +1,6 @@
 import { env } from '@/env'
-import { supportWhatsappNumber } from '@/lib/support'
+import { supportWhatsappNumber, whatsappConversionSendTo } from '@/lib/support'
+import { WhatsappConversionLink } from '@/components/analytics/WhatsappConversionLink'
 
 /**
  * CANLI DESTEK DÜĞMESİ — sağ altta sabit WhatsApp bağlantısı
@@ -8,9 +9,10 @@ import { supportWhatsappNumber } from '@/lib/support'
  * kapanınca (PayTR bağlanınca) destek düğmesi KAYBOLMAMALIDIR; ikisi ayrı
  * ihtiyaçlar. Tek koşul: geçerli bir numaranın tanımlı olması.
  *
- * ⚠️ SUNUCU BİLEŞENİ. Sadece bir `<a>`; hiçbir client bundle eklemez,
- * hiçbir üçüncü taraf "canlı sohbet" scripti yüklemez. Bu tür widget'lar
- * genelde 100 KB+ JS ve bir izleme çerezi getirir; burada ikisi de yok.
+ * ⚠️ SUNUCU BİLEŞENİ KALIR. Adres ve numara sunucuda çözülür; istemciye
+ * inen tek şey, dönüşüm olayını gönderen küçük `WhatsappConversionLink`
+ * sarmalayıcısıdır. Hiçbir üçüncü taraf "canlı sohbet" scripti yüklenmez —
+ * o tür widget'lar genelde 100 KB+ JS ve bir izleme çerezi getirir.
  *
  * ⚠️ MOBİLDE SABİT FİYAT ÇUBUĞUYLA ÇAKIŞMAZ. Sihirbaz sayfasında ekranın
  * altına yapışan bir tutar çubuğu var (`.sticky-price-bar`, z-40). Düğme
@@ -28,15 +30,13 @@ export function SupportFab() {
   const href = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
 
   return (
-    <a
+    <WhatsappConversionLink
       href={href}
-      target="_blank"
-      // ⚠️ `noreferrer`: müşterinin hangi sayfadan yazdığı WhatsApp'a
-      //    Referer olarak gitmesin. `noopener`: yeni sekme bu sayfayı
-      //    yönlendiremesin.
-      rel="noopener noreferrer"
-      aria-label="WhatsApp ile destek hattına yazın"
-      data-testid="support-fab"
+      // Google Ads tıklama dönüşümü — kimlik tanımsızsa null gelir ve
+      // olay gönderilmez, bağlantı yine çalışır.
+      sendTo={whatsappConversionSendTo()}
+      ariaLabel="WhatsApp ile destek hattına yazın"
+      testId="support-fab"
       className={
         'group fixed right-4 bottom-28 z-30 flex items-center gap-2.5 sm:right-6 lg:bottom-6 ' +
         // 56px daire — WCAG 2.5.8'in istediği 44px'in üstünde
@@ -51,7 +51,7 @@ export function SupportFab() {
     >
       <WhatsappGlyph />
       <span className="sr-only">WhatsApp destek</span>
-    </a>
+    </WhatsappConversionLink>
   )
 }
 

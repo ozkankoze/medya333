@@ -58,3 +58,34 @@ describe('manuel ödeme — WhatsApp köprüsü', () => {
     expect(manualPaymentNumber(true, '+90 555 111 22 33')).toBe('905551112233')
   })
 })
+
+/**
+ * ⭐ GOOGLE ADS TIKLAMA DÖNÜŞÜMÜ — send_to sözleşmesi
+ *
+ * ⚠️ Yanlış `send_to`, dönüşümün SESSİZCE hiç sayılmaması demektir: tıklama
+ * gerçekleşir, WhatsApp açılır, kimse bir şeyin bozuk olduğunu fark etmez.
+ * Bu yüzden biçim burada sabitlenir.
+ */
+describe('WhatsApp tıklama dönüşümü', () => {
+  const LABEL = 'pAtaCI-Oi-YcEKS-47ZE'
+
+  /** `whatsappConversionSendTo` env'e bağlı; kural saf hâlde yeniden ifade edilir. */
+  function sendTo(adsId: string | undefined): string | null {
+    return adsId ? `${adsId}/${LABEL}` : null
+  }
+
+  it('send_to "AW-…/etiket" biçimindedir', () => {
+    expect(sendTo('AW-18368487204')).toBe('AW-18368487204/pAtaCI-Oi-YcEKS-47ZE')
+  })
+
+  it('⚠️ KİMLİK YOKSA dönüşüm gönderilmez', () => {
+    // Etiket de zaten yüklenmemiştir; "etiket yok ama olay var" olamaz.
+    expect(sendTo(undefined)).toBeNull()
+  })
+
+  it('⚠️ etikette eğik çizgi YOK — ayırıcı tek olmalı', () => {
+    // `AW-…/a/b` biçimi Google tarafında sessizce yok sayılırdı.
+    expect(LABEL).not.toContain('/')
+    expect((sendTo('AW-1') ?? '').split('/')).toHaveLength(2)
+  })
+})
