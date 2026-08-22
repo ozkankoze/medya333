@@ -3,7 +3,7 @@
 --
 --  ⚠️ TAMAMEN EKLEMELİ (additive). Hiçbir tablo/kolon düşürülmez, hiçbir
 --  mevcut satır değiştirilmez. Geri alınması gerekirse yalnızca bu tablo ve
---  iki enum düşürülür; başka hiçbir veri etkilenmez.
+--  iki enum düşürülür. başka hiçbir veri etkilenmez.
 --
 --  Prisma'nın WASM şema motoru bu ortamda diff üretemediği için migration
 --  ELLE yazılmıştır (bkz. README → "Kısıtlı ağlarda migration").

@@ -30,19 +30,17 @@ describe('migration dosyaları', () => {
   })
 
   /**
-   * ⚠️ MUAF TUTULAN ESKİ MIGRATION'LAR
+   * ⚠️ MUAFİYET LİSTESİ ARTIK BOŞ (Faz 11).
    *
-   * Bu iki dosya kuraldan önce yazıldı, sorunsuz uygulandı ve canlıya
-   * çıkacak veritabanlarında da uygulanmış olacak. İçeriklerini şimdi
-   * düzeltmek CHECKSUM DEĞİŞTİRİR ve Prisma "migration modified after
-   * being applied" hatası verir — yani düzeltmenin kendisi bir arıza olur.
+   * Faz 10'da iki dosya "zaten uygulandı, checksum'ı bozmayalım" gerekçesiyle
+   * muaf tutulmuştu. Faz 11'de BOŞ bir veritabanında prova yapılınca görüldü
+   * ki bu dosyalar SIFIRDAN kurulan bir veritabanında — yani tam olarak yeni
+   * üretim veritabanında — ifade bölücüsünü kıran satırlar içeriyordu.
    *
-   * Kural bu yüzden YENİ migration'lar için geçerlidir. Liste büyümemelidir.
+   * Muafiyet, hatayı gizleyen bir rahatlıktı. Yorumlar düzeltildi (SQL anlamı
+   * değişmedi) ve liste boşaltıldı. Buraya bir daha isim eklenmemelidir.
    */
-  const LEGACY_EXEMPT = new Set([
-    '20260818160000_real_catalog',
-    '20260819080000_notifications',
-  ])
+  const LEGACY_EXEMPT = new Set<string>([])
 
   it('⚠️ açıklama satırlarında noktalı virgül YOK (ifade bölücüyü kırar)', () => {
     const offenders: string[] = []

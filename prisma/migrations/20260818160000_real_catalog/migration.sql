@@ -7,7 +7,7 @@
 --    • tüm yeni sütunların varsayılanı vardır → mevcut satırlar aynen geçerli
 --
 --  Order / Payment / Fulfillment tabloları YALNIZCA bir snapshot sütunuyla
---  genişletildi (`pricingMode`); mevcut siparişler FLAT_TIER olarak kalır.
+--  genişletildi (`pricingMode`). mevcut siparişler FLAT_TIER olarak kalır.
 -- ============================================================================
 
 -- 1) Sabit paket fiyatlandırma modu -----------------------------------------
