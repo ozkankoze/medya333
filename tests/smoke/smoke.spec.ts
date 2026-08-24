@@ -342,6 +342,33 @@ test.describe('canlı ortam yüzeyi', () => {
      */
     const closed = !robots.includes('Allow: /')
 
+    /**
+     * ⭐⭐ BU KONTROLÜN OLMAMASI GERÇEK BİR OLAYA MAL OLDU.
+     *
+     * Yukarıdaki "aşamayı bilme" ilkesi genel bir hedef için doğrudur, ama
+     * CANLI ALAN ADI için yanlıştı: `www.medya333.com` üzerinde "tüm site
+     * kapalı" HİÇBİR ZAMAN meşru bir sonuç değildir. Test her iki dalı da
+     * kabul ettiği için, `APP_ENV` yanlışlıkla `production` dışında bir
+     * değere ayarlandığında robots.txt tüm siteyi Google'a kapattı ve
+     * **duman testi yine YEŞİL kaldı**.
+     *
+     * Belirti sessizdi: sayfalar açılıyordu, hiçbir hata düşmüyordu, hiçbir
+     * test kırılmıyordu. Yalnızca site arama motoruna görünmez olmuştu ve
+     * bunu kimse robots.txt'yi elle açana kadar fark etmedi.
+     *
+     * ⚠️ Hedef canlıysa aşama artık BİLİNİR bir şeydir: canlı alan adına
+     * cevap veren dağıtım, tanımı gereği canlıdır. Bu yüzden burada kapalı
+     * dal bir SEÇENEK değil, BAŞARISIZLIKTIR.
+     */
+    if (AGAINST_PRODUCTION) {
+      expect(
+        closed,
+        'CANLI ALAN ADI ARAMA MOTORUNA KAPALI. robots.txt "Disallow: /" diyor — '
+          + 'site indekslenemez. Neredeyse kesin sebep: bu dağıtımda APP_ENV '
+          + '"production" değil (staging/e2e). Vercel ortam değişkenlerini kontrol edin.',
+      ).toBe(false)
+    }
+
     if (closed) {
       expect(robots).toContain('Disallow: /')
       expect(robots, 'kapalı ortam sitemap bildiriyor').not.toContain('Sitemap:')
@@ -353,7 +380,25 @@ test.describe('canlı ortam yüzeyi', () => {
       expect(robots).toContain(`${origin}/sitemap.xml`)
 
       const sitemap = await (await request.get('/sitemap.xml')).text()
-      expect(sitemap, 'sitemap yanlış alan adını gösteriyor').toContain(origin)
+
+      /**
+       * ⚠️ "İÇERİYOR" YETMEZ — HER `loc` DOĞRU ALAN ADINDA OLMALI.
+       *
+       * Önceki hâli `toContain(origin)` idi: tek bir adres doğru olsa test
+       * geçerdi. Gerçekte olan şey ise adreslerin TAMAMININ yanlış alan
+       * adında üretilmesiydi (`APP_BASE_URL` başka bir Vercel projesinin
+       * alias'ını gösteriyordu). Yanlış alan adı, arama motoruna iki ayrı
+       * host'ta aynı içeriği bildirmek demektir — yinelenen içerik.
+       */
+      const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)]
+        .map((m) => m[1])
+        .filter((u): u is string => Boolean(u))
+      expect(locs.length, 'sitemap hiç adres içermiyor').toBeGreaterThan(0)
+      const wrongHost = locs.filter((u) => !u.startsWith(`${origin}/`))
+      expect(
+        wrongHost,
+        `sitemap YANLIŞ alan adı kullanıyor (beklenen ${origin}) — ${wrongHost.length}/${locs.length} adres`,
+      ).toEqual([])
       // ⚠️ Token taşıyan veya özel adresler site haritasında olmamalı.
       for (const bad of ['/siparisler/', '/hesabim', '/yonetim', '/odeme/', '?t=']) {
         expect(sitemap, `site haritasında "${bad}"`).not.toContain(bad)

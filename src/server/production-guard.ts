@@ -69,6 +69,31 @@ export function isLiveDeployment(): boolean {
 }
 
 /**
+ * Taban adres bir dağıtım platformu alias'ı mı? (`*.vercel.app`)
+ *
+ * ⚠️ SAF FONKSİYON — BİLİNÇLİ OLARAK `env`'DEN AYRI.
+ *
+ * `auditProductionConfig` modül seviyesindeki `env`'e bağlıdır; o yüzden
+ * bir testte yalnızca O ANKİ ortamın sonucu görülebilir. Kuralın kendisini
+ * saf tutmak, "hangi adres alias sayılır?" sorusunun canlıya çıkmadan
+ * cevaplanmasını sağlar. (Aynı gerekçe `lib/seo/robots-rules` için de
+ * yazılmıştı; orada işe yaradı.)
+ *
+ * Alt alan adları da sayılır: `abc-git-main-x.vercel.app` bir preview
+ * alias'ıdır. `vercel.app.example.com` gibi taklit adresler SAYILMAZ —
+ * eşleşme host'un SONUNDA olmalıdır.
+ */
+export function isDeploymentAliasUrl(base: string): boolean {
+  try {
+    const host = new URL(base).host.toLowerCase()
+    return host === 'vercel.app' || host.endsWith('.vercel.app')
+  } catch {
+    // Ayrıştırılamayan adres burada değil, BASE_URL_NOT_HTTPS'te raporlanır.
+    return false
+  }
+}
+
+/**
  * Tüm üretim kontrollerini çalıştırır ve bulguları döner.
  * Boot'u durdurmaz — karar `assertProductionReady`'e aittir.
  */
@@ -191,6 +216,43 @@ export function auditProductionConfig(): GuardFinding[] {
       message:
         'Taban adres geliştirme/örnek bir adres gösteriyor (localhost, 127.0.0.1, ' +
         '0.0.0.0, example.com, .local). Canlı adres kullanılmalıdır.',
+    })
+  }
+
+  /**
+   * ⭐ TABAN ADRES BİR DAĞITIM ALIAS'I OLMAMALI (canlıda).
+   *
+   * ⚠️ Bu kontrol GERÇEK BİR OLAYDAN doğdu: canlı projede `APP_BASE_URL`
+   * `https://medya333.vercel.app` olarak kalmıştı — üstelik o, bu projenin
+   * kendi alias'ı bile değil, BAŞKA bir Vercel projesinin adresiydi. Sonuç:
+   * `sitemap.xml`, `canonical`, `og:url` ve ödeme callback adreslerinin
+   * TAMAMI yanlış alan adını gösteriyordu.
+   *
+   * Neden mevcut kontroller yakalamadı? Çünkü `https://…vercel.app` geçerli
+   * bir HTTPS adresidir ve localhost/example.com listesinde yoktur. Yani
+   * "biçimsel olarak doğru, anlamsal olarak yanlış" — sessiz hataların
+   * klasik şekli.
+   *
+   * SEO açısından zararı somut: aynı içerik iki ayrı host üzerinden
+   * bildirilir, arama motoru hangisinin asıl olduğunu bilemez ve sinyal
+   * ikiye bölünür.
+   *
+   * ⚠️ NEDEN `blocker` DEĞİL `warning`? Özel alan adı olmayan bir dağıtımın
+   * gerçek adresi meşru olarak `*.vercel.app` olabilir; bunu blocker yapmak
+   * o kurulumların açılmasını engellerdi. Uygulama kendi kanonik alan adını
+   * BİLEMEZ — bilen taraf duman testidir (`tests/smoke/guard.ts` içindeki
+   * `PRODUCTION_HOSTS`) ve orada bu durum sert bir HATADIR. Buradaki uyarı
+   * açılış günlüğünde ve üretim denetiminde görünür.
+   */
+  if (isProd && isDeploymentAliasUrl(base)) {
+    findings.push({
+      level: 'warning',
+      code: 'BASE_URL_IS_DEPLOYMENT_ALIAS',
+      message:
+        `Taban adres bir dağıtım alias'ı: "${base}". Özel alan adınız varsa ` +
+        'sitemap, canonical, og:url ve ödeme callback adresleri YANLIŞ alan adını ' +
+        'gösteriyor demektir (yinelenen içerik). APP_BASE_URL değerini kanonik ' +
+        'alan adınıza ayarlayın.',
     })
   }
 

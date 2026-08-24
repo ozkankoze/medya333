@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildCsp } from '@/lib/security/csp'
+import { isDeploymentAliasUrl } from '@/server/production-guard'
 
 /**
  * ⭐ ÜRETİM DENETİMİ — KAYNAK KODU TARAMASI (Faz 7)
@@ -529,5 +530,50 @@ describe('Faz 9 — canlıya çıkış denetimi', () => {
     // Otomatik tekrar kuyruğu yok
     expect(admin).not.toContain('setInterval')
     expect(admin).not.toContain('setTimeout')
+  })
+})
+
+// ===========================================================================
+/**
+ * ⭐⭐ TABAN ADRES BİR DAĞITIM ALIAS'I OLAMAZ (canlıda)
+ *
+ * ⚠️ Bu testler GERÇEK BİR OLAYDAN doğdu. Canlı projede `APP_BASE_URL`
+ * `https://medya333.vercel.app` olarak kalmıştı — üstelik o adres, siteyi
+ * sunan projenin kendi alias'ı bile değildi. Sonuç: `sitemap.xml`,
+ * `canonical`, `og:url` ve ödeme callback adreslerinin TAMAMI yanlış alan
+ * adını gösteriyordu.
+ *
+ * Mevcut kontroller neden yakalamadı? Çünkü `https://…vercel.app` geçerli
+ * bir HTTPS adresidir ve localhost/example.com listesinde yoktur. Biçimsel
+ * olarak doğru, anlamsal olarak yanlış — sessiz hataların klasik şekli.
+ */
+describe('taban adres — dağıtım alias tespiti', () => {
+  it('⚠️ vercel.app alias\'ları YAKALANIR', () => {
+    expect(isDeploymentAliasUrl('https://medya333.vercel.app')).toBe(true)
+    expect(isDeploymentAliasUrl('https://medya333.vercel.app/')).toBe(true)
+    // Preview alias'ları da alias'tır — canonical olarak kullanılamaz.
+    expect(isDeploymentAliasUrl('https://medya333-git-main-abc.vercel.app')).toBe(true)
+    expect(isDeploymentAliasUrl('https://medya333-ex86.vercel.app/')).toBe(true)
+  })
+
+  it('gerçek alan adları alias SAYILMAZ', () => {
+    expect(isDeploymentAliasUrl('https://www.medya333.com')).toBe(false)
+    expect(isDeploymentAliasUrl('https://medya333.com/')).toBe(false)
+  })
+
+  it('⚠️ TAKLİT ADRESLER alias sayılmaz — eşleşme host SONUNDA olmalı', () => {
+    // Saldırgan kontrollü bir alan adı "vercel.app" dizesini içerebilir;
+    // `includes()` ile yazılsaydı bu adres yanlışlıkla alias sayılırdı.
+    expect(isDeploymentAliasUrl('https://vercel.app.medya333.com')).toBe(false)
+    expect(isDeploymentAliasUrl('https://notvercel.app.example.org')).toBe(false)
+    // Tersi de doğru olmalı: "…xvercel.app" bizim alias'ımız değildir.
+    expect(isDeploymentAliasUrl('https://fakevercel.app')).toBe(false)
+  })
+
+  it('ayrıştırılamayan adres burada patlamaz', () => {
+    // Bu durum BASE_URL_NOT_HTTPS tarafından raporlanır; burada sessizce
+    // false dönmek, tek bir hatanın iki ayrı bulguya bölünmesini önler.
+    expect(isDeploymentAliasUrl('bu bir adres degil')).toBe(false)
+    expect(isDeploymentAliasUrl('')).toBe(false)
   })
 })
