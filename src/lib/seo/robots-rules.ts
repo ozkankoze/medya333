@@ -39,27 +39,93 @@ export const DISALLOWED_PATHS = [
   '/kayit',
 ] as const
 
-export interface RobotsInput {
-  /** Kanonik taban adres (sonunda `/` olmadan). */
+/**
+ * ⭐⭐ İNDEKSLENEBİLİRLİK — KANONİK HOST'A GÖRE, AŞAMA BAYRAĞINA GÖRE DEĞİL
+ *
+ * ⚠️ BU FONKSİYON GERÇEK BİR KESİNTİDEN DOĞDU.
+ *
+ * Önceden indekslenebilirlik `isLiveDeployment()`e (yani `APP_ENV`e) bağlıydı.
+ * Bir gün canlı projede `APP_ENV` "production" dışında bir değere ayarlıydı ve
+ * `www.medya333.com/robots.txt` TÜM SİTEYİ Google'a kapattı. Hiçbir hata
+ * düşmedi, hiçbir test kırılmadı, sayfalar normal açılıyordu — site yalnızca
+ * arama motoruna görünmez olmuştu.
+ *
+ * Asıl sorun daha derindi: `APP_ENV` aynı anda "gerçek para tahsil edilebilir
+ * mi?" sorusunu da yönetiyor. PayTR onayı beklenirken o soruya "hayır" demek
+ * ZORUNLUYDU, ve bu "indekslenebilir mi?" sorusuna da zorla "hayır"
+ * dedirtiyordu. İki ayrı soru tek bayrağa bağlanmıştı.
+ *
+ * ⚠️ DOĞRU ÖLÇÜT: KANONİK ALAN ADINA CEVAP VEREN DAĞITIM, TANIMI GEREĞİ
+ * CANLI SİTEDİR. Preview'lar kendi `*.vercel.app` adreslerinde cevap verir ve
+ * kanonik host'la eşleşmez.
+ *
+ * Üç koşulun HEPSİ gerekir — hepsi FAIL-CLOSED yönde:
+ *   1. Taban adres HTTPS olmalı  → yerel geliştirme kapalı kalır
+ *   2. Taban adres bir dağıtım alias'ı OLMAMALI → `APP_BASE_URL` yanlışlıkla
+ *      `*.vercel.app` bırakılmışsa hiçbir şey indekslenmez (yinelenen içerik
+ *      üretmektense kapalı kalmak yeğdir)
+ *   3. İsteğin host'u taban adresin host'uyla AYNI olmalı → preview kapalı
+ *
+ * ⚠️ HOST OKUNAMAZSA eski davranışa (`live`) düşülür. Bilinmeyen bir durumda
+ * yeni kuralı uydurmaktansa, önceki bilinen davranışı sürdürmek doğrudur.
+ */
+export interface IndexableInput {
+  /** Kanonik taban adres (`APP_BASE_URL`). */
   base: string
-  /** Bu dağıtım GERÇEKTEN canlı mı? (`APP_ENV=production` + `NODE_ENV=production`) */
+  /** İsteğin `Host` başlığı — okunamadıysa null. */
+  requestHost: string | null
+  /** Eski ölçüt; yalnızca host okunamadığında yedek olarak kullanılır. */
   live: boolean
 }
 
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/** `Host` başlığını normalize eder (büyük/küçük harf ve varsayılan port). */
+function normalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/:443$/, '')
+}
+
+export function isIndexableRequest({ base, requestHost, live }: IndexableInput): boolean {
+  // 1) HTTPS değilse indekslenecek bir şey yok (yerel/geliştirme).
+  if (!base.startsWith('https://')) return false
+
+  const canonicalHost = hostOf(base)
+  if (!canonicalHost) return false
+
+  // 2) Kanonik adres bir dağıtım alias'ıysa kapalı kal — bu bir yapılandırma
+  //    hatasıdır ve indekslenirse yinelenen içerik üretir.
+  if (canonicalHost === 'vercel.app' || canonicalHost.endsWith('.vercel.app')) return false
+
+  // 3) Host okunamadıysa eski ölçüte düş.
+  if (!requestHost) return live
+
+  return normalizeHost(requestHost) === canonicalHost
+}
+
+export interface RobotsInput {
+  /** Kanonik taban adres (sonunda `/` olmadan). */
+  base: string
+  /** Bu dağıtım indekslenebilir mi? (bkz. `isIndexableRequest`) */
+  indexable: boolean
+}
+
 /**
- * ⭐ CANLI OLMAYAN ORTAM HİÇ İNDEKSLENMEZ (Faz 11)
+ * ⭐ İNDEKSLENEBİLİR OLMAYAN ORTAM HİÇ TARANMAZ (Faz 11)
  *
  * Vercel'de her Preview dağıtımı halka açık bir adres alır. Aynı içerik iki
  * ayrı adreste indekslenirse:
  *   • yinelenen içerik riski doğar,
  *   • arama sonucunda müşterinin karşısına ESKİ bir dağıtım çıkabilir,
  *   • staging'deki test verisi ve deneme metinleri aranabilir hâle gelir.
- *
- * ⚠️ Bu, canlıyı yanlışlıkla kapatma riski taşımaz: `APP_ENV` tanımsızsa
- * aşama zaten "production" sayılır (ADR-027, fail-closed).
  */
-export function buildRobots({ base, live }: RobotsInput): MetadataRoute.Robots {
-  if (!live) {
+export function buildRobots({ base, indexable }: RobotsInput): MetadataRoute.Robots {
+  if (!indexable) {
     return {
       rules: [{ userAgent: '*', disallow: '/' }],
       /**

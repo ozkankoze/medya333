@@ -177,12 +177,12 @@ describe('⭐ ÜRETİM ALAN ADI', () => {
      * doğrudan çağrılır ki "canlıda hangi alan adı yazacak?" sorusu canlıya
      * çıkmadan cevaplansın.
      */
-    const live = buildRobots({ base: 'https://www.medya333.com', live: true })
+    const live = buildRobots({ base: 'https://www.medya333.com', indexable: true })
     expect(live.sitemap).toBe('https://www.medya333.com/sitemap.xml')
     expect(live.host).toBe('https://www.medya333.com')
 
     // Canlı olmayan dal hiçbir alan adı sızdırmaz.
-    const preview = buildRobots({ base: 'https://www.medya333.com', live: false })
+    const preview = buildRobots({ base: 'https://www.medya333.com', indexable: false })
     expect(JSON.stringify(preview)).not.toContain('medya333.com')
   })
 
