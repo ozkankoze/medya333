@@ -48,12 +48,25 @@ export default async function HelpPage() {
           : 'Aktif hizmet listesi ana sayfadaki Hizmetler bölümünde yer alır.',
     },
     {
-      q: 'Neden istediğim miktarı yazamıyorum?',
+      /**
+       * ⚠️ BU CEVAP BİR KEZ YANLIŞA DÖNDÜ. Önceki hâli "ara miktar
+       * seçilemez, hazır paketlerden birini seçin" diyordu; serbest miktar
+       * slider'ı geldikten sonra ürünü YANLIŞ anlatıyordu. Katalogda hem
+       * serbest hem hazır-miktarlı varyantlar bulunabildiği için cevap
+       * artık ikisini de dürüstçe kapsıyor.
+       */
+      q: 'İstediğim miktarı serbestçe seçebilir miyim?',
       a: (
         <>
-          Fiyatlarımız <strong>hazır paketler</strong> hâlindedir; her paketin kendi net fiyatı
-          vardır. Bu yüzden ara miktar (örneğin 7.342) seçilemez. Size en yakın paketi seçmeniz
-          yeterlidir.
+          Çoğu hizmette <strong>evet</strong>: sipariş adımındaki çubuğu sürükleyerek miktarı
+          alt ve üst sınır arasında serbestçe belirleyebilirsiniz, tutar anında hesaplanır. Birim
+          fiyat miktar arttıkça kademeli olarak düşer. Bazı hizmetler ise yalnızca{' '}
+          <strong>hazır paketler</strong> hâlinde sunulur; orada size en yakın paketi seçmeniz
+          yeterlidir. Hangi hizmetin hangi şekilde çalıştığını{' '}
+          <Link href="/hizmetler" className="text-brand-600 underline underline-offset-2">
+            hizmet sayfalarındaki fiyat tablosunda
+          </Link>{' '}
+          görebilirsiniz.
         </>
       ),
     },

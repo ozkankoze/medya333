@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { PlatformTile } from '@/components/wizard/PlatformMark'
 import { formatMinor } from '@/lib/money'
 import { entryPriceOf } from '@/lib/pricing'
+import { isIndexable, serviceSlug } from '@/lib/seo/service-pages'
 import { unitOf, withUnit } from '@/lib/units'
 import type { CatalogSnapshot } from '@/server/catalog/snapshot'
 
@@ -67,8 +68,9 @@ export function ServiceExplorer({ catalog }: { catalog: CatalogSnapshot }) {
                   0,
                   ...service.variants.map((v) => v.refillDays ?? 0),
                 )
+                const landingSlug = serviceSlug(platform.slug, service.slug)
                 return (
-                  <li key={service.id}>
+                  <li key={service.id} className="flex flex-col">
                     <Link
                       href={`/?p=${platform.slug}&s=${service.slug}#siparis`}
                       data-testid={`explorer-service-${platform.slug}-${service.slug}`}
@@ -104,6 +106,24 @@ export function ServiceExplorer({ catalog }: { catalog: CatalogSnapshot }) {
                         {platform.name} {service.name} hizmetini seç ({unitOf(service.unitLabel)})
                       </span>
                     </Link>
+                    {/*
+                      ⚠️ KARTIN İÇİNE KONAMAZ. Kartın tamamı zaten bir
+                      bağlantıdır; iç içe `<a>` geçersiz HTML'dir ve
+                      tarayıcı DOM'u kendi kurtarma kuralıyla bozar. Bu
+                      yüzden ayrıntı bağlantısı kartın ALTINDA, kardeş
+                      eleman olarak durur.
+
+                      ⚠️ Yalnızca editoryal metni olan hizmetlerde gösterilir
+                      (bkz. `lib/seo/service-pages` → isIndexable).
+                    */}
+                    {isIndexable(landingSlug) && (
+                      <Link
+                        href={`/hizmetler/${landingSlug}`}
+                        className="mt-1.5 px-1 text-caption text-ink-500 underline-offset-2 transition-colors duration-[--duration-fast] hover:text-brand-600 hover:underline"
+                      >
+                        {service.name} hakkında ayrıntılı bilgi
+                      </Link>
+                    )}
                   </li>
                 )
               })}

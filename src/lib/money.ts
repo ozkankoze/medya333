@@ -77,10 +77,27 @@ export function formatMinor(amountMinor: number, opts?: { compact?: boolean }): 
   return `${fmt.format(amountMinor / 100)}${NBSP}${TRY_SYMBOL}`
 }
 
-/** 45 → "0,45 ₺" · 4 → "0,04 ₺" — birim fiyatlarda 4 haneye kadar iner */
+/**
+ * 45 → "0,45 ₺" · 4 → "0,04 ₺" — birim fiyatlarda 4 haneye kadar iner.
+ *
+ * ⚠️ TAM SAYI KONTROLÜ **KURUŞ ÜZERİNDE** YAPILIR, LİRA ÜZERİNDE DEĞİL.
+ *
+ * Önceki hâli `Number.isInteger(value * 100)` yazıyordu; `value` zaten
+ * `amountMinor / 100` olduğu için bu, sayıyı 100'e bölüp tekrar 100 ile
+ * çarpmak demekti — ve kayan nokta bunu her zaman geri getirmez:
+ *
+ *     115 / 100 * 100  →  114.99999999999999   (tam sayı DEĞİL)
+ *
+ * Sonuç: 1,15 ₺'lik birim fiyat ekranda **"1,1500 ₺"** olarak görünüyordu.
+ * Hata sessizdi: bozulan tek şey görüntüydü, hiçbir hesap yanlış değildi,
+ * ama fiyat tablosunda tek bir satırın dört haneli çıkması dikkatli
+ * müşteriye "burada bir şey yanlış" dedirtir. `amountMinor` zaten kuruş
+ * cinsindendir; doğrudan onun tam sayı olup olmadığına bakmak hem doğru
+ * hem de bir bölme işlemi daha az.
+ */
 export function formatUnitPriceMinor(amountMinor: number): string {
   const value = amountMinor / 100
-  const decimals = Number.isInteger(value * 100) && Math.abs(value) >= 0.01 ? 2 : 4
+  const decimals = Number.isInteger(amountMinor) && Math.abs(amountMinor) >= 1 ? 2 : 4
   const n = new Intl.NumberFormat('tr-TR', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,

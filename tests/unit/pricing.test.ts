@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { calculatePrice, PricingError, selectTier, validateQuantity } from '@/lib/pricing'
 import { validateTiers } from '@/lib/pricing/tiers'
 import type { PricingTier, QuantityConstraints } from '@/lib/pricing/types'
-import { extractTaxFromGross } from '@/lib/money'
+import { extractTaxFromGross, formatUnitPriceMinor } from '@/lib/money'
 
 // Instagram · Takipçi · Standart — KDV DAHİL birim fiyatlar
 const TIERS: PricingTier[] = [
@@ -232,5 +232,46 @@ describe('kademe sağlık kontrolü (admin)', () => {
     const r = validateTiers(bad, { minQuantity: 100, maxQuantity: 499 })
     expect(r.ok).toBe(false)
     expect(r.invalid[0]?.reason).toMatch(/sıfır veya negatif/)
+  })
+})
+
+/**
+ * ⚠️ BİRİM FİYAT BİÇİMLENDİRME — KAYAN NOKTA TUZAĞI
+ *
+ * Bu testler bir GÖRÜNTÜ hatasını kilitler: `1,15 ₺`lik bir birim fiyat
+ * fiyat tablosunda `1,1500 ₺` olarak çıkıyordu. Hiçbir hesap yanlış
+ * değildi, hiçbir test kırılmıyordu — yalnızca tek bir satır dört haneli
+ * görünüyordu ve bu, fiyat tablosuna bakan müşteride "burada bir şey
+ * yanlış" hissi bırakır.
+ *
+ * Sebep: `Number.isInteger(amountMinor / 100 * 100)` — 115 için `false`.
+ */
+describe('birim fiyat biçimlendirme', () => {
+  it('⚠️ TAM KURUŞ tutarlar İKİ HANE ile gösterilir', () => {
+    // 115 kuruş: bölüp çarpınca 114.99999999999999 olan tam da bu değer.
+    expect(formatUnitPriceMinor(115)).toBe('1,15 ₺')
+    expect(formatUnitPriceMinor(65)).toBe('0,65 ₺')
+    expect(formatUnitPriceMinor(4)).toBe('0,04 ₺')
+    expect(formatUnitPriceMinor(140)).toBe('1,40 ₺')
+  })
+
+  it('⚠️ KURUŞ ALTI tutarlar DÖRT HANEYE iner — sıfıra yuvarlanmaz', () => {
+    // Türetilmiş birim fiyatlar tam sayı olmayabilir; "0,00 ₺" yazmak
+    // ücretsiz olduğu izlenimi verirdi.
+    expect(formatUnitPriceMinor(0.65)).toBe('0,0065 ₺')
+    expect(formatUnitPriceMinor(0.5)).toBe('0,0050 ₺')
+  })
+
+  it('kesirli kuruş tutarları dört hane ile gösterilir', () => {
+    expect(formatUnitPriceMinor(64.98)).toBe('0,6498 ₺')
+  })
+
+  it('⚠️ HİÇBİR TAM KURUŞ tutar dört haneli çıkmaz (1–2000 kr taraması)', () => {
+    // Nokta düzeltme yerine ARALIK taraması: aynı kayan nokta hatası
+    // başka bir değerde saklanıyorsa burada yakalanır.
+    for (let kurus = 1; kurus <= 2000; kurus++) {
+      const text = formatUnitPriceMinor(kurus)
+      expect(text, `${kurus} kuruş dört haneli çıktı: ${text}`).toMatch(/^\d+,\d{2} ₺$/)
+    }
   })
 })

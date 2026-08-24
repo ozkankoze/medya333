@@ -17,7 +17,8 @@ const LEGAL_LINKS = [
 ] as const
 
 const SERVICE_LINKS = [
-  { href: '/#hizmetler', label: 'Tüm hizmetler' },
+  // ⚠️ Ana sayfa çıpası değil, kendi sayfası — bkz. SiteHeader'daki not.
+  { href: '/hizmetler', label: 'Tüm hizmetler' },
   { href: '/#siparis', label: 'Sipariş oluştur' },
   { href: '/siparis-takip', label: 'Sipariş takip' },
   { href: '/yardim', label: 'Yardım' },

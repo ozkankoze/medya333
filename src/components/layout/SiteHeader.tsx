@@ -22,8 +22,14 @@ import { LogoutButton } from './LogoutButton'
  *    karesinde React render'ı tetikler ve mobilde jank üretir.
  */
 
+/**
+ * ⚠️ "Hizmetler" ARTIK `/#hizmetler` DEĞİL, `/hizmetler`.
+ * Ana sayfadaki keşif bölümü duruyor; ama menüdeki bağlantı arama
+ * motorunun tarayabileceği GERÇEK sayfaya gider. Her sayfadan verilen bu
+ * bağlantı, hizmet açılış sayfalarını "yetim" olmaktan çıkarır.
+ */
 const NAV = [
-  { href: '/#hizmetler', label: 'Hizmetler' },
+  { href: '/hizmetler', label: 'Hizmetler' },
   { href: '/siparis-takip', label: 'Sipariş Takip' },
   { href: '/yardim', label: 'Yardım' },
 ] as const
