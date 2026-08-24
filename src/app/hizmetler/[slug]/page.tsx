@@ -348,13 +348,49 @@ function VariantPricing({ variant, unit }: { variant: CatalogVariant; unit: stri
 
   return (
     <div className="overflow-hidden rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
+      {/**
+       * ⚠️ VARYANTIN AÇIKLAMASI VE PAKET İÇERİĞİ BURADA GÖSTERİLİR.
+       *
+       * İlk sürümde yalnızca etiket ve fiyat basılıyordu; oysa katalogdaki
+       * `description` ("düşüş oranı %1–%5, profiliniz her gün takip edilir")
+       * ve `packageItems` (paketin içinde ne olduğu) bu sayfaların EN
+       * DEĞERLİ bilgisiydi ve hiç görünmüyordu. Paket hizmetlerinde ise
+       * sayfa fiilen boştu: müşteri ne aldığını okuyamıyordu.
+       *
+       * ⚠️ AYNI ZAMANDA EDİTORYAL METNİN YÜKÜNÜ AZALTIR. Bu bilgiler
+       * katalogdan geldiği için elle yazılan metinde TEKRAR EDİLMEZ —
+       * tekrar edilseydi admin değeri değiştirdiğinde metin sessizce
+       * yalana dönerdi. (`/yardim`'daki "ara miktar seçilemez" cevabı tam
+       * olarak böyle bozulmuştu.)
+       */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 p-5">
-        <div>
+        <div className="min-w-0 flex-1">
           <h3 className="text-body font-semibold text-ink-900">{variant.customerLabel}</h3>
           {variant.tagline && <p className="mt-0.5 text-caption text-ink-600">{variant.tagline}</p>}
+          {variant.description && (
+            <p className="mt-2 max-w-prose text-caption leading-relaxed text-ink-600">
+              {variant.description}
+            </p>
+          )}
+          {variant.packageItems.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-1.5">
+              {variant.packageItems.map((item) => (
+                <li
+                  key={item}
+                  className="rounded-full bg-brand-50 px-2.5 py-1 text-caption font-medium text-brand-700"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-        <p className="tabular text-caption text-ink-500">
-          {formatQuantity(variant.minQuantity)} – {formatQuantity(variant.maxQuantity)} {unit}
+        {/* ⚠️ Sabit paketlerde alt ve üst sınır AYNIDIR; "1 – 1 ay" yazmak
+            seçilebilir bir aralık varmış izlenimi verirdi. */}
+        <p className="tabular shrink-0 text-caption text-ink-500">
+          {variant.minQuantity === variant.maxQuantity
+            ? `${formatQuantity(variant.minQuantity)} ${unit}`
+            : `${formatQuantity(variant.minQuantity)} – ${formatQuantity(variant.maxQuantity)} ${unit}`}
         </p>
       </div>
 

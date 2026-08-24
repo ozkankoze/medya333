@@ -22,6 +22,16 @@ import {
 const PLATFORMS = [
   { slug: 'instagram', services: [{ slug: 'takipci' }, { slug: 'begeni' }, { slug: 'kaydet' }] },
   { slug: 'tiktok', services: [{ slug: 'takipci' }, { slug: 'izlenme' }] },
+  /**
+   * ⚠️ Bu iki platformun metni BİLEREK yazılmadı — testin "metni olmayan
+   * hizmet indekslenmez" iddiasının kanıtlanabilir bir örneğe ihtiyacı var.
+   * Metin yazılan her yeni hizmet, bu listedeki bir örneği "artık metni
+   * var" hâline getirip testi anlamsızlaştırır; o yüzden buradaki örnekler
+   * katalogda fiyatı olmayan (dolayısıyla sayfası da açılmayan)
+   * platformlardan seçildi.
+   */
+  { slug: 'telegram', services: [{ slug: 'uye' }, { slug: 'goruntulenme' }] },
+  { slug: 'x', services: [{ slug: 'takipci' }] },
 ] as const
 
 describe('hizmet sayfası adresi', () => {
@@ -66,8 +76,10 @@ describe('⭐ kapı sayfası koruması', () => {
     const slugs = indexableServiceSlugs(PLATFORMS)
     expect(slugs).toContain('instagram-takipci')
     expect(slugs).toContain('instagram-begeni')
-    // TikTok hizmetlerinin metni henüz yazılmadı: listeye GİRMEMELİ.
-    expect(slugs).not.toContain('tiktok-takipci')
+    expect(slugs).toContain('tiktok-takipci')
+    // Metni yazılmamış hizmetler listeye GİRMEMELİ.
+    expect(slugs).not.toContain('telegram-uye')
+    expect(slugs).not.toContain('x-takipci')
     expect(slugs).not.toContain('instagram-kaydet')
   })
 
@@ -159,6 +171,100 @@ describe('editoryal metnin kendisi', () => {
           )
         }
       }
+    }
+  })
+
+  /**
+   * ⭐⭐ EN ÖNEMLİ TEST: KATALOĞUN SAHİP OLDUĞU SAYI METNE YAZILAMAZ.
+   *
+   * ⚠️ Minimum miktar, fiyat, garanti günü, paket içeriği ve düşüş oranı
+   * KATALOGDA yaşar ve sayfada zaten katalogdan basılır. Aynı sayıyı
+   * metne de yazmak iki ayrı gerçek kaynağı olması demektir; ikisi er geç
+   * ayrışır ve ayrıştığında hiçbir test kırılmaz — sayfa sadece yalan
+   * söylemeye başlar.
+   *
+   * Bu proje bu hatayı BİR KEZ YAŞADI: `/yardim`'daki "ara miktar
+   * seçilemez" cevabı, serbest miktar slider'ı geldiği gün yanlışa döndü
+   * ve haftalarca öyle kaldı. Test, aynı hatanın hizmet sayfalarında
+   * tekrarlanmasını imkânsız kılmak için var.
+   *
+   * Metinde sayı yerine İLİŞKİ anlatılır: "minimum sipariş miktarı diğer
+   * hizmetlere göre yüksektir" gibi. Sayının kendisi sayfanın gösterdiği
+   * yerden okunur.
+   */
+  const CATALOG_OWNED_UNITS = [
+    'adet', 'takipçi', 'beğeni', 'görüntülenme', 'izlenme', 'yorum', 'abone',
+    'kaydetme', 'paylaşım', 'paket', 'gün', 'ay', 'milyon', 'bin', '₺', 'TL',
+  ]
+  const QUANTITY_CLAIM = new RegExp(
+    // "500 takipçi", "1.000.000 adet", "365 gün", "324,90 ₺", "20 paylaşım"
+    String.raw`\d[\d.,]*\s*(${CATALOG_OWNED_UNITS.join('|')})\b`,
+    'i',
+  )
+  /** "%1–%5", "%0-%10" — düşüş oranı da katalogdaki varyant açıklamasında yaşar. */
+  const PERCENT_CLAIM = /%\s*\d/
+
+  it.each(entries)('⚠️ %s — metinde KATALOG SAYISI geçmiyor', (slug, copy) => {
+    const fields: Array<[string, string]> = [
+      ['heading', copy.heading],
+      ['title', copy.title],
+      ['description', copy.description],
+      ...copy.body.map((p, i): [string, string] => [`body[${i}]`, p]),
+      ...copy.faq.flatMap((f, i): Array<[string, string]> => [
+        [`faq[${i}].q`, f.q],
+        [`faq[${i}].a`, f.a],
+      ]),
+    ]
+    for (const [where, text] of fields) {
+      const qty = text.match(QUANTITY_CLAIM)
+      expect(
+        qty?.[0],
+        `${slug} → ${where}: katalog sayısı metne yazılmış ("${qty?.[0]}"). `
+          + 'Sayıyı çıkarın; sayfa onu zaten katalogdan basıyor.',
+      ).toBeUndefined()
+
+      const pct = text.match(PERCENT_CLAIM)
+      expect(
+        pct?.[0],
+        `${slug} → ${where}: oran iddiası metne yazılmış ("${pct?.[0]}"). `
+          + 'Düşüş oranı katalogdaki varyant açıklamasında yaşar.',
+      ).toBeUndefined()
+    }
+  })
+
+  /**
+   * ⚠️ SATMADIĞIMIZ GARANTİYİ İMA ETME.
+   *
+   * Telafi garantisi yalnızca katalogda `refillDays` tanımlı hizmetlerde
+   * vardır (şu an tek bir hizmet). "Düşerse yeniden yükleriz" cümlesini
+   * garantisi olmayan bir hizmete yazmak, olmayan bir şeyi satmaktır ve
+   * iade talebinde haklı çıkan taraf müşteri olur.
+   *
+   * Bu yüzden telafiden söz eden her cümle ya koşula bağlanmalı ("garanti
+   * kapsamındaki hizmetlerde", "fiyat tablosunda yazılıdır") ya da açıkça
+   * yokluğu söylemeli ("garanti tanımlı değildir").
+   */
+  it.each(entries)('⚠️ %s — telafi/garanti sözü KOŞULA BAĞLI', (slug, copy) => {
+    const text = [...copy.body, ...copy.faq.map((f) => f.a)].join(' ')
+    for (const sentence of text.split(/(?<=\.)\s+/)) {
+      if (!/(telafi|garanti|yeniden yüklen|tekrar yüklen)/i.test(sentence)) continue
+      expect(
+        sentence,
+        `${slug}: koşulsuz telafi vaadi — "${sentence.slice(0, 90)}…"`,
+      ).toMatch(
+        new RegExp(
+          [
+            // (a) koşula bağlanmış: "garanti kapsamındaki hizmetlerde…"
+            'kapsamındaki|detaylarında|tablosunda|açıklamada|yazılıdır|yazar',
+            // (b) açıkça yokluğu söylenmiş: "garanti tanımlı değildir"
+            'tanımlı değil|değildir|yoktur',
+            // (c) VAAT REDDİ — cümlenin kendisi zaten "söz vermiyoruz" diyor.
+            //     Bunları elemek, dürüst cümleyi cezalandırmak olurdu.
+            'edemez|etmiyoruz|vermiyoruz|veremez|yüklenmez|göstermiyoruz|ima etmiyoruz',
+          ].join('|'),
+          'i',
+        ),
+      )
     }
   })
 
