@@ -21,11 +21,17 @@ export const dynamic = 'force-dynamic'
  *
  * ⚠️ OLMAYAN VARLIK ÜRETİLMEDİ.
  *   • `screenshots` alanı YOK — ekran görüntüsü varlığımız yok.
- *   • PNG ikon YOK — elimizde yalnızca `src/app/icon.svg` var ve o da
- *     mevcut logonun birebir SVG karşılığı. Sahte bir 512×512 PNG üretmek,
- *     olmayan bir marka varlığını varmış gibi göstermek olurdu.
  *   • `id` alanı, gerçek marka varlıkları geldiğinde kimliğin değişmemesi
  *     için sabitlenmiştir.
+ *
+ * ⭐ İKONLAR ARTIK GERÇEK. Bu not önceden "PNG ikon YOK, sahte bir 512×512
+ * üretmek olmayan bir marka varlığını varmış gibi göstermek olurdu" diyordu
+ * ve o gerekçe doğruydu. İkonlar artık markanın KENDİ asset'inden
+ * (`public/brand/medya333-mark.png`) türetiliyor — uydurma değil, mevcut
+ * logonun ölçeklenmiş hâli.
+ *
+ * ⚠️ SEKME İKONUNDA YALNIZCA "333" VAR. Tam marka (333 + MEDYA) 16 pikselde
+ * okunmaz bir bulamaca dönüşüyor; kurulum ikonunda (512) tam marka kullanılır.
  *
  * ⚠️ `start_url` MUTLAK ADRESTİR ve çalışma zamanında `appBaseUrl()`den
  * okunur — derlemeye gömülü bir alan adı staging ile canlıyı karıştırırdı
@@ -61,19 +67,25 @@ export default function manifest(): MetadataRoute.Manifest {
      */
     icons: [
       {
-        // Next.js `src/app/icon.svg` dosyasını bu yolda servis eder.
-        src: '/icon.svg',
-        type: 'image/svg+xml',
-        // "any" — SVG her boyutta ölçeklenir; sahte boyut listesi yazılmaz.
-        sizes: 'any',
+        // `src/app/icon.png` — sekme ikonu boyutları.
+        src: '/icon.png',
+        type: 'image/png',
+        sizes: '96x96',
         purpose: 'any',
       },
       {
-        // `src/app/apple-icon.png` → iOS ana ekran ikonu. Raster olduğu için
-        // Android kurulumunda da SVG'ye göre daha güvenilir çizilir.
+        // `src/app/apple-icon.png` → iOS ana ekran ikonu.
         src: '/apple-icon.png',
         type: 'image/png',
         sizes: '180x180',
+        purpose: 'any',
+      },
+      {
+        // Android kurulum ekranı 512'yi ister; küçük ikonu büyütmek bulanık
+        // bir kurulum ikonu bırakır.
+        src: '/icon-512.png',
+        type: 'image/png',
+        sizes: '512x512',
         purpose: 'any',
       },
     ],

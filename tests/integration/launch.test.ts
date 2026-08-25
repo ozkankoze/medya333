@@ -14,6 +14,8 @@
  */
 import './launch-env'
 
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { PrismaClient } from '@/generated/prisma/client'
@@ -193,10 +195,34 @@ describe('⭐ ÜRETİM ALAN ADI', () => {
     expect(m.start_url).toBe('https://www.medya333.com/')
     expect(m.scope).toBe('https://www.medya333.com/')
 
-    // ⚠️ Olmayan varlık üretilmedi: PNG ikon ve ekran görüntüsü YOK.
-    expect(m.icons).toHaveLength(1)
-    expect(m.icons![0]!.src).toBe('/icon.svg')
-    expect(JSON.stringify(m)).not.toContain('.png')
+    /**
+     * ⚠️ BU İDDİA TERSİNE ÇEVRİLDİ, KALDIRILMADI.
+     *
+     * Eski hâli manifest'te PNG ikon bulunmasını TAMAMEN yasaklıyordu,
+     * çünkü o gün gerçek bir raster marka varlığı yoktu ve sahte bir
+     * 512×512 üretmek olmayan bir varlığı varmış gibi göstermek olurdu.
+     * İkonlar markanın kendi asset'inden üretildiğinde bu yasak anlamını
+     * yitirdi — ama koruduğu DEĞİŞMEZ hâlâ geçerli:
+     *
+     *     manifest'te bildirilen her ikon DİSKTE GERÇEKTEN VAR OLMALI.
+     *
+     * Olmayan bir ikona işaret eden manifest, "ana ekrana ekle" sırasında
+     * sessizce başarısız olur ve kullanıcıya boş bir kısayol bırakır.
+     */
+    expect(m.icons!.length).toBeGreaterThan(0)
+    for (const icon of m.icons!) {
+      // `/icon.png` → `src/app/icon.png` veya `public/icon.png`
+      const rel = icon.src.replace(/^\//, '')
+      const candidates = [
+        path.join(process.cwd(), 'src', 'app', rel),
+        path.join(process.cwd(), 'public', rel),
+      ]
+      expect(
+        candidates.some((p) => existsSync(p)),
+        `manifest "${icon.src}" bildiriyor ama dosya yok → kurulumda boş ikon`,
+      ).toBe(true)
+    }
+    // ⚠️ Ekran görüntüsü varlığımız hâlâ yok; uydurulmamalı.
     expect(JSON.stringify(m)).not.toContain('screenshot')
 
     // ⚠️ Ödeme akışında adres çubuğu bir güvenlik özelliğidir.

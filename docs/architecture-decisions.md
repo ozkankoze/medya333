@@ -1069,7 +1069,7 @@ yapılandırma, dağıtım ve gözlemlenebilirlik denetimi.
 | `src/instrumentation.ts` | Süreç açılışında kapıyı çalıştırır; aşamayı log'un ilk satırına yazar |
 | `src/app/robots.ts` | `/api/`, `/yonetim/`, `/panel/`, `/hesabim`, `/siparisler/`, `/odeme/` taramaya kapalı |
 | `src/app/sitemap.ts` | Katalogdan üretilir; katalog okunamazsa statik sayfalara düşer, **boş dönmez** |
-| `src/app/icon.svg` | Mevcut `Mark` bileşeninin SVG'si — yeni logo TASARLANMADI |
+| `src/app/icon.png`, `apple-icon.png`, `favicon.ico`, `public/icon-512.png` | Markanın kendi asset.inden türetildi (`public/brand/medya333-mark.png`); yeni logo TASARLANMADI |
 | `docs/PRODUCTION_CHECKLIST.md` | Blocker listesi, env tablosu (secret sınıflaması), deploy/rollback/yedekleme |
 | `docs/SECURITY_MATRIX.md` | 5 rol × uç yetki matrisi + uç bazlı rate limit envanteri |
 

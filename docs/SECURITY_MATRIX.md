@@ -190,7 +190,7 @@ arkasındaki personel birbirini kilitlemez.
 | Uç | Neden |
 |---|---|
 | `POST /payments/webhooks/{provider}` | Sağlayıcı yeniden deneme yapar; limitlemek **ödeme kaybına** yol açar. Koruma imza + tekrar (replay) engeli + `PaymentEvent(provider, providerEventId)` unique kısıtıdır. |
-| `GET /robots.txt`, `/sitemap.xml`, `/icon.svg` | Statik, maliyetsiz. |
+| `GET /robots.txt`, `/sitemap.xml`, `/icon.png` | Statik, maliyetsiz. |
 | `GET /api/health` | Sağlık yoklaması kısılmaz (yukarı bkz.). |
 | `GET /api/health/live` | Liveness probu — bağımlılığa bakmaz, sabit `ok` döner. |
 
