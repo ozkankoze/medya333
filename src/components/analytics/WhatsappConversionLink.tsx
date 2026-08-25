@@ -79,7 +79,11 @@ export function WhatsappConversionLink({
       // ⚠️ `noopener`: yeni sekme `window.opener` üzerinden bu sayfayı
       //    yönlendirebilirdi. `noreferrer` adresi WhatsApp'a Referer olarak
       //    sızdırmaz (sipariş numaralı bağlantılarda bu önemlidir).
-      rel="noopener noreferrer"
+      // ⚠️ `nofollow`: bu bir editoryal referans değil, kendi iletişim
+      //    kanalımız. Sitedeki TEK dış bağlantı olduğu için, olduğu gibi
+      //    bırakmak sayfanın dışarıya verdiği tek sinyali wa.me'ye
+      //    yöneltiyordu.
+      rel="noopener noreferrer nofollow"
       className={className}
       onClick={onClick}
       {...(ariaLabel ? { 'aria-label': ariaLabel } : {})}

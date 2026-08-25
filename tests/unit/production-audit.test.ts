@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildCsp } from '@/lib/security/csp'
@@ -470,10 +470,72 @@ describe('Faz 9 — canlıya çıkış denetimi', () => {
     expect(layout, 'dil etiketi tr-TR olmalı').toContain('lang="tr-TR"')
   })
 
-  it('⚠️ OG GÖRSELİ UYDURULMAMIŞ', () => {
+  /**
+   * ⚠️ BU TEST TERSİNE ÇEVRİLDİ, SİLİNMEDİ.
+   *
+   * Eski hâli `images:` tanımlanmasını TAMAMEN yasaklıyordu, çünkü o gün
+   * gerçek bir OG görseli yoktu ve var olmayan dosyaya işaret etmek
+   * paylaşımlarda kırık önizleme üretiyordu. Görsel üretildiğinde bu yasak
+   * anlamını yitirdi — ama korumaya devam ettiği DEĞİŞMEZ hâlâ geçerli:
+   *
+   *     bildirilen her OG/Twitter görseli DİSKTE GERÇEKTEN VAR OLMALI.
+   *
+   * Testi silmek o değişmezi kaybetmek olurdu; yasağı sürdürmek ise
+   * gerçek bir görseli engellemek. Doğru cevap, iddiayı dosya varlığına
+   * bağlamaktır.
+   */
+  it('⚠️ BİLDİRİLEN OG/TWITTER GÖRSELİ DİSKTE VAR', () => {
     const layout = read(path.join(SRC, 'app/layout.tsx'))
-    // Gerçek bir asset yokken `images:` tanımlamak kırık önizleme üretir.
-    expect(layout).not.toMatch(/images:\s*\[/)
+    const refs = [...layout.matchAll(/['"](\/[^'"]+\.(?:png|jpg|jpeg|webp))['"]/g)].map((m) => m[1])
+
+    expect(refs.length, 'layout hiçbir paylaşım görseli bildirmiyor').toBeGreaterThan(0)
+
+    for (const ref of refs) {
+      // `/og.png` → `public/og.png`. Next `public/` altını kökten servis eder.
+      const onDisk = path.join(SRC, '..', 'public', ref!.replace(/^\//, ''))
+      expect(
+        existsSync(onDisk),
+        `layout "${ref}" bildiriyor ama dosya yok → paylaşımda kırık önizleme`,
+      ).toBe(true)
+    }
+  })
+
+  /**
+   * ⚠️ `summary_large_image` GÖRSELSİZ ÇALIŞMAZ.
+   * X, kart tipi büyük görsel derken görsel bulamazsa kartı sessizce düz
+   * bağlantıya düşürür — hata yok, sadece önizleme yok.
+   */
+  it('⚠️ Twitter kart tipi ile görsel BİRLİKTE durur', () => {
+    const layout = stripComments(read(path.join(SRC, 'app/layout.tsx')))
+    const twitter = layout.slice(layout.indexOf('twitter:'), layout.indexOf('robots:'))
+    if (twitter.includes('summary_large_image')) {
+      expect(twitter, 'summary_large_image bildirildi ama görsel yok').toMatch(/images:/)
+    }
+  })
+
+  /**
+   * ⚠️ `keywords` GERİ GELMESİN.
+   * Google meta keywords'ü 2009'dan beri sıralamada kullanmıyor. Tek gerçek
+   * etkisi hedef kelimeleri rakiplere bedava bildirmektir.
+   */
+  it('⚠️ meta keywords ETİKETİ YOK', () => {
+    const layout = stripComments(read(path.join(SRC, 'app/layout.tsx')))
+    expect(layout, 'meta keywords geri eklenmiş').not.toMatch(/^\s*keywords:/m)
+  })
+
+  /**
+   * ⚠️ META DESCRIPTION ARAMA SONUCUNDA KESİLMEMELİ.
+   * 188 karakterdi ve son cümle kesiliyordu — kesilen yer tam da tıklamaya
+   * ikna eden kısımdı.
+   */
+  it('⚠️ meta description 160 karakteri aşmıyor', () => {
+    const layout = read(path.join(SRC, 'app/layout.tsx'))
+    const m = layout.match(/\n {2}description:\s*([\s\S]*?)\n {2}applicationName:/)
+    expect(m, 'layout description alanı bulunamadı').not.toBeNull()
+    // Kaynak birden çok string parçasına bölünmüş olabilir; hepsini birleştir.
+    const text = [...m![1]!.matchAll(/'([^']*)'/g)].map((x) => x[1]).join('')
+    expect(text.length, `description ${text.length} karakter: "${text}"`).toBeLessThanOrEqual(160)
+    expect(text.length, 'description şüpheli derecede kısa').toBeGreaterThan(80)
   })
 
   it('⚠️ HATA İZLEME credential olmadan "aktif" GÖSTERİLMEZ', () => {

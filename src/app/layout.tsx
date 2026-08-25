@@ -35,17 +35,22 @@ export async function generateMetadata(): Promise<Metadata> {
     default: 'Medya 333 | Sosyal Medya Hizmetleri',
     template: '%s · Medya 333',
   },
+  /**
+   * ⚠️ ~155 KARAKTER. Önceki hâli 188 karakterdi ve Google arama sonucunda
+   * son cümleyi kesiyordu — yani kesilen yer "adım adım sipariş takibi"
+   * gibi tıklamaya ikna eden kısımdı. Sınır 160 civarıdır; altında kalmak
+   * cümlenin tamamının görünmesini garanti eder.
+   */
   description:
-    'Instagram, YouTube, Facebook ve TikTok hesaplarınız için gerçek kullanıcılarla yürütülen ' +
-    'profesyonel tanıtım hizmetleri. Hazır paketler, KDV dahil net fiyatlar ve adım adım sipariş takibi.',
+    'Instagram, TikTok, YouTube ve Facebook için gerçek kullanıcılarla yürütülen '
+    + 'tanıtım hizmetleri. KDV dahil net fiyat, adım adım sipariş takibi.',
   applicationName: 'Medya 333',
-  keywords: [
-    'sosyal medya tanıtım',
-    'instagram takipçi',
-    'youtube abone',
-    'sosyal medya büyütme',
-    'medya 333',
-  ],
+  /**
+   * ⚠️ `keywords` KALDIRILDI — geri EKLENMEMELİ.
+   * Google meta keywords etiketini 2009'dan beri sıralamada kullanmıyor ve
+   * bunu açıkça duyurdu. Bing de kullanmıyor. Etiketin tek gerçek etkisi,
+   * hangi kelimeleri hedeflediğinizi rakiplerinize bedava söylemesidir.
+   */
   authors: [{ name: 'Medya 333' }],
   openGraph: {
     type: 'website',
@@ -53,20 +58,37 @@ export async function generateMetadata(): Promise<Metadata> {
     siteName: 'Medya 333',
     /**
      * ⚠️ `metadataBase` ile birleşir → `https://www.medya333.com/`.
-     * ⚠️ `images` BİLİNÇLİ OLARAK YOK: gerçek bir OG görseli üretilmedi.
-     * Var olmayan bir dosyaya işaret eden `og:image`, paylaşımlarda kırık
-     * önizleme üretir — hiç vermemek daha iyidir.
+     *
+     * ⭐ GÖRSEL ARTIK GERÇEK. Önceki not "gerçek bir OG görseli üretilmedi,
+     * var olmayan dosyaya işaret etmektense hiç vermemek daha iyidir"
+     * diyordu ve o gerekçe doğruydu. `public/og.png` markanın kendi
+     * asset'inden üretildi (koyu zemin + altın logo + alt hairline);
+     * artık dosya var, dolayısıyla bildirmemek için sebep kalmadı.
+     *
+     * ⚠️ ÖLÇÜ BİLDİRİLİR. WhatsApp ve X, boyutu bilmeden önizlemeyi küçük
+     * kart olarak çizebiliyor; `summary_large_image` için 1200×630 şart.
      */
     url: '/',
     title: 'Medya 333 | Sosyal Medya Hizmetleri',
     description:
       'Gerçek kullanıcılarla yürütülen sosyal medya tanıtım hizmetleri. ' +
       'Hazır paketler, KDV dahil net fiyatlar, uçtan uca sipariş takibi.',
+    images: [
+      {
+        url: '/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'Medya 333 — sosyal medya tanıtım hizmetleri',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Medya 333 | Sosyal Medya Hizmetleri',
     description: 'Gerçek kullanıcılarla yürütülen sosyal medya tanıtım hizmetleri.',
+    // ⚠️ `summary_large_image` GÖRSELSİZ ÇALIŞMAZ: X kartı görsel yoksa
+    //    sessizce düz bağlantıya düşer. Kart tipi ile görsel birlikte durur.
+    images: ['/og.png'],
   },
   robots: { index: true, follow: true },
   /**

@@ -1,9 +1,12 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { ServiceExplorer } from '@/components/home/ServiceExplorer'
+import { JsonLd } from '@/components/seo/JsonLd'
 import { buttonVariants } from '@/components/ui/button'
 import { OrderWizard } from '@/components/wizard/OrderWizard'
+import { supportWhatsappNumber } from '@/lib/support'
 import { getSessionUser } from '@/server/auth'
+import { appBaseUrl } from '@/server/base-url'
 import { getCatalog } from '@/server/catalog'
 
 /**
@@ -29,8 +32,74 @@ export default async function HomePage() {
   const platformSentence =
     names.length > 1 ? `${names.slice(0, -1).join(', ')} ve ${names.at(-1)}` : (names[0] ?? '')
 
+  const base = appBaseUrl()
+  const supportPhone = supportWhatsappNumber()
+
   return (
     <>
+      {/**
+       * ⭐ ANA SAYFA YAPISAL VERİSİ
+       *
+       * Hizmet sayfalarına `Product`/`FAQPage` eklenmişti ama ANA SAYFADA
+       * hiç yapısal veri yoktu — oysa marka sorgularında ("medya 333")
+       * Google'ın karşısına çıkan sayfa burasıdır.
+       *
+       * ⚠️ SAHTE ALAN UYDURULMADI. `aggregateRating`, `review`, kuruluş
+       * tarihi, çalışan sayısı gibi doğrulayamadığımız hiçbir şey
+       * yazılmadı. Uydurma puan işaretlemek Google'ın yapısal veri
+       * politikasının açık ihlalidir ve manuel işlem sebebidir.
+       *
+       * ⚠️ `SearchAction` DA YOK: sitede genel bir arama sayfası yok.
+       * Olmayan bir uca işaret eden sitelinks arama kutusu bildirimi,
+       * çalışmayan bir özelliği vaat etmek olurdu.
+       */}
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@graph': [
+            {
+              '@type': 'Organization',
+              '@id': `${base}/#kurulus`,
+              name: 'Medya 333',
+              url: `${base}/`,
+              /**
+               * ⚠️ `logo` PAYLAŞIM AFİŞİ DEĞİL, LOGONUN KENDİSİ olmalı.
+               * Buraya önce 1200×630'luk `og.png` yazılmıştı; o bir sosyal
+               * medya afişidir. Google bu alanı arama sonucunda marka
+               * ikonu olarak kullanır ve geniş bir afişi kırparsa logo
+               * tanınmaz hâle gelir. `apple-icon.png` kare ve logonun
+               * kendisi (koyu zemin üzerine altın marka).
+               */
+              logo: `${base}/apple-icon.png`,
+              image: `${base}/og.png`,
+              email: 'destek@medya333.com',
+              // Numara tanımlı değilse alan HİÇ basılmaz — boş iletişim
+              // noktası bildirmek, olmayan bir kanalı vaat etmektir.
+              ...(supportPhone
+                ? {
+                    contactPoint: [
+                      {
+                        '@type': 'ContactPoint',
+                        contactType: 'customer support',
+                        telephone: `+${supportPhone}`,
+                        availableLanguage: ['Turkish'],
+                      },
+                    ],
+                  }
+                : {}),
+            },
+            {
+              '@type': 'WebSite',
+              '@id': `${base}/#site`,
+              url: `${base}/`,
+              name: 'Medya 333',
+              inLanguage: 'tr-TR',
+              publisher: { '@id': `${base}/#kurulus` },
+            },
+          ],
+        }}
+      />
+
       {/* ================================ HERO ================================= */}
       {/**
        * ⚠️ HERO KOYU BİR BANT — başlık ve alt bilgiyle aynı yüzey. Sayfa

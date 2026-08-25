@@ -54,6 +54,11 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: 'tr-TR',
     dir: 'ltr',
     categories: ['business', 'productivity'],
+    /**
+     * ⚠️ YALNIZCA GERÇEKTEN SERVİS EDİLEN DOSYALAR LİSTELENİR.
+     * Manifest'te olmayan bir ikona işaret etmek, yükleme sırasında sessizce
+     * başarısız olur ve kurulu uygulamada boş ikon bırakır.
+     */
     icons: [
       {
         // Next.js `src/app/icon.svg` dosyasını bu yolda servis eder.
@@ -61,6 +66,14 @@ export default function manifest(): MetadataRoute.Manifest {
         type: 'image/svg+xml',
         // "any" — SVG her boyutta ölçeklenir; sahte boyut listesi yazılmaz.
         sizes: 'any',
+        purpose: 'any',
+      },
+      {
+        // `src/app/apple-icon.png` → iOS ana ekran ikonu. Raster olduğu için
+        // Android kurulumunda da SVG'ye göre daha güvenilir çizilir.
+        src: '/apple-icon.png',
+        type: 'image/png',
+        sizes: '180x180',
         purpose: 'any',
       },
     ],
