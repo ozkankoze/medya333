@@ -1138,3 +1138,155 @@ model DeploymentStamp {
   stampedAt DateTime @default(now())
   stampedBy String?
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KASA — GELİR / GİDER DEFTERİ
+//
+// ⚠️ SİPARİŞ SİSTEMİNDEN TAMAMEN BAĞIMSIZDIR. Buradaki kayıtlar `Order` ile
+// ilişkilendirilmez ve site siparişleri buraya otomatik düşmez; her satır
+// elle girilir. Bu bilinçli bir tercihtir — tahsilatın büyük kısmı WhatsApp
+// üzerinden yürüdüğü için defterin tek gerçeği operatörün girdiğidir.
+// İleride bağlanmak istenirse `CashEntry`'ye opsiyonel bir `orderId`
+// eklemek yeter; şimdi eklenmedi çünkü kullanılmayan ilişki, dolduruluyor
+// sanılan boş bir alan bırakırdı.
+//
+// ⚠️ BAKİYE SÜTUNU YOKTUR ve EKLENMEMELİDİR. Bakiye hareketlerden türetilir
+// (bkz. `src/lib/kasa/calc.ts` başlığı). Saklanan bakiye bir kez kayarsa
+// hangi rakamın doğru olduğu bir daha bilinemez.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+enum CashCategory {
+  /// Sipariş geliri — ciroya girer
+  SATIS
+  /// Alacak tahsili — bakiyeyi artırır, CİROYA GİRMEZ (satış zaten sayıldı)
+  TAHSILAT
+  /// Günlük harcama
+  GIDER
+  /// Tedarikçi / panel ödemesi
+  MALIYET
+  /// Kredi, taksit, kart borcu
+  BORC_ODEME
+  /// Hesaplar arası taşıma — hiçbir kâr kalemine girmez
+  TRANSFER_IN
+  TRANSFER_OUT
+  DIGER
+}
+
+/// Banka hesabı veya kasa. "Vakıfbank", "Shopier", "Yapıkredi"…
+model CashAccount {
+  id    String @id @default(cuid())
+  /// Müşteriye değil, operatöre gösterilir: "Vakıfbank"
+  name  String
+  /// Hesabın kime ait olduğu: "Özkan Köse" / "Ayhan Köse"
+  owner String
+
+  /// ⚠️ SİSTEME GEÇMEDEN ÖNCEKİ PARA. Hareket DEĞİLDİR: sahte bir "giriş"
+  /// satırı olarak yazılsaydı ciro raporunu şişirirdi. Yalnızca bakiyeye eklenir.
+  openingBalanceMinor Int @default(0)
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries CashEntry[]
+
+  @@unique([owner, name])
+  @@index([isActive, sortOrder])
+}
+
+/// Tek bir para hareketi. Defterin atomu.
+model CashEntry {
+  id        String      @id @default(cuid())
+  accountId String
+  account   CashAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  /// İşlemin TAKVİM GÜNÜ. Gün başlangıcına sabitlenir; saat tutulmaz —
+  /// defter gün bazlıdır ve saat dilimi kayması hafta dağılımını bozardı.
+  occurredAt DateTime
+
+  direction CashDirection
+  category  CashCategory
+
+  /// ⚠️ HER ZAMAN POZİTİF. Yönü `direction` taşır. Negatif tutara izin
+  /// vermek "eksi gider" gibi çift olumsuzlamalara kapı açardı.
+  amountMinor Int
+
+  /// Tabloda "İşlem" sütunu
+  description String
+  /// Tabloda "Kullanıcı Adı" — yalnızca satış satırlarında dolar
+  customerHandle String?
+  /// Tabloda "Maliyet" — işin bize maliyeti.
+  /// ⚠️ BANKA HAREKETİ DEĞİLDİR: bakiyeyi düşürmez, yalnızca kâr hesabına girer.
+  /// Tedarikçiye yapılan gerçek ödeme ayrı bir MALIYET satırıdır.
+  costMinor Int?
+
+  note String?
+
+  /// Transfer çiftini eşleştirir; iki satır aynı değeri taşır.
+  transferGroupId String?
+
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  @@index([accountId, occurredAt])
+  @@index([occurredAt])
+  @@index([category, occurredAt])
+  @@index([transferGroupId])
+}
+
+/// ALACAKLAR — bize borçlu olanlar
+model Receivable {
+  id     String @id @default(cuid())
+  person String
+  amountMinor Int
+  /// Tahmini ödeme tarihi; tabloda "-" yazan satırlar için null
+  dueDate DateTime?
+  note    String?
+  /// Tahsil edildiğinde doldurulur. ⚠️ Satır SİLİNMEZ — geçmiş kaybolmasın.
+  settledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([settledAt, dueDate])
+}
+
+/// AYLIK ÖDEMELER — borç takvimi (kredi, kart, panel…)
+model ScheduledPayment {
+  id       String @id @default(cuid())
+  creditor String
+
+  /// Bu ayki taksit tutarı
+  amountMinor Int
+  /// Kalan toplam borç — bilgi amaçlı, tabloda "Kalan Total Borç"
+  remainingMinor Int?
+
+  dueDate DateTime
+  /// Ödendiğinde doldurulur. ⚠️ Satır SİLİNMEZ.
+  paidAt  DateTime?
+  note    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([paidAt, dueDate])
+}
+
+/// Kasa modülünün tek satırlık ayarı.
+model KasaSetting {
+  id String @id @default("singleton")
+
+  /// ⚠️ 1 USD KAÇ KURUŞ? (43,50 ₺ → 4350)
+  /// Elle girilir; dış servisten çekilmez. Canlı kur, geçmiş kayıtların
+  /// gösterdiği doları her sayfa yenilemesinde değiştirirdi.
+  usdRateMinor Int @default(0)
+
+  updatedAt DateTime @updatedAt
+}

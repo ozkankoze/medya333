@@ -64,6 +64,19 @@ export default async function OperationsLayout({ children }: { children: React.R
               Kullanıcılar
             </Link>
           )}
+          {/**
+           * ⚠️ KASA YALNIZCA SUPERADMIN. Banka bakiyesi, borç ve alacak
+           * verisi ADMIN'e bile açılmaz — bağlantıyı gizlemek yetki
+           * mekanizması değildir, asıl kapı sayfada ve API ucundadır.
+           */}
+          {user.role === 'SUPERADMIN' && (
+            <Link
+              href="/yonetim/kasa"
+              className="rounded-[--radius-control] px-2.5 py-2 text-ink-700 hover:bg-ink-100 sm:px-3"
+            >
+              Kasa
+            </Link>
+          )}
           <Link
             href="/hesabim"
             className="rounded-[--radius-control] px-2.5 py-2 text-ink-600 hover:bg-ink-100 sm:px-3"
