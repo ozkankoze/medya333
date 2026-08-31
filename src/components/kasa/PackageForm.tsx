@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { postJson } from '@/lib/http/post-json'
 import { formatMinor, parseMajorToMinor } from '@/lib/money'
 
 /**
@@ -40,7 +41,22 @@ export function PackageForm() {
     e.preventDefault()
     setError(null)
     setOk(false)
-    const form = new FormData(e.currentTarget)
+
+    /**
+     * ⚠️⚠️ FORM ELEMANI `await`TEN ÖNCE YAKALANIR — SONRA DEĞİL.
+     *
+     * Buradaki hata paketlerin haftalarca kaydedilemediğini sandırdı:
+     * aşağıda `e.currentTarget.reset()` çağrılıyordu ve React, olay
+     * işleyicisinin senkron bölümü bitince `currentTarget`i temizlediği
+     * için `await` sonrasında o değer `null` oluyordu. `null.reset()`
+     * `TypeError` fırlatıyor, o da genel `catch`e düşüp "Bağlantı hatası"
+     * olarak gösteriliyordu.
+     *
+     * Kayıt ASLINDA OLUŞMUŞTU. Kullanıcı hata gördüğü için tekrar basıyor,
+     * her basış yeni bir paket daha yaratıyordu.
+     */
+    const formEl = e.currentTarget
+    const form = new FormData(formEl)
 
     let salePriceMinor: number
     let costMinor: number
@@ -58,35 +74,32 @@ export function PackageForm() {
     }
 
     setBusy(true)
-    try {
-      const res = await fetch('/api/v1/admin/kasa/paketler', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          customerName: form.get('customerName'),
-          serviceName: form.get('serviceName'),
-          startDate: form.get('startDate'),
-          endDate: form.get('endDate'),
-          salePriceMinor,
-          costMinor,
-          note: String(form.get('note') ?? '').trim() || null,
-        }),
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
-        setError(body?.error?.message ?? 'Paket eklenemedi.')
-        return
-      }
-      e.currentTarget.reset()
-      setSale('')
-      setCost('')
-      setOk(true)
-      router.refresh()
-    } catch {
-      setError('Bağlantı hatası. Tekrar deneyin.')
-    } finally {
-      setBusy(false)
+    /**
+     * ⚠️ `postJson` ASLA `throw` ETMEZ. Bu yüzden başarıdan sonraki arayüz
+     * işleri hiçbir `try` bloğunun içinde değildir — oradaki bir hata bir
+     * daha asla "ağ hatası" diye raporlanamaz.
+     */
+    const res = await postJson('/api/v1/admin/kasa/paketler', {
+      customerName: form.get('customerName'),
+      serviceName: form.get('serviceName'),
+      startDate: form.get('startDate'),
+      endDate: form.get('endDate'),
+      salePriceMinor,
+      costMinor,
+      note: String(form.get('note') ?? '').trim() || null,
+    })
+    setBusy(false)
+
+    if (!res.ok) {
+      setError(res.message)
+      return
     }
+
+    formEl.reset()
+    setSale('')
+    setCost('')
+    setOk(true)
+    router.refresh()
   }
 
   const field =

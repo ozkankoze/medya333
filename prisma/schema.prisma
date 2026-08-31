@@ -1390,6 +1390,14 @@ model ManualOrder {
   /// Tabloda "Kullanıcı adı"
   customerName String
 
+  /// ⚠️ ARAYÜZDE "Sipariş içeriği" — ZORUNLU.
+  /// Siparişin NE olduğu ("Instagram 10K Türk takipçi", "Web site tasarımı").
+  /// İsteğe bağlı olsaydı pratikte çoğu satır boş kalır ve defter birkaç hafta
+  /// sonra okunamaz hâle gelirdi: aynı müşteriye aynı gün girilen iki satır
+  /// birbirinden ayırt edilemezdi.
+  /// Boş dize de veritabanında yasaktır (NOT NULL tek başına yetmez).
+  description String
+
   /// İşin TAKVİM GÜNÜ — gün başlangıcına sabitlenir, saat tutulmaz.
   occurredAt DateTime
 

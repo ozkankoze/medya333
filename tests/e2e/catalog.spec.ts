@@ -55,7 +55,7 @@ test.beforeAll(async ({ browser }) => {
   const ctx = await browser.newContext()
   const page = await ctx.newPage()
   await loginAsAdmin(page)
-  await page.goto('/yonetim/katalog')
+  await page.goto('/admin/katalog')
   const reactivate = ig(page).getByTestId('service-instagram-kaydetme').getByRole('button', {
     name: /aktifleştir/i,
   })
@@ -75,7 +75,7 @@ test.describe('gerçek katalog', () => {
     await loginAsAdmin(page)
 
     // --- 2. Katalog ekranı ---------------------------------------------------
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
     await expect(page.getByRole('heading', { name: 'Katalog' })).toBeVisible()
 
     // --- 3. Platform / hizmet / varyant --------------------------------------
@@ -205,7 +205,7 @@ test.describe('gerçek katalog', () => {
     const adminCtx = await context.browser()!.newContext()
     const admin = await adminCtx.newPage()
     await loginAsAdmin(admin)
-    await admin.goto('/yonetim/katalog')
+    await admin.goto('/admin/katalog')
     const service = ig(admin).getByTestId('service-instagram-kaydetme')
 
     try {
@@ -284,7 +284,7 @@ test.describe('gerçek katalog', () => {
 
   test('⚠️ katalog yönetimi MÜŞTERİ rolüne kapalı', async ({ page }) => {
     await isolateClient(page)
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
     await expect(page).toHaveURL(/\/giris/)
   })
 })

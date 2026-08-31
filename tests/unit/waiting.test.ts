@@ -189,7 +189,7 @@ describe('⚠️ "gecikti" hiçbir yerde yazmıyor', () => {
   /**
    * ⚠️ FULFILLMENT SAYFALARININ YOLU SABİT YAZILMAZ, ARANIR.
    *
-   * Eskiden `src/app/yonetim/fulfillment/page.tsx` diye sabitti. Sayfalar
+   * Eskiden `src/app/admin/fulfillment/page.tsx` diye sabitti. Sayfalar
    * bir rota grubuna (`(panel)`) taşındığında — URL değişmeden — bu test
    * ENOENT ile patladı. Daha kötüsü de olabilirdi: dosya adı sessizce
    * eşleşmeseydi, yasaklı kelime taraması hiçbir şeyi taramadan YEŞİL
@@ -206,7 +206,7 @@ describe('⚠️ "gecikti" hiçbir yerde yazmıyor', () => {
     return out
   }
 
-  const fulfillmentPages = findFulfillmentPages(path.join(ROOT, 'src/app/yonetim'))
+  const fulfillmentPages = findFulfillmentPages(path.join(ROOT, 'src/app/(admin)/admin'))
 
   const FILES = [
     'src/lib/fulfillment/waiting.ts',

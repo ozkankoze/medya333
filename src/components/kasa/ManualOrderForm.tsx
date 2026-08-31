@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ORDER_STATUSES, ORDER_STATUS_LABEL } from '@/lib/kasa/orders'
+import { postJson } from '@/lib/http/post-json'
 import { formatMinor, parseMajorToMinor } from '@/lib/money'
 
 /**
@@ -64,33 +65,29 @@ export function ManualOrderForm() {
     }
 
     setBusy(true)
-    try {
-      const res = await fetch('/api/v1/admin/kasa/siparisler', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          customerName: data.get('customerName'),
-          occurredAt: data.get('occurredAt'),
-          salePriceMinor,
-          costMinor,
-          status: data.get('status'),
-        }),
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
-        setError(body?.error?.message ?? 'Sipariş eklenemedi.')
-        return
-      }
-      form.reset()
-      setSale('')
-      setCost('')
-      setOk(true)
-      router.refresh()
-    } catch {
-      setError('Bağlantı hatası. Tekrar deneyin.')
-    } finally {
-      setBusy(false)
+    // ⚠️ `postJson` throw etmez; başarı sonrası arayüz işleri `try` dışında.
+    //    (Bu formda `form` zaten `await`ten önce yakalanmıştı, ama genel
+    //    `catch` yine de her hatayı "bağlantı hatası" diye gösteriyordu.)
+    const res = await postJson('/api/v1/admin/kasa/siparisler', {
+      customerName: data.get('customerName'),
+      description: data.get('description'),
+      occurredAt: data.get('occurredAt'),
+      salePriceMinor,
+      costMinor,
+      status: data.get('status'),
+    })
+    setBusy(false)
+
+    if (!res.ok) {
+      setError(res.message)
+      return
     }
+
+    form.reset()
+    setSale('')
+    setCost('')
+    setOk(true)
+    router.refresh()
   }
 
   const field =
@@ -109,6 +106,23 @@ export function ManualOrderForm() {
           <label className={label} htmlFor="o-customer">Kullanıcı adı</label>
           <input id="o-customer" name="customerName" required maxLength={200}
             placeholder="@kullaniciadi" className={`${field} mt-1`} />
+        </div>
+        {/*
+          ⚠️ SIRALAMA: kim → ne → ne zaman. "Sipariş içeriği" kullanıcı
+          adının hemen yanındadır çünkü satırı okunur kılan şey odur;
+          tutarların arasına konsaydı, para alanlarını doldururken
+          atlanması kolay olurdu.
+
+          ⚠️ ZORUNLU (`required`). İsteğe bağlı olsaydı pratikte çoğu satır
+          boş kalır ve defter birkaç hafta sonra okunamaz hâle gelirdi:
+          aynı müşteriye aynı gün girilen iki satır ayırt edilemezdi.
+          Tarayıcı doğrulaması tek başına yeterli değildir — sunucu ve
+          veritabanı da boş değeri reddeder.
+        */}
+        <div>
+          <label className={label} htmlFor="o-content">Sipariş içeriği</label>
+          <input id="o-content" name="description" required maxLength={300}
+            placeholder="Instagram 10K Türk takipçi" className={`${field} mt-1`} />
         </div>
         <div>
           <label className={label} htmlFor="o-date">Tarih</label>

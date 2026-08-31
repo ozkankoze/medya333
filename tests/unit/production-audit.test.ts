@@ -295,7 +295,7 @@ describe('robots ve sitemap', () => {
      */
     const rules = read(path.join(SRC, 'lib/seo/robots-rules.ts'))
     for (const p of [
-      '/api/', '/yonetim/', '/panel/', '/hesabim', '/siparisler/', '/odeme/',
+      '/api/', '/admin/', '/panel/', '/hesabim', '/siparisler/', '/odeme/',
       '/giris', '/kayit', '/siparis-olusturuldu',
     ]) {
       expect(rules, `${p} disallow listesinde yok`).toContain(p)
@@ -312,7 +312,7 @@ describe('robots ve sitemap', () => {
     expect(sitemap, 'taban adres sabitlenmiş').toContain('appBaseUrl')
     for (const banned of [
       '/siparisler/', // takip token'ı taşır
-      '/yonetim', '/panel', '/hesabim',
+      '/admin', '/panel', '/hesabim',
       '/odeme/', '/siparis-olusturuldu',
       '/giris', '/kayit',
       '?p=', '?t=', // sihirbaz derin bağlantıları ve token parametresi
@@ -464,7 +464,7 @@ describe('Faz 9 — canlıya çıkış denetimi', () => {
   })
 
   it('⚠️ metadataBase ÇALIŞMA ZAMANINDA çözülür (localhost fallback yok)', () => {
-    const layout = stripComments(read(path.join(SRC, 'app/layout.tsx')))
+    const layout = stripComments(read(path.join(SRC, 'app/(site)/layout.tsx')))
     expect(layout).toContain('generateMetadata')
     expect(layout).toContain('appBaseUrl()')
     expect(layout, 'dil etiketi tr-TR olmalı').toContain('lang="tr-TR"')
@@ -485,7 +485,7 @@ describe('Faz 9 — canlıya çıkış denetimi', () => {
    * bağlamaktır.
    */
   it('⚠️ BİLDİRİLEN OG/TWITTER GÖRSELİ DİSKTE VAR', () => {
-    const layout = read(path.join(SRC, 'app/layout.tsx'))
+    const layout = read(path.join(SRC, 'app/(site)/layout.tsx'))
     const refs = [...layout.matchAll(/['"](\/[^'"]+\.(?:png|jpg|jpeg|webp))['"]/g)].map((m) => m[1])
 
     expect(refs.length, 'layout hiçbir paylaşım görseli bildirmiyor').toBeGreaterThan(0)
@@ -506,7 +506,7 @@ describe('Faz 9 — canlıya çıkış denetimi', () => {
    * bağlantıya düşürür — hata yok, sadece önizleme yok.
    */
   it('⚠️ Twitter kart tipi ile görsel BİRLİKTE durur', () => {
-    const layout = stripComments(read(path.join(SRC, 'app/layout.tsx')))
+    const layout = stripComments(read(path.join(SRC, 'app/(site)/layout.tsx')))
     const twitter = layout.slice(layout.indexOf('twitter:'), layout.indexOf('robots:'))
     if (twitter.includes('summary_large_image')) {
       expect(twitter, 'summary_large_image bildirildi ama görsel yok').toMatch(/images:/)
@@ -519,7 +519,7 @@ describe('Faz 9 — canlıya çıkış denetimi', () => {
    * etkisi hedef kelimeleri rakiplere bedava bildirmektir.
    */
   it('⚠️ meta keywords ETİKETİ YOK', () => {
-    const layout = stripComments(read(path.join(SRC, 'app/layout.tsx')))
+    const layout = stripComments(read(path.join(SRC, 'app/(site)/layout.tsx')))
     expect(layout, 'meta keywords geri eklenmiş').not.toMatch(/^\s*keywords:/m)
   })
 
@@ -529,7 +529,7 @@ describe('Faz 9 — canlıya çıkış denetimi', () => {
    * ikna eden kısımdı.
    */
   it('⚠️ meta description 160 karakteri aşmıyor', () => {
-    const layout = read(path.join(SRC, 'app/layout.tsx'))
+    const layout = read(path.join(SRC, 'app/(site)/layout.tsx'))
     const m = layout.match(/\n {2}description:\s*([\s\S]*?)\n {2}applicationName:/)
     expect(m, 'layout description alanı bulunamadı').not.toBeNull()
     // Kaynak birden çok string parçasına bölünmüş olabilir; hepsini birleştir.

@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { postJson } from '@/lib/http/post-json'
 import { parseMajorToMinor } from '@/lib/money'
 
 /**
@@ -45,7 +46,19 @@ export function KasaEntryForm({ accounts }: { accounts: Array<{ id: string; labe
     setError(null)
     setOk(false)
 
-    const form = new FormData(e.currentTarget)
+    /**
+     * ⚠️⚠️ FORM ELEMANI `await`TEN ÖNCE YAKALANIR. Aşağıda
+     * `e.currentTarget.reset()` çağrılıyordu ve React `currentTarget`i
+     * senkron bölüm bitince temizlediği için `await` sonrası `null`
+     * oluyordu. `TypeError` genel `catch`e düşüp "Bağlantı hatası" olarak
+     * gösteriliyordu — oysa HAREKET ZATEN YAZILMIŞTI.
+     *
+     * ⚠️ BURADA BEDELİ EN AĞIRDI: kullanıcı hata görüp tekrar bastığında
+     * AYNI GELİR/GİDER İKİNCİ KEZ deftere düşüyor, yani BANKA BAKİYESİ
+     * gerçeğin katına çıkıyordu.
+     */
+    const formEl = e.currentTarget
+    const form = new FormData(formEl)
     const amountRaw = String(form.get('amount') ?? '').trim()
     const costRaw = String(form.get('cost') ?? '').trim()
 
@@ -76,35 +89,28 @@ export function KasaEntryForm({ accounts }: { accounts: Array<{ id: string; labe
     }
 
     setBusy(true)
-    try {
-      const res = await fetch('/api/v1/admin/kasa/entries', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          accountId: form.get('accountId'),
-          occurredAt: form.get('occurredAt'),
-          direction: meta.direction,
-          category,
-          amountMinor,
-          description: String(form.get('description') ?? '').trim(),
-          customerHandle: String(form.get('customerHandle') ?? '').trim() || null,
-          costMinor,
-        }),
-      })
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
-        setError(body?.error?.message ?? 'Kayıt eklenemedi.')
-        return
-      }
-      e.currentTarget.reset()
-      setOk(true)
-      // ⚠️ Sunucu bileşenlerini tazeler — bakiye ve döküm anında güncellenir.
-      router.refresh()
-    } catch {
-      setError('Bağlantı hatası. Tekrar deneyin.')
-    } finally {
-      setBusy(false)
+    // ⚠️ `postJson` throw etmez; başarı sonrası arayüz işleri `try` dışında.
+    const res = await postJson('/api/v1/admin/kasa/entries', {
+      accountId: form.get('accountId'),
+      occurredAt: form.get('occurredAt'),
+      direction: meta.direction,
+      category,
+      amountMinor,
+      description: String(form.get('description') ?? '').trim(),
+      customerHandle: String(form.get('customerHandle') ?? '').trim() || null,
+      costMinor,
+    })
+    setBusy(false)
+
+    if (!res.ok) {
+      setError(res.message)
+      return
     }
+
+    formEl.reset()
+    setOk(true)
+    // ⚠️ Sunucu bileşenlerini tazeler — bakiye ve döküm anında güncellenir.
+    router.refresh()
   }
 
   const field =

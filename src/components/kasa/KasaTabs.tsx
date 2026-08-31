@@ -10,13 +10,13 @@ import Link from 'next/link'
  *
  * ⚠️ SIRALAMA BİLİNÇLİ: Siparişler → Aylık Paketler → Kasa. Günlük iş en
  * sık girilen kayıttır ve önde durur; Kasa (defterin tamamı) sondadır.
- * Yönetim menüsündeki "Kasa" bağlantısı yine /yonetim/kasa'ya gider, yani
+ * Yönetim menüsündeki "Kasa" bağlantısı yine /admin/kasa'ya gider, yani
  * defter görünümüne — diğer ikisi oradan bir tık uzaktadır.
  */
 const TABS = [
-  { key: 'siparisler', href: '/yonetim/kasa/siparisler', label: 'Siparişler' },
-  { key: 'paketler', href: '/yonetim/kasa/paketler', label: 'Aylık Paketler' },
-  { key: 'kasa', href: '/yonetim/kasa', label: 'Kasa' },
+  { key: 'siparisler', href: '/admin/kasa/siparisler', label: 'Siparişler' },
+  { key: 'paketler', href: '/admin/kasa/paketler', label: 'Aylık Paketler' },
+  { key: 'kasa', href: '/admin/kasa', label: 'Kasa' },
 ] as const
 
 export type KasaTabKey = (typeof TABS)[number]['key']

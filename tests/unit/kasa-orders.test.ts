@@ -205,7 +205,7 @@ describe('⚠️ sitedeki SİPARİŞLERE dokunulmuyor', () => {
   })
 
   it('ekran da yalnızca ManualOrder okuyor', () => {
-    const page = stripComments(read('src/app/yonetim/(panel)/kasa/siparisler/page.tsx'))
+    const page = stripComments(read('src/app/(admin)/admin/(panel)/kasa/siparisler/page.tsx'))
     expect(page).toContain('@/server/kasa/orders')
     expect(page).not.toMatch(/\bdb\.order\b/)
     expect(page).not.toContain('@/server/orders')
@@ -285,5 +285,80 @@ describe('uçlar SUPERADMIN istiyor', () => {
     ]) {
       expect(read(f), `${f} SUPERADMIN istemiyor`).toContain("minimumRole: 'SUPERADMIN'")
     }
+  })
+})
+
+// ===========================================================================
+describe('⭐ "Sipariş içeriği" — zorunlu alan', () => {
+  /**
+   * Defterde siparişin NE OLDUĞUNU yazan bir alan yoktu. Kullanıcı adı,
+   * tutar ve tarih vardı ama "Instagram 10K Türk takipçi" mi yoksa "Web
+   * site tasarımı" mı olduğu hiçbir yerde durmuyordu — aynı müşteriye aynı
+   * gün girilen iki satır birbirinden ayırt edilemezdi.
+   */
+  const migration = read('prisma/migrations/20260831120000_kasa_siparis_icerigi/migration.sql')
+
+  it('⚠️ VERİTABANINDA ZORUNLU — hem NOT NULL hem boşluk yasağı', () => {
+    /**
+     * NOT NULL tek başına yetmez: boş dize de "null değil"dir. İkisi
+     * birlikte olmasa, zorunluluk sadece görünüşte kalırdı.
+     */
+    expect(migration).toContain('SET NOT NULL')
+    expect(migration).toContain("btrim(\"description\") <> ''")
+  })
+
+  it('⚠️ MEVCUT SATIRLAR AÇIK BİR YER TUTUCUYLA DOLDURULUYOR', () => {
+    /**
+     * Doğrudan NOT NULL eklemek, tabloda kayıt varsa migration'ı düşürürdü.
+     * Yer tutucu boş dize DEĞİL okunabilir bir metin: boş dize konsaydı
+     * ekranda hiçbir şey görünmez ve kullanıcı "içerik girmiş ama kaybolmuş"
+     * sanırdı.
+     */
+    const update = migration.indexOf('UPDATE "ManualOrder"')
+    const notNull = migration.indexOf('SET NOT NULL')
+    expect(update).toBeGreaterThan(-1)
+    expect(update, 'backfill NOT NULL’dan sonra geliyor').toBeLessThan(notNull)
+    expect(migration).toContain('(alan eklenmeden önce girildi)')
+  })
+
+  it('Prisma şeması alanı zorunlu tanımlıyor (opsiyonel değil)', () => {
+    const schema = read('prisma/schema.prisma')
+    const model = /model ManualOrder \{[\s\S]*?\n\}/.exec(schema)
+    expect(model).not.toBeNull()
+    expect(model![0]).toMatch(/^\s*description String$/m)
+    expect(model![0], 'alan opsiyonel yapılmış').not.toMatch(/description String\?/)
+  })
+
+  it('⚠️ Zod şeması `.optional()` DEĞİL', () => {
+    const route = read('src/app/api/v1/admin/kasa/siparisler/route.ts')
+    expect(route).toMatch(/description: z\.string\(\)\.min\(1\)/)
+    expect(route).not.toMatch(/description: z\.string\(\)[^,\n]*\.optional\(\)/)
+  })
+
+  it('⚠️ SUNUCU KATMANI SADECE BOŞLUKTAN İBARET DEĞERİ REDDEDİYOR', () => {
+    // Zod `min(1)` tek boşluğu geçirir; kırpılınca boş kalan değer
+    // veritabanı kısıtına takılır ve kullanıcı anlaşılmaz bir hata görürdü.
+    const server = read('src/server/kasa/orders.ts')
+    expect(server).toContain('input.description.trim()')
+    expect(server).toContain('DESCRIPTION_REQUIRED')
+  })
+
+  it('form alanı zorunlu ve arayüzde "Sipariş içeriği" yazıyor', () => {
+    const form = read('src/components/kasa/ManualOrderForm.tsx')
+    expect(form).toContain('Sipariş içeriği')
+    expect(form).toMatch(/name="description"[^>]*required|required[^>]*name="description"/)
+    expect(form).toContain("description: data.get('description')")
+  })
+
+  it('tabloda ayrı bir sütun olarak görünüyor', () => {
+    const page = read('src/app/(admin)/admin/(panel)/kasa/siparisler/page.tsx')
+    expect(page).toContain('>Sipariş içeriği<')
+    expect(page).toContain('{r.description}')
+  })
+
+  it('⚠️ İÇERİK KASA HAREKETİNİN AÇIKLAMASINA DA YAZILIYOR', () => {
+    // Kasa dökümünde "Sipariş — @ali" değil, ne satıldığı görünmeli.
+    const server = read('src/server/kasa/orders.ts')
+    expect(server).toContain('${order.description}')
   })
 })

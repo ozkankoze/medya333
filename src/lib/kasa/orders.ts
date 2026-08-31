@@ -4,7 +4,7 @@
  * ⚠️⚠️ BU MODÜL SİTEDEKİ SİPARİŞLERLE İLGİLİ DEĞİLDİR.
  *
  * Gerçek müşteri siparişi `Order` tablosundadır: ödeme akışı üretir,
- * denetim izi taşır, silinemez ve `/yonetim/fulfillment` altında yönetilir.
+ * denetim izi taşır, silinemez ve `/admin/fulfillment` altında yönetilir.
  * Buradaki kayıtlar işletmenin kendi defteridir — elle girilir, elle
  * silinir, yalnızca SUPERADMIN görür.
  *
@@ -42,6 +42,12 @@ export const ORDER_STATUSES: readonly ManualOrderStatus[] = [
   'IPTAL',
 ]
 
+/**
+ * ⚠️ `description` (arayüzde "Sipariş içeriği") BURADA YOKTUR ve olmamalı.
+ * Bu arayüz yalnızca ÖZET hesabına giren alanları taşır. Metin bir alanın
+ * toplamda hiçbir rolü yoktur; buraya eklenseydi, özet fonksiyonlarını
+ * çağıran her yer ilgisiz bir alanı taşımak zorunda kalırdı.
+ */
 export interface OrderLike {
   occurredAt: Date
   salePriceMinor: number

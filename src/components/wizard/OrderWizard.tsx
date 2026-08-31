@@ -12,7 +12,7 @@ import type { CatalogSnapshot } from '@/server/catalog/snapshot'
 import {
   ORDER_CREATED_STORAGE_KEY,
   type CreatedOrderPayload,
-} from '@/app/siparis-olusturuldu/OrderCreatedScreen'
+} from '@/app/(site)/siparis-olusturuldu/OrderCreatedScreen'
 import {
   CustomerStep,
   EMPTY_CUSTOMER,

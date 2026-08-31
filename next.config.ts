@@ -158,6 +158,34 @@ const nextConfig: NextConfig = {
     }
     return config
   },
+  /**
+   * ⚠️ ESKİ PANEL ADRESİ (/yonetim) YAŞAMAYA DEVAM EDER.
+   *
+   * Panel /yonetim'den /admin'e taşındı. Eski adresi 404'e bırakmak
+   * kaydedilmiş yer imlerini, açık sekmeleri ve paylaşılmış bağlantıları
+   * bir anda kırardı — hem de "panel bozuldu" gibi görünerek.
+   *
+   * ⚠️ `permanent: false` (307/308 değil, geçici). Kalıcı yönlendirme
+   * tarayıcıda AGRESİF biçimde önbelleğe alınır: karar geri alınırsa
+   * kullanıcıların tarayıcısı aylarca eski yönlendirmeyi hatırlar ve
+   * bunu temizlemenin uzaktan bir yolu yoktur.
+   *
+   * ⚠️ SORGU PARAMETRELERİ KORUNUR. Next.js `:path*` eşleşmesinde
+   * query string'i varsayılan olarak taşır; `?y=2026&m=8` gibi ay
+   * seçimleri yönlendirmede kaybolmaz.
+   */
+  async redirects() {
+    return [
+      { source: '/yonetim', destination: '/admin/fulfillment', permanent: false },
+      { source: '/yonetim/:path*', destination: '/admin/:path*', permanent: false },
+      /**
+       * ⚠️ ÇIPLAK /admin'in KENDİ SAYFASI YOKTUR ve olmamalıdır. Bir
+       * "gösterge paneli" sayfası uydurmak, İş Kuyruğu'nun kopyası olurdu.
+       * Doğrudan asıl çalışma ekranına götürülür.
+       */
+      { source: '/admin', destination: '/admin/fulfillment', permanent: false },
+    ]
+  },
   async headers() {
     return [
       { source: '/:path*', headers: securityHeaders },

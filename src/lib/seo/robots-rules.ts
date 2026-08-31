@@ -24,7 +24,11 @@ import type { MetadataRoute } from 'next'
  */
 export const DISALLOWED_PATHS = [
   '/api/',
-  '/yonetim/', // operasyon paneli
+  '/admin/', // operasyon paneli
+  // ⚠️ ESKİ YOL LİSTEDE KALIR. /yonetim artık /admin'e yönleniyor ama
+  //    arama motorlarının dizininde ve dış bağlantılarda eski adres hâlâ
+  //    olabilir; listeden çıkarmak o adresin taranmasına izin vermek olurdu.
+  '/yonetim/', // eski panel adresi — /admin'e yönlenir
   '/panel/',
   '/hesabim', // müşteri paneli
   '/siparisler/', // sipariş detayı — takip token'ı içerebilir

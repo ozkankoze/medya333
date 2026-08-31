@@ -59,7 +59,7 @@ export const RATE_LIMITS = {
    * işi, kaba kuvveti imkânsız kılmak değil, otomatik denemeyi ekonomik
    * olmaktan çıkarmaktır; ikisi de bunu yapar.
    */
-  'auth.yonetim.ip': { limit: 5, windowMs: 60_000 },
+  'auth.admin.ip': { limit: 5, windowMs: 60_000 },
   'auth.register.ip': { limit: 3, windowMs: 3_600_000 },
   'admin.api.user': { limit: 100, windowMs: 60_000 },
   'catalog.read.ip': { limit: 120, windowMs: 60_000 },

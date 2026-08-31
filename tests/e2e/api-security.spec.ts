@@ -154,13 +154,13 @@ test.describe('🔒 admin API korumalı', () => {
 
   /**
    * ⚠️ İKİ AYRI KAPI. Eskiden bu test yalnızca `/giris` arıyordu ve
-   * `/yonetim/giris` de o kalıba uyduğu için, panelin müşteri girişine
+   * `/admin/giris` de o kalıba uyduğu için, panelin müşteri girişine
    * düşmesi ile personel kapısına düşmesi AYNI görünüyordu. Hedef artık
    * tam olarak sabitlenmiştir.
    */
-  test('/yonetim oturumsuz PERSONEL kapısına yönlendirir', async ({ page }) => {
-    await page.goto('/yonetim/kasa')
-    await expect(page).toHaveURL(/\/yonetim\/giris/)
+  test('/admin oturumsuz PERSONEL kapısına yönlendirir', async ({ page }) => {
+    await page.goto('/admin/kasa')
+    await expect(page).toHaveURL(/\/admin\/giris/)
     // Müşteri kapısının davetleri burada olmamalı.
     await expect(page.getByRole('link', { name: /Kayıt ol/i })).toHaveCount(0)
   })
@@ -168,6 +168,6 @@ test.describe('🔒 admin API korumalı', () => {
   test('/panel oturumsuz MÜŞTERİ kapısına yönlendirir', async ({ page }) => {
     await page.goto('/panel')
     await expect(page).toHaveURL(/\/giris/)
-    await expect(page).not.toHaveURL(/\/yonetim\//)
+    await expect(page).not.toHaveURL(/\/admin\//)
   })
 })

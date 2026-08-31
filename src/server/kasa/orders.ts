@@ -15,7 +15,7 @@ import { dayStartUtc, KasaError } from '@/server/kasa'
  *
  * ⚠️ SİTEDEKİ `Order` TABLOSUNA HİÇ DOKUNULMAZ. Bu modül yalnızca
  * `ManualOrder` okur ve yazar. Gerçek müşteri siparişleri
- * `/yonetim/fulfillment` altındadır ve oradan yönetilir.
+ * `/admin/fulfillment` altındadır ve oradan yönetilir.
  *
  * ⚠️ YETKİ BURADA DEĞİL, UÇTA (`minimumRole: 'SUPERADMIN'`). Kontrolü iki
  * yere dağıtmak, birinde unutulduğunda diğerinin koruduğu yanılsaması
@@ -25,6 +25,8 @@ import { dayStartUtc, KasaError } from '@/server/kasa'
 export interface OrderRow {
   id: string
   customerName: string
+  /** Arayüzde "Sipariş içeriği" — zorunlu, boş olamaz. */
+  description: string
   occurredAt: Date
   salePriceMinor: number
   costMinor: number
@@ -47,6 +49,7 @@ export interface OrderRow {
 interface DbOrder {
   id: string
   customerName: string
+  description: string
   occurredAt: Date
   salePriceMinor: number
   costMinor: number
@@ -60,6 +63,7 @@ function toRow(o: DbOrder): OrderRow {
   return {
     id: o.id,
     customerName: o.customerName,
+    description: o.description,
     occurredAt: o.occurredAt,
     salePriceMinor: o.salePriceMinor,
     costMinor: o.costMinor,
@@ -115,7 +119,7 @@ async function lockOrder(
   id: string,
 ): Promise<LockedOrder | null> {
   const rows = await tx.$queryRaw<LockedOrder[]>`
-    SELECT "id", "customerName", "occurredAt", "salePriceMinor", "costMinor",
+    SELECT "id", "customerName", "description", "occurredAt", "salePriceMinor", "costMinor",
            "status", "paidAt", "paymentEntryId", "costEntryId"
     FROM "ManualOrder"
     WHERE "id" = ${id}
@@ -127,6 +131,7 @@ async function lockOrder(
 interface LockedOrder {
   id: string
   customerName: string
+  description: string
   occurredAt: Date
   salePriceMinor: number
   costMinor: number
@@ -138,6 +143,8 @@ interface LockedOrder {
 
 export interface CreateOrderInput {
   customerName: string
+  /** Arayüzde "Sipariş içeriği" — zorunlu. */
+  description: string
   occurredAt: Date
   salePriceMinor: number
   costMinor: number
@@ -165,9 +172,19 @@ export async function createOrder(input: CreateOrderInput) {
   const name = input.customerName.trim()
   if (!name) throw new KasaError('NAME_REQUIRED', 'Kullanıcı adı boş olamaz.')
 
+  /**
+   * ⚠️ SADECE BOŞLUKTAN İBARET İÇERİK REDDEDİLİR. Zod `min(1)` tek boşluğu
+   * geçirir; kırpıldıktan sonra boş kalan bir değer veritabanındaki
+   * `btrim(...) <> ''` kısıtına takılır ve kullanıcı anlaşılmaz bir
+   * veritabanı hatası görürdü. Kapıyı burada, anlaşılır mesajla kapatıyoruz.
+   */
+  const description = input.description.trim()
+  if (!description) throw new KasaError('DESCRIPTION_REQUIRED', 'Sipariş içeriği boş olamaz.')
+
   return db.manualOrder.create({
     data: {
       customerName: name,
+      description,
       occurredAt: dayStartUtc(input.occurredAt),
       salePriceMinor: input.salePriceMinor,
       costMinor: input.costMinor,
@@ -221,7 +238,9 @@ export async function collectOrderPayment(params: {
         //    parasının gelmesi içindir. Sipariş ilk kez burada sayılır.
         category: 'SATIS',
         amountMinor: order.salePriceMinor,
-        description: `Sipariş — ${order.customerName}`,
+        // ⚠️ İçerik hareketin açıklamasına da yazılır: kasa dökümünde
+        //    "Sipariş — @ali" değil, ne satıldığı görünür.
+        description: `${order.description} — ${order.customerName}`,
         customerHandle: order.customerName,
         // ⚠️ Maliyet BURAYA yazılmaz: siparişin kârı zaten sipariş kaydında
         //    hesaplanıyor. Buraya da yazmak aynı maliyeti iki kez düşerdi.
@@ -270,7 +289,7 @@ export async function recordOrderCostExpense(params: {
         direction: 'OUT',
         category: 'MALIYET',
         amountMinor: order.costMinor,
-        description: `Maliyet — sipariş · ${order.customerName}`,
+        description: `Maliyet — ${order.description} · ${order.customerName}`,
         createdById: params.createdById ?? null,
       },
     })

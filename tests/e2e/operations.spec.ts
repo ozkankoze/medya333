@@ -93,7 +93,7 @@ test.describe('yetki', () => {
 
   test('yönetim sayfası oturumsuz kullanıcıyı girişe yollar', async ({ page }) => {
     await isolateClient(page)
-    await page.goto('/yonetim/fulfillment')
+    await page.goto('/admin/fulfillment')
     await expect(page).toHaveURL(/\/giris/, { timeout: 20_000 })
   })
 })
@@ -167,7 +167,7 @@ test.describe('cursor sayfalama', () => {
 test.describe('operasyon kuyruğu arayüzü', () => {
   test('filtre çubuğu görünür ve eşleşmeyen arama boş durum gösterir', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/fulfillment?bucket=all')
+    await page.goto('/admin/fulfillment?bucket=all')
 
     await expect(page.getByTestId('queue-filters')).toBeVisible()
 
@@ -180,7 +180,7 @@ test.describe('operasyon kuyruğu arayüzü', () => {
 
   test('sayaçlar gerçek sayıdır ve filtreyle değişmez', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/fulfillment?bucket=all')
+    await page.goto('/admin/fulfillment?bucket=all')
 
     const before = await page.getByTestId('count-all').innerText()
 
@@ -195,13 +195,13 @@ test.describe('operasyon kuyruğu arayüzü', () => {
 
   test('sıralama seçenekleri adres çubuğuna yazılır (paylaşılabilir)', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/fulfillment?bucket=all&sort=oldest')
+    await page.goto('/admin/fulfillment?bucket=all&sort=oldest')
     await expect(page.locator('#sort')).toHaveValue('oldest')
   })
 
   test('⚠️ kuyruk ekranı müşteri e-postası/adı GÖSTERMEZ', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/fulfillment?bucket=all')
+    await page.goto('/admin/fulfillment?bucket=all')
 
     const html = await page.locator('#icerik').innerHTML()
     // Operasyon için sipariş no ve hedef yeterlidir; kişisel veri gerekmez.
@@ -213,7 +213,7 @@ test.describe('operasyon kuyruğu arayüzü', () => {
 test.describe('katalog yönetimi arayüzü', () => {
   test('platform, hizmet ve varyant hiyerarşisi üstverisiyle görünür', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
 
     await expect(page.getByTestId('catalog-counts')).toBeVisible()
     await expect(page.getByTestId('platform-instagram')).toBeVisible()
@@ -224,7 +224,7 @@ test.describe('katalog yönetimi arayüzü', () => {
 
   test('yeni hizmet ve yeni varyant formları açılır', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
 
     const newService = page.getByTestId('new-service-instagram')
     await expect(newService).toBeVisible()
@@ -236,7 +236,7 @@ test.describe('katalog yönetimi arayüzü', () => {
 
   test('⭐ fiyat doğrulama raporu PASS/WARNING/ERROR seviyesi gösterir', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
 
     await page.getByTestId('variant-instagram-takipci-turk').click()
     await expect(page.getByTestId('pricing-report')).toBeVisible({ timeout: 15_000 })
@@ -249,7 +249,7 @@ test.describe('katalog yönetimi arayüzü', () => {
 
   test('⭐ varyant düzenleme ve fiyat kademesi formları mevcut', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
     await page.getByTestId('variant-instagram-takipci-turk').click()
 
     await expect(page.getByTestId('new-pricing-rule')).toBeVisible()
@@ -262,7 +262,7 @@ test.describe('katalog yönetimi arayüzü', () => {
 
   test('⚠️ fiyat kademesinde SİLME düğmesi yok, pasifleştirme var', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
     await page.getByTestId('variant-instagram-takipci-turk').click()
 
     const table = page.locator('table').first()
@@ -278,7 +278,7 @@ test.describe('mobil operasyon arayüzü', () => {
 
   test('kuyruk mobilde yatay taşma olmadan açılır', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/fulfillment?bucket=all')
+    await page.goto('/admin/fulfillment?bucket=all')
 
     await expect(page.getByTestId('queue-filters')).toBeVisible()
 
@@ -294,7 +294,7 @@ test.describe('mobil operasyon arayüzü', () => {
 
   test('katalog ekranı mobilde taşmaz', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/katalog')
+    await page.goto('/admin/katalog')
     await expect(page.getByTestId('catalog-counts')).toBeVisible()
 
     const overflow = await page.evaluate(
@@ -308,7 +308,7 @@ test.describe('mobil operasyon arayüzü', () => {
 test.describe('bildirim paneli', () => {
   test('açılır, sağlayıcı uyarısı ve operasyon sayaçları görünür', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/notifications')
+    await page.goto('/admin/notifications')
 
     await expect(page.getByTestId('alert-failed')).toBeVisible()
     await expect(page.getByTestId('alert-review')).toBeVisible()
@@ -325,7 +325,7 @@ test.describe('bildirim paneli', () => {
 
   test('⚠️ ham e-posta, token veya API anahtarı GÖSTERİLMEZ', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/notifications?filter=all')
+    await page.goto('/admin/notifications?filter=all')
 
     const html = await page.locator('#icerik').innerHTML()
 
@@ -353,7 +353,7 @@ test.describe('bildirim paneli', () => {
 
   test('sağlayıcı teslim edemiyorsa açık uyarı verir', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/notifications')
+    await page.goto('/admin/notifications')
 
     // E2E ortamında gerçek sağlayıcı yok → uyarı görünmeli
     await expect(page.getByTestId('mail-provider-warning')).toBeVisible()
@@ -394,13 +394,13 @@ test.describe('rol yönetimi', () => {
     expect(res.status(), 'CUSTOMER rol değiştirme ucuna girebiliyor').toBe(403)
 
     // Sayfa da erişilemez olmalı
-    await page.goto('/yonetim/kullanicilar')
-    await expect(page).not.toHaveURL(/\/yonetim\/kullanicilar/, { timeout: 20_000 })
+    await page.goto('/admin/kullanicilar')
+    await expect(page).not.toHaveURL(/\/admin\/kullanicilar/, { timeout: 20_000 })
   })
 
   test('ADMIN kullanıcı listesini görür; adresler maskelidir', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/kullanicilar')
+    await page.goto('/admin/kullanicilar')
 
     await expect(page.getByTestId('user-summary')).toBeVisible()
     const html = await page.locator('#icerik').innerHTML()
@@ -410,7 +410,7 @@ test.describe('rol yönetimi', () => {
 
   test('⚠️ kişi KENDİ rolünü değiştiremez (arayüz de kilitler)', async ({ page }) => {
     await loginAsAdmin(page)
-    await page.goto('/yonetim/kullanicilar?q=admin')
+    await page.goto('/admin/kullanicilar?q=admin')
 
     // Giriş yapan kullanıcının satırı kilitli görünür
     await expect(page.locator('[data-testid$="-locked"]').first()).toBeVisible()
@@ -462,7 +462,7 @@ test.describe('üretim alan adı ve SEO', () => {
      * karşısına ESKİ bir dağıtım çıkabilir.
      *
      * ⚠️ Bu, özel yolların korumasını GEVŞETMEZ — tam tersi, TÜM site
-     * kapatıldığı için /yonetim, /hesabim ve /siparisler de kapsanır.
+     * kapatıldığı için /admin, /hesabim ve /siparisler de kapsanır.
      */
     const robots = await (await request.get('/robots.txt')).text()
 
@@ -475,7 +475,7 @@ test.describe('üretim alan adı ve SEO', () => {
 
   test('⚠️ sitemap TOKEN taşıyan veya özel adres içermez', async ({ request }) => {
     const sitemap = await (await request.get('/sitemap.xml')).text()
-    for (const bad of ['/siparisler/', '/hesabim', '/yonetim', '/odeme/', '?t=', '?p=', '/giris']) {
+    for (const bad of ['/siparisler/', '/hesabim', '/admin', '/odeme/', '?t=', '?p=', '/giris']) {
       expect(sitemap, `site haritasında "${bad}"`).not.toContain(bad)
     }
     expect(sitemap).toContain('/yardim')

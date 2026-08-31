@@ -22,6 +22,14 @@ export const dynamic = 'force-dynamic'
  */
 const schema = z.object({
   customerName: z.string().min(1).max(200),
+  /**
+   * ⚠️ ZORUNLU — arayüzde "Sipariş içeriği".
+   * `.optional()` YAPILMAMALI: alan isteğe bağlı olsaydı pratikte çoğu satır
+   * boş kalır ve defter birkaç hafta sonra okunamaz hâle gelirdi. Sınır 300
+   * karakter: bir satırlık açıklama için fazlasıyla yeterli, tabloyu bozacak
+   * kadar uzun değil.
+   */
+  description: z.string().min(1).max(300),
   occurredAt: z.string().min(8),
   salePriceMinor: z.number().int().nonnegative(),
   costMinor: z.number().int().nonnegative(),
@@ -35,6 +43,7 @@ export async function POST(req: NextRequest) {
     try {
       const order = await createOrder({
         customerName: input.customerName,
+        description: input.description,
         occurredAt: at,
         salePriceMinor: input.salePriceMinor,
         costMinor: input.costMinor,

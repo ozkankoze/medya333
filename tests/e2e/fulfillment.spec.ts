@@ -107,7 +107,7 @@ test.describe('fulfillment operasyonu', () => {
     const adminCtx = await context.browser()!.newContext()
     const admin = await adminCtx.newPage()
     await loginAsAdmin(admin)
-    await admin.goto('/yonetim/fulfillment')
+    await admin.goto('/admin/fulfillment')
 
     await expect(admin.getByRole('heading', { name: 'Operasyon' })).toBeVisible()
 
@@ -192,7 +192,7 @@ test.describe('fulfillment operasyonu', () => {
     const adminCtx = await context.browser()!.newContext()
     const admin = await adminCtx.newPage()
     await loginAsAdmin(admin)
-    await admin.goto('/yonetim/fulfillment?bucket=all')
+    await admin.goto('/admin/fulfillment?bucket=all')
 
     await expect(admin.getByRole('link', { name: orderNo })).toHaveCount(0)
     await adminCtx.close()
@@ -210,13 +210,13 @@ test.describe('fulfillment operasyonu', () => {
     await expect(page).toHaveURL(/\/hesabim/, { timeout: 20_000 })
 
     // CUSTOMER paneli açamaz
-    await page.goto('/yonetim/fulfillment')
+    await page.goto('/admin/fulfillment')
     await expect(page).toHaveURL(/\/hesabim/, { timeout: 15_000 })
   })
 
   test('oturumsuz operasyon paneli girişe yönlendirir', async ({ page }) => {
     await isolateClient(page)
-    await page.goto('/yonetim/fulfillment')
+    await page.goto('/admin/fulfillment')
     await expect(page).toHaveURL(/\/giris/)
   })
 
@@ -228,7 +228,7 @@ test.describe('fulfillment operasyonu', () => {
     const adminCtx = await context.browser()!.newContext()
     const admin = await adminCtx.newPage()
     await loginAsAdmin(admin)
-    await admin.goto('/yonetim/fulfillment')
+    await admin.goto('/admin/fulfillment')
 
     const newCount = await admin.getByTestId('count-new').innerText()
     expect(Number(newCount)).toBeGreaterThanOrEqual(1)

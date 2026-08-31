@@ -29,7 +29,7 @@ describe('CANLI dağıtım', () => {
 
   it('⚠️ panel, hesap, sipariş ve ödeme yolları engellenir', () => {
     const disallow = rule.disallow as string[]
-    for (const p of ['/api/', '/yonetim/', '/panel/', '/hesabim', '/siparisler/', '/odeme/']) {
+    for (const p of ['/api/', '/admin/', '/panel/', '/hesabim', '/siparisler/', '/odeme/']) {
       expect(disallow, `${p} engellenmemiş`).toContain(p)
     }
   })

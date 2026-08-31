@@ -291,26 +291,26 @@ test.describe('16 · yönetim erişimi kapalı', () => {
   // ⚠️ Yönetim → personel kapısı, müşteri alanı → müşteri kapısı.
   //    Tek bir `/giris` kalıbı ikisini de geçiriyordu; hedef artık ayrı.
   for (const path of [
-    '/yonetim',
-    '/yonetim/fulfillment',
-    '/yonetim/kullanicilar',
-    '/yonetim/kasa',
+    '/admin',
+    '/admin/fulfillment',
+    '/admin/kullanicilar',
+    '/admin/kasa',
   ]) {
     test(`16 · oturumsuz ${path} → yönetim girişi`, async ({ page }) => {
       await page.goto(path)
-      await expect(page).toHaveURL(/\/yonetim\/giris/)
+      await expect(page).toHaveURL(/\/admin\/giris/)
     })
   }
 
   test('16 · oturumsuz /hesabim → müşteri girişi', async ({ page }) => {
     await page.goto('/hesabim')
     await expect(page).toHaveURL(/\/giris/)
-    await expect(page).not.toHaveURL(/\/yonetim\//)
+    await expect(page).not.toHaveURL(/\/admin\//)
   })
 
   test('⚠️ 16c · yönetim girişinde KAYIT seçeneği yok', async ({ page }) => {
-    await page.goto('/yonetim/giris')
-    await expect(page).toHaveURL(/\/yonetim\/giris/) // döngü yok
+    await page.goto('/admin/giris')
+    await expect(page).toHaveURL(/\/admin\/giris/) // döngü yok
     await expect(page.locator('a[href="/kayit"]')).toHaveCount(0)
     await expect(page.getByLabel('E-posta')).toBeVisible()
   })
@@ -394,7 +394,7 @@ test.describe('canlı ortam yüzeyi', () => {
       expect(robots, 'kapalı ortam sitemap bildiriyor').not.toContain('Sitemap:')
     } else {
       // Canlı dal: özel yollar tek tek engellenmiş olmalı.
-      for (const p of ['/api/', '/yonetim/', '/hesabim', '/siparisler/', '/odeme/']) {
+      for (const p of ['/api/', '/admin/', '/hesabim', '/siparisler/', '/odeme/']) {
         expect(robots, `${p} engellenmemiş`).toContain(`Disallow: ${p}`)
       }
       expect(robots).toContain(`${origin}/sitemap.xml`)
@@ -420,7 +420,7 @@ test.describe('canlı ortam yüzeyi', () => {
         `sitemap YANLIŞ alan adı kullanıyor (beklenen ${origin}) — ${wrongHost.length}/${locs.length} adres`,
       ).toEqual([])
       // ⚠️ Token taşıyan veya özel adresler site haritasında olmamalı.
-      for (const bad of ['/siparisler/', '/hesabim', '/yonetim', '/odeme/', '?t=']) {
+      for (const bad of ['/siparisler/', '/hesabim', '/admin', '/odeme/', '?t=']) {
         expect(sitemap, `site haritasında "${bad}"`).not.toContain(bad)
       }
     }

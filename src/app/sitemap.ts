@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
  *
  * Buraya GİRMEYENLER ve nedenleri:
  *
- *   • `/yonetim/**`, `/panel/**`, `/hesabim` — yetki ister, robots'ta da kapalı
+ *   • `/admin/**`, `/panel/**`, `/hesabim` — yetki ister, robots'ta da kapalı
  *   • `/siparisler/{no}` — **takip token'ı taşır**. Site haritasına konması,
  *     müşteriye özel bir sırrı yayınlamak olurdu.
  *   • `/siparis-olusturuldu`, `/odeme/**` — tek seferlik akış ekranları
