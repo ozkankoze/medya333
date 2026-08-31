@@ -69,6 +69,8 @@ export interface KasaOverview {
     amountMinor: number
     dueDate: Date | null
     note: string | null
+    /** Arayüzdeki "İşlem" — ne için alacaklıyız. */
+    description: string | null
   }>
   receivableTotalMinor: number
 
@@ -173,6 +175,7 @@ export async function getKasaOverview(year: number, month1: number): Promise<Kas
       amountMinor: r.amountMinor,
       dueDate: r.dueDate,
       note: r.note,
+      description: r.description,
     })),
     receivableTotalMinor: receivables.reduce((n, r) => n + r.amountMinor, 0),
 
@@ -346,39 +349,14 @@ export async function createTransfer(params: {
 }
 
 /**
- * Alacağı tahsil edilmiş işaretler VE parayı bir hesaba yazar.
+ * ⚠️ `settleReceivable` BURADAN TAŞINDI → `src/server/kasa/pending.ts`.
  *
- * ⚠️ TEK İŞLEM. İkisi ayrı yapılsaydı, alacak "tahsil edildi" görünürken
- * para hiçbir hesaba girmemiş olabilirdi — ya da tersi, para iki kez
- * girebilirdi. İkisi ya birlikte olur ya hiç olmaz.
+ * Eski hâli her tahsilata sabit `TAHSILAT` kategorisi yazıyordu. Bu, satışı
+ * zaten ciroya girmiş alacaklar için doğruydu; ama "Hareket ekle" formundan
+ * ödenmemiş olarak giren SATIŞLAR için yanlıştır — o satış ciroda HİÇ
+ * görünmezdi. Yeni sürüm kategoriyi kaydın kendisinden okur.
+ *
+ * ⚠️ İKİ AYNI İSİMLİ FONKSİYON BIRAKILMADI. Biri kullanılırken diğeri
+ * güncellenmeden kalır ve hangisinin çalıştığı çağrı yerine göre değişirdi.
  */
-export async function settleReceivable(params: {
-  receivableId: string
-  accountId: string
-  occurredAt: Date
-  createdById?: string | null
-}) {
-  return db.$transaction(async (tx) => {
-    const r = await tx.receivable.findUnique({ where: { id: params.receivableId } })
-    if (!r) throw new KasaError('NOT_FOUND', 'Alacak bulunamadı.', 404)
-    if (r.settledAt) throw new KasaError('ALREADY_SETTLED', 'Bu alacak zaten tahsil edilmiş.')
 
-    await tx.cashEntry.create({
-      data: {
-        accountId: params.accountId,
-        occurredAt: dayStartUtc(params.occurredAt),
-        direction: 'IN',
-        // ⚠️ SATIS DEĞİL: satış zaten yapıldığında ciroya yazıldı; ikinci kez
-        //    ciro saymak aynı işi çift saymaktır.
-        category: 'TAHSILAT',
-        amountMinor: r.amountMinor,
-        description: `Alacak tahsili — ${r.person}`,
-        createdById: params.createdById ?? null,
-      },
-    })
-    return tx.receivable.update({
-      where: { id: params.receivableId },
-      data: { settledAt: new Date() },
-    })
-  })
-}

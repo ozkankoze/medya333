@@ -35,6 +35,19 @@ type CategoryValue = (typeof CATEGORIES)[number]['value']
 export function KasaEntryForm({ accounts }: { accounts: Array<{ id: string; label: string }> }) {
   const router = useRouter()
   const [category, setCategory] = useState<CategoryValue>('SATIS')
+  /**
+   * ⚠️⚠️ ÖDEME DURUMU — FORMDA KUTU VAR, VERİ DOĞRU TABLOYA GİDİYOR.
+   *
+   * "Ödendi" seçiliyse gerçek bir kasa hareketi yazılır ve bakiye değişir.
+   * "Ödenmedi" seçiliyse HİÇBİR hareket yazılmaz; kayıt alacak (giriş) veya
+   * borç (çıkış) olarak durur ve bakiyeye dokunmaz.
+   *
+   * Neden `CashEntry` üzerinde bir bayrak değil: o tablodaki her satır
+   * tanımı gereği gerçekleşmiş bir para hareketidir. "Ödenmedi" satırlarının
+   * bakiyeye girmemesi için bakiyeyi hesaplayan HER sorguya filtre eklemek
+   * gerekirdi; birinde unutulduğunda bakiye sessizce yanlış olurdu.
+   */
+  const [paid, setPaid] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
@@ -90,16 +103,34 @@ export function KasaEntryForm({ accounts }: { accounts: Array<{ id: string; labe
 
     setBusy(true)
     // ⚠️ `postJson` throw etmez; başarı sonrası arayüz işleri `try` dışında.
-    const res = await postJson('/api/v1/admin/kasa/entries', {
-      accountId: form.get('accountId'),
-      occurredAt: form.get('occurredAt'),
-      direction: meta.direction,
-      category,
-      amountMinor,
-      description: String(form.get('description') ?? '').trim(),
-      customerHandle: String(form.get('customerHandle') ?? '').trim() || null,
-      costMinor,
-    })
+    const res = paid
+      ? await postJson('/api/v1/admin/kasa/entries', {
+          accountId: form.get('accountId'),
+          occurredAt: form.get('occurredAt'),
+          direction: meta.direction,
+          category,
+          amountMinor,
+          description: String(form.get('description') ?? '').trim(),
+          customerHandle: String(form.get('customerHandle') ?? '').trim() || null,
+          costMinor,
+        })
+      : /**
+         * ⚠️ ÖDENMEMİŞ KAYIT BAŞKA BİR UCA GİDER ve `CashEntry` üretmez.
+         * `accountId` GÖNDERİLMEZ: para henüz hiçbir hesaba girmedi, hangi
+         * hesaba gireceği de tahsil anında seçilir. Şimdi bir hesap
+         * yazmak, gerçekleşmemiş bir kararı kaydetmek olurdu.
+         */
+        await postJson('/api/v1/admin/kasa/alacaklar', {
+          person:
+            String(form.get('customerHandle') ?? '').trim() ||
+            String(form.get('description') ?? '').trim(),
+          amountMinor,
+          description: String(form.get('description') ?? '').trim() || null,
+          dueDate: form.get('occurredAt'),
+          costMinor,
+          direction: meta.direction,
+          settleCategory: category,
+        })
     setBusy(false)
 
     if (!res.ok) {
@@ -143,16 +174,50 @@ export function KasaEntryForm({ accounts }: { accounts: Array<{ id: string; labe
         </div>
 
         <div>
-          <label className={label} htmlFor="k-account">Hesap</label>
-          <select id="k-account" name="accountId" required className={`${field} mt-1`}>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.label}</option>
-            ))}
+          <label className={label} htmlFor="k-paid">Ödeme durumu</label>
+          <select
+            id="k-paid"
+            name="paid"
+            className={`${field} mt-1`}
+            value={paid ? '1' : '0'}
+            onChange={(ev) => setPaid(ev.target.value === '1')}
+          >
+            <option value="1">Ödeme yapıldı</option>
+            <option value="0">Ödeme yapılmadı</option>
           </select>
+          <p className="mt-1 text-caption text-ink-500">
+            {paid
+              ? 'Kasaya işlenir — bakiye değişir'
+              : meta.direction === 'IN'
+                ? 'Bakiyeye dokunmaz; “Alacaklar” listesine düşer'
+                : 'Bakiyeye dokunmaz; “Yaklaşan ödemeler” listesine düşer'}
+          </p>
         </div>
 
+        {/*
+          ⚠️ HESAP YALNIZCA ÖDENMİŞ HAREKETTE SORULUR. Ödenmemiş bir kayıtta
+          para henüz hiçbir hesaba girmedi; hangi hesaba gireceği de tahsil
+          anında seçilir. Şimdi sormak, gerçekleşmemiş bir kararı kaydetmek
+          ve kullanıcıya "bu para o hesapta" izlenimi vermek olurdu.
+        */}
+        {paid && (
+          <div>
+            <label className={label} htmlFor="k-account">Hesap</label>
+            <select id="k-account" name="accountId" required className={`${field} mt-1`}>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div>
-          <label className={label} htmlFor="k-date">Tarih</label>
+          {/* ⚠️ Ödenmemişte tarih GEÇMİŞ değil, BEKLENEN tarihtir. Etiketin
+              değişmemesi, kullanıcının işlem tarihi sandığı bir alana
+              vade girmesine yol açardı. */}
+          <label className={label} htmlFor="k-date">
+            {paid ? 'Tarih' : 'Beklenen tarih'}
+          </label>
           <input
             id="k-date"
             name="occurredAt"
@@ -193,10 +258,24 @@ export function KasaEntryForm({ accounts }: { accounts: Array<{ id: string; labe
           </div>
         )}
 
-        {meta.value === 'SATIS' && (
+        {/*
+          ⚠️ ÖDENMEMİŞ KAYITTA KİŞİ ADI ZORUNLU. "Kimden alacağım?" /
+          "kime borçluyum?" cevabı olmayan bir alacak/borç satırı listede
+          işe yaramaz. Ödenmiş satışta ise isteğe bağlıdır — para zaten
+          gelmiştir, kimden geldiği bilinmese de bakiye doğrudur.
+        */}
+        {(meta.value === 'SATIS' || !paid) && (
           <div>
-            <label className={label} htmlFor="k-handle">Kullanıcı adı</label>
-            <input id="k-handle" name="customerHandle" placeholder="@kullanici" className={`${field} mt-1`} />
+            <label className={label} htmlFor="k-handle">
+              {paid ? 'Kullanıcı adı' : meta.direction === 'IN' ? 'Kimden' : 'Kime'}
+            </label>
+            <input
+              id="k-handle"
+              name="customerHandle"
+              required={!paid}
+              placeholder={paid ? '@kullanici' : 'Ad / firma'}
+              className={`${field} mt-1`}
+            />
           </div>
         )}
 

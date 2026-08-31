@@ -1262,6 +1262,10 @@ model CashEntry {
   orderPayment ManualOrder? @relation("ManualOrderPayment")
   orderCost    ManualOrder? @relation("ManualOrderCost")
 
+  /// Bu hareketi doğuran alacak tahsili / borç ödemesi (varsa).
+  receivableSettlement Receivable?       @relation("ReceivableSettlement")
+  paymentSettlement    ScheduledPayment? @relation("ScheduledPaymentSettlement")
+
   @@index([accountId, occurredAt])
   @@index([occurredAt])
   @@index([category, occurredAt])
@@ -1276,13 +1280,37 @@ model Receivable {
   /// Tahmini ödeme tarihi; tabloda "-" yazan satırlar için null
   dueDate DateTime?
   note    String?
+
+  /// Arayüzdeki "İşlem" — ne için alacaklıyız.
+  description String?
+  /// Satışın bize maliyeti. ⚠️ Bakiyeye girmez; tahsil edildiğinde oluşan
+  /// harekete taşınır ve kâr hesabına orada girer.
+  costMinor Int?
+
+  /// ⚠️⚠️ TAHSİL EDİLİNCE HANGİ KATEGORİ YAZILACAK?
+  ///
+  /// İki farklı alacak vardır ve aynı kalıba sokulamazlar:
+  ///   TAHSILAT → satış zaten ciroya yazılmıştı, sadece parası gelmemişti.
+  ///              SATIS yazılsaydı aynı iş İKİ KEZ ciro sayılırdı.
+  ///   SATIS    → hiçbir şey yazılmamıştı, satış yalnızca alacak olarak
+  ///              duruyordu. TAHSILAT yazılsaydı o satış ciroda HİÇ
+  ///              görünmezdi.
+  /// "Hareket ekle" formundan "ödenmedi" ile gelen satırlar ikinci gruptur.
+  settleCategory CashCategory @default(TAHSILAT)
+
   /// Tahsil edildiğinde doldurulur. ⚠️ Satır SİLİNMEZ — geçmiş kaybolmasın.
   settledAt DateTime?
+  /// ⚠️ RESTRICT: bağlı hareket silinemez. SetNull olsaydı hareket silinince
+  /// bu alan boşalır, `settledAt` dolu kalır ve alacak "tahsil edildi"
+  /// görünürken karşılığında hiçbir para olmazdı.
+  settledEntryId String?    @unique
+  settledEntry   CashEntry? @relation("ReceivableSettlement", fields: [settledEntryId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([settledAt, dueDate])
+  @@index([settleCategory])
 }
 
 /// AYLIK ÖDEMELER — borç takvimi (kredi, kart, panel…)
@@ -1299,6 +1327,18 @@ model ScheduledPayment {
   /// Ödendiğinde doldurulur. ⚠️ Satır SİLİNMEZ.
   paidAt  DateTime?
   note    String?
+
+  /// Arayüzdeki "İşlem" — ne için borçluyuz.
+  description String?
+
+  /// Ödendiğinde yazılacak kategori. Ödenmemiş bir GİDER ödendiğinde gider
+  /// olarak sayılmalıdır; hepsini BORC_ODEME saymak, günlük harcamayı kredi
+  /// taksitiyle aynı kaleme yazmak olurdu.
+  settleCategory CashCategory @default(BORC_ODEME)
+
+  /// ⚠️ RESTRICT — `Receivable.settledEntry` ile aynı gerekçe.
+  paidEntryId String?    @unique
+  paidEntry   CashEntry? @relation("ScheduledPaymentSettlement", fields: [paidEntryId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

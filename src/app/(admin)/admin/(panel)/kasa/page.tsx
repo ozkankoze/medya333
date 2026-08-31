@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { KasaEntryForm } from '@/components/kasa/KasaEntryForm'
 import { KasaTabs } from '@/components/kasa/KasaTabs'
+import { SettleButton } from '@/components/kasa/SettleButton'
 import { formatMinor, formatQuantity } from '@/lib/money'
 import { getSessionUser } from '@/server/auth'
 import { getKasaOverview, listAccounts, listEntries } from '@/server/kasa'
@@ -52,6 +53,11 @@ export default async function KasaPage({
     listEntries(year, month),
     getPackages(year, month),
   ])
+
+  // ⚠️ Tek yerde türetilir: hem "Hareket ekle" formu hem tahsil/ödeme
+  //    düğmeleri aynı listeyi kullanır. İki yerde ayrı yazılsaydı biri
+  //    değiştiğinde diğeri sessizce eski kalırdı.
+  const accountOptions = accounts.map((a) => ({ id: a.id, label: `${a.owner} · ${a.name}` }))
 
   const monthName = new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(
     new Date(Date.UTC(year, month - 1, 1)),
@@ -242,9 +248,11 @@ export default async function KasaPage({
           ) : (
             <ul className="mt-4 divide-y divide-ink-100 rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
               {ov.receivables.map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-4 px-5 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-small text-ink-900">{r.person}</p>
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-small text-ink-900">
+                      {r.description ? `${r.description} — ${r.person}` : r.person}
+                    </p>
                     <p className="text-caption text-ink-500">
                       {r.dueDate ? formatDate(r.dueDate) : 'tarih belirtilmemiş'}
                     </p>
@@ -252,6 +260,13 @@ export default async function KasaPage({
                   <span className="tabular shrink-0 text-small font-medium text-ink-900">
                     {formatMinor(r.amountMinor)}
                   </span>
+                  {/* ⚠️ Bakiyeyi artıran tek yer — hesap seçtirir. */}
+                  <SettleButton
+                    id={r.id}
+                    kind="alacak"
+                    amountLabel={formatMinor(r.amountMinor)}
+                    accounts={accountOptions}
+                  />
                 </li>
               ))}
             </ul>
@@ -270,8 +285,8 @@ export default async function KasaPage({
           ) : (
             <ul className="mt-4 divide-y divide-ink-100 rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
               {ov.upcoming.map((p) => (
-                <li key={p.id} className="flex items-center justify-between gap-4 px-5 py-3">
-                  <div className="min-w-0">
+                <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-small text-ink-900">{p.creditor}</p>
                     <p className="text-caption text-ink-500">
                       {formatDate(p.dueDate)}
@@ -282,6 +297,13 @@ export default async function KasaPage({
                   <span className="tabular shrink-0 text-small font-medium text-ink-900">
                     {formatMinor(p.amountMinor)}
                   </span>
+                  {/* ⚠️ Bakiyeyi düşüren tek yer — hesap seçtirir. */}
+                  <SettleButton
+                    id={p.id}
+                    kind="borc"
+                    amountLabel={formatMinor(p.amountMinor)}
+                    accounts={accountOptions}
+                  />
                 </li>
               ))}
             </ul>
@@ -299,7 +321,7 @@ export default async function KasaPage({
           />
         ) : (
           <div className="mt-4">
-            <KasaEntryForm accounts={accounts.map((a) => ({ id: a.id, label: `${a.owner} · ${a.name}` }))} />
+            <KasaEntryForm accounts={accountOptions} />
           </div>
         )}
       </section>
