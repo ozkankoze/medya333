@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { KasaEntryForm } from '@/components/kasa/KasaEntryForm'
+import { InlineEdit } from '@/components/kasa/InlineEdit'
 import { KasaTabs } from '@/components/kasa/KasaTabs'
 import { SettleButton } from '@/components/kasa/SettleButton'
 import { formatMinor, formatQuantity } from '@/lib/money'
@@ -267,6 +268,22 @@ export default async function KasaPage({
                     amountLabel={formatMinor(r.amountMinor)}
                     accounts={accountOptions}
                   />
+                  {/* Tahsil edilmemiş alacak serbestçe düzenlenir ve silinir. */}
+                  <InlineEdit
+                    endpoint={`/api/v1/admin/kasa/alacaklar/${r.id}`}
+                    extra={{ kind: 'alacak' }}
+                    fields={[
+                      { kind: 'text', name: 'person', label: 'Kimden', value: r.person, required: true },
+                      { kind: 'text', name: 'description', label: 'İşlem', value: r.description ?? '' },
+                      { kind: 'date', name: 'dueDate', label: 'Beklenen tarih', value: r.dueDate ? isoDay(r.dueDate) : '' },
+                      { kind: 'money', name: 'amountMinor', label: 'Tutar', valueMinor: r.amountMinor, required: true },
+                    ]}
+                    remove={{
+                      endpoint: `/api/v1/admin/kasa/alacaklar/${r.id}`,
+                      body: { kind: 'alacak' },
+                      confirm: 'Bu alacak kaydı kalıcı olarak silinecek. Emin misin?',
+                    }}
+                  />
                 </li>
               ))}
             </ul>
@@ -303,6 +320,21 @@ export default async function KasaPage({
                     kind="borc"
                     amountLabel={formatMinor(p.amountMinor)}
                     accounts={accountOptions}
+                  />
+                  <InlineEdit
+                    endpoint={`/api/v1/admin/kasa/alacaklar/${p.id}`}
+                    extra={{ kind: 'borc' }}
+                    fields={[
+                      { kind: 'text', name: 'person', label: 'Kime', value: p.creditor, required: true },
+                      { kind: 'text', name: 'description', label: 'İşlem', value: p.description ?? '' },
+                      { kind: 'date', name: 'dueDate', label: 'Ödeme tarihi', value: isoDay(p.dueDate), required: true },
+                      { kind: 'money', name: 'amountMinor', label: 'Tutar', valueMinor: p.amountMinor, required: true },
+                    ]}
+                    remove={{
+                      endpoint: `/api/v1/admin/kasa/alacaklar/${p.id}`,
+                      body: { kind: 'borc' },
+                      confirm: 'Bu borç kaydı kalıcı olarak silinecek. Emin misin?',
+                    }}
                   />
                 </li>
               ))}
@@ -344,6 +376,7 @@ export default async function KasaPage({
                   <th scope="col" className="px-4 py-3 font-medium">Hesap</th>
                   <th scope="col" className="px-4 py-3 text-right font-medium">Tutar</th>
                   <th scope="col" className="px-4 py-3 text-right font-medium">Maliyet</th>
+                  <th scope="col" className="px-4 py-3 font-medium">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
@@ -366,6 +399,54 @@ export default async function KasaPage({
                     <td className="tabular px-4 py-3 text-right text-ink-600">
                       {e.costMinor == null ? '—' : formatMinor(e.costMinor)}
                     </td>
+                    <td className="px-4 py-3">
+                      {/*
+                        ⚠️ BAĞLI HAREKETTE TUTAR VE HESAP KİLİTLİ. Bir pakete,
+                        siparişe, alacağa veya borca bağlı hareketin tutarı
+                        değiştirilirse o kayıtla kasa arasında sessiz bir fark
+                        oluşurdu. Açıklama, tarih ve kullanıcı adı serbesttir.
+                      */}
+                      <InlineEdit
+                        endpoint={`/api/v1/admin/kasa/entries/${e.id}`}
+                        fields={[
+                          { kind: 'date', name: 'occurredAt', label: 'Tarih', value: isoDay(e.occurredAt), required: true },
+                          { kind: 'text', name: 'description', label: 'İşlem', value: e.description, required: true },
+                          { kind: 'text', name: 'customerHandle', label: 'Kullanıcı', value: e.customerHandle ?? '' },
+                          {
+                            kind: 'money',
+                            name: 'amountMinor',
+                            label: 'Tutar',
+                            valueMinor: e.amountMinor,
+                            required: true,
+                            frozen: e.linkedTo ? `${e.linkedTo} kaydına bağlı — tutar donmuş` : undefined,
+                          },
+                          {
+                            kind: 'money',
+                            name: 'costMinor',
+                            label: 'Maliyet',
+                            valueMinor: e.costMinor,
+                            frozen: e.category === 'SATIS' ? undefined : 'Maliyet yalnızca satış satırında',
+                          },
+                          {
+                            kind: 'select',
+                            name: 'accountId',
+                            label: 'Hesap',
+                            value: e.accountId,
+                            options: accountOptions.map((a) => ({ value: a.id, label: a.label })),
+                            frozen: e.linkedTo ? `${e.linkedTo} kaydına bağlı — hesap donmuş` : undefined,
+                          },
+                        ]}
+                        remove={{
+                          endpoint: `/api/v1/admin/kasa/entries/${e.id}`,
+                          confirm: e.transferGroupId
+                            ? 'Bu bir TRANSFER hareketidir; iki bacağı birlikte silinecek. Emin misin?'
+                            : 'Bu kasa hareketi kalıcı olarak silinecek. Emin misin?',
+                          blocked: e.linkedTo
+                            ? `Bu hareket bir ${e.linkedTo} kaydına bağlı; önce oradaki tahsilatı geri alın.`
+                            : undefined,
+                        }}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -378,6 +459,11 @@ export default async function KasaPage({
 }
 
 // ---------------------------------------------------------------------------
+
+/** `<input type="date">` için gün — UTC gününü kaydırmadan verir. */
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
 
 function formatDate(d: Date): string {
   return new Intl.DateTimeFormat('tr-TR', {

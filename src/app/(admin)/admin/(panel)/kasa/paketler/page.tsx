@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { KasaTabs } from '@/components/kasa/KasaTabs'
+import { InlineEdit } from '@/components/kasa/InlineEdit'
 import { PackageForm } from '@/components/kasa/PackageForm'
 import { PackageActions } from '@/components/kasa/PackageActions'
 import { formatMinor } from '@/lib/money'
@@ -198,16 +199,51 @@ export default async function PackagesPage({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <PackageActions
-                        id={r.id}
-                        accounts={accountOptions}
-                        saleLabel={formatMinor(r.salePriceMinor)}
-                        costLabel={formatMinor(r.costMinor)}
-                        isPaid={Boolean(r.paidAt)}
-                        canCollect={!r.paidAt && r.state !== 'IPTAL'}
-                        canRecordCost={r.costMinor > 0 && !r.costEntryId && r.state !== 'IPTAL'}
-                        canCancel={r.state !== 'IPTAL'}
-                      />
+                      <div className="flex flex-wrap items-start gap-1.5">
+                        <PackageActions
+                          id={r.id}
+                          accounts={accountOptions}
+                          saleLabel={formatMinor(r.salePriceMinor)}
+                          costLabel={formatMinor(r.costMinor)}
+                          isPaid={Boolean(r.paidAt)}
+                          canCollect={!r.paidAt && r.state !== 'IPTAL'}
+                          canRecordCost={r.costMinor > 0 && !r.costEntryId && r.state !== 'IPTAL'}
+                          canCancel={r.state !== 'IPTAL'}
+                        />
+                        {/*
+                          ⚠️ Müşteri, hizmet, tarihler ve not HER ZAMAN
+                          düzenlenir. Satış ve maliyet yalnızca bağlı kasa
+                          hareketi YOKKEN — bu oturumda 79.000 TL'lik sessiz
+                          farkla kanıtlanan kusurun kapısı budur.
+                        */}
+                        <InlineEdit
+                          endpoint={`/api/v1/admin/kasa/paketler/${r.id}/duzenle`}
+                          method="POST"
+                          fields={[
+                            { kind: 'text', name: 'customerName', label: 'Müşteri', value: r.customerName, required: true },
+                            { kind: 'text', name: 'serviceName', label: 'Hizmet', value: r.serviceName, required: true },
+                            { kind: 'date', name: 'startDate', label: 'Başlangıç', value: isoDay(r.startDate), required: true },
+                            { kind: 'date', name: 'endDate', label: 'Bitiş', value: isoDay(r.endDate), required: true },
+                            {
+                              kind: 'money',
+                              name: 'salePriceMinor',
+                              label: 'Satış',
+                              valueMinor: r.salePriceMinor,
+                              required: true,
+                              frozen: r.paymentEntryId ? 'Tahsilat yazılmış — tutar donmuş' : undefined,
+                            },
+                            {
+                              kind: 'money',
+                              name: 'costMinor',
+                              label: 'Maliyet',
+                              valueMinor: r.costMinor,
+                              required: true,
+                              frozen: r.costEntryId ? 'Gider yazılmış — maliyet donmuş' : undefined,
+                            },
+                            { kind: 'text', name: 'note', label: 'Not', value: r.note ?? '' },
+                          ]}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -221,6 +257,11 @@ export default async function PackagesPage({
 }
 
 // ---------------------------------------------------------------------------
+
+/** `<input type="date">` için gün. */
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
 
 function fmtDate(d: Date): string {
   return new Intl.DateTimeFormat('tr-TR', {

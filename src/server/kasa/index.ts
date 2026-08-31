@@ -80,6 +80,8 @@ export interface KasaOverview {
     amountMinor: number
     remainingMinor: number | null
     dueDate: Date
+    /** Arayüzdeki "İşlem" — ne için borçluyuz. */
+    description: string | null
   }>
   upcomingTotalMinor: number
 }
@@ -185,6 +187,7 @@ export async function getKasaOverview(year: number, month1: number): Promise<Kas
       amountMinor: p.amountMinor,
       remainingMinor: p.remainingMinor,
       dueDate: p.dueDate,
+      description: p.description,
     })),
     upcomingTotalMinor: upcoming.reduce((n, p) => n + p.amountMinor, 0),
   }
@@ -193,11 +196,42 @@ export async function getKasaOverview(year: number, month1: number): Promise<Kas
 /** Bir ayın gün gün hareket dökümü — sipariş defteri ekranı. */
 export async function listEntries(year: number, month1: number) {
   const range = monthRange(year, month1)
-  return db.cashEntry.findMany({
+  const rows = await db.cashEntry.findMany({
     where: { occurredAt: { gte: range.gte, lt: range.lt } },
     orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
-    include: { account: { select: { name: true, owner: true } } },
+    include: {
+      account: { select: { name: true, owner: true } },
+      /**
+       * ⚠️ BAĞLILIK TEK SORGUDA ÇEKİLİR. Ekran her satır için "bu hareketin
+       * tutarı düzenlenebilir mi?" sorusunu cevaplamak zorunda; satır başına
+       * ayrı sorgu atmak, 200 hareketlik bir ayda 800 ek sorgu demekti.
+       */
+      packagePayment: { select: { id: true } },
+      packageCost: { select: { id: true } },
+      orderPayment: { select: { id: true } },
+      orderCost: { select: { id: true } },
+      receivableSettlement: { select: { id: true } },
+      paymentSettlement: { select: { id: true } },
+    },
   })
+
+  return rows.map((e) => ({
+    ...e,
+    /**
+     * Hangi kayda bağlı — yoksa `null`. Ekranda kilidin SEBEBİ olarak
+     * yazılır; asıl engel veritabanı tetikleyicisindedir.
+     */
+    linkedTo:
+      e.packagePayment || e.packageCost
+        ? ('paket' as const)
+        : e.orderPayment || e.orderCost
+          ? ('sipariş' as const)
+          : e.receivableSettlement
+            ? ('alacak' as const)
+            : e.paymentSettlement
+              ? ('borç' as const)
+              : null,
+  }))
 }
 
 export async function listAccounts() {

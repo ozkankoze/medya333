@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { KasaTabs } from '@/components/kasa/KasaTabs'
 import { ManualOrderActions } from '@/components/kasa/ManualOrderActions'
+import { InlineEdit } from '@/components/kasa/InlineEdit'
 import { ManualOrderForm } from '@/components/kasa/ManualOrderForm'
 import {
   ORDER_STATUS_LABEL,
@@ -213,16 +214,49 @@ export default async function ManualOrdersPage({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <ManualOrderActions
-                        id={r.id}
-                        accounts={accountOptions}
-                        status={r.status}
-                        saleLabel={formatMinor(r.salePriceMinor)}
-                        costLabel={formatMinor(r.costMinor)}
-                        isPaid={Boolean(r.paidAt)}
-                        canRecordCost={r.costMinor > 0 && !r.costEntryId && r.status !== 'IPTAL'}
-                        canDelete={r.canDelete}
-                      />
+                      <div className="flex flex-wrap items-start gap-1.5">
+                        <ManualOrderActions
+                          id={r.id}
+                          accounts={accountOptions}
+                          status={r.status}
+                          saleLabel={formatMinor(r.salePriceMinor)}
+                          costLabel={formatMinor(r.costMinor)}
+                          isPaid={Boolean(r.paidAt)}
+                          canRecordCost={r.costMinor > 0 && !r.costEntryId && r.status !== 'IPTAL'}
+                          canDelete={r.canDelete}
+                        />
+                        {/*
+                          ⚠️ Kullanıcı adı, içerik, tarih ve durum HER ZAMAN
+                          düzenlenir. Tutar ve maliyet yalnızca o kayda bağlı
+                          bir kasa hareketi YOKKEN — aksi hâlde kayıtla kasa
+                          arasında sessiz bir fark açılırdı.
+                        */}
+                        <InlineEdit
+                          endpoint={`/api/v1/admin/kasa/siparisler/${r.id}/duzenle`}
+                          method="POST"
+                          fields={[
+                            { kind: 'text', name: 'customerName', label: 'Kullanıcı adı', value: r.customerName, required: true },
+                            { kind: 'text', name: 'description', label: 'Sipariş içeriği', value: r.description, required: true },
+                            { kind: 'date', name: 'occurredAt', label: 'Tarih', value: isoDay(r.occurredAt), required: true },
+                            {
+                              kind: 'money',
+                              name: 'salePriceMinor',
+                              label: 'Sipariş tutarı',
+                              valueMinor: r.salePriceMinor,
+                              required: true,
+                              frozen: r.paymentEntryId ? 'Tahsilat yazılmış — tutar donmuş' : undefined,
+                            },
+                            {
+                              kind: 'money',
+                              name: 'costMinor',
+                              label: 'Maliyet',
+                              valueMinor: r.costMinor,
+                              required: true,
+                              frozen: r.costEntryId ? 'Gider yazılmış — maliyet donmuş' : undefined,
+                            },
+                          ]}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -236,6 +270,11 @@ export default async function ManualOrdersPage({
 }
 
 // ---------------------------------------------------------------------------
+
+/** `<input type="date">` için gün. */
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
 
 function fmtDate(d: Date): string {
   return new Intl.DateTimeFormat('tr-TR', {
