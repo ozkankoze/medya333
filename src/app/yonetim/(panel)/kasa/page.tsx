@@ -34,7 +34,11 @@ export default async function KasaPage({
   searchParams: Promise<{ y?: string; m?: string }>
 }) {
   const user = await getSessionUser()
-  if (!user || user.role !== 'SUPERADMIN') redirect('/yonetim/fulfillment')
+  // ⚠️ Oturumsuz istek personel kapısına, yetkisiz oturum panele döner.
+  //    İkisini tek satırda birleştirmek, oturumsuz ziyaretçiyi düzenin
+  //    yeniden yönlendireceği bir sayfaya göndermek olurdu.
+  if (!user) redirect('/yonetim/giris?next=/yonetim/kasa')
+  if (user.role !== 'SUPERADMIN') redirect('/yonetim/fulfillment')
 
   const sp = await searchParams
   const now = new Date()

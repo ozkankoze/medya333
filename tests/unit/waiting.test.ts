@@ -6,7 +6,7 @@
  *   2. Tanımlı SLA olmadan HİÇBİR yargı üretilmez — "gecikti" yok.
  */
 
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -185,12 +185,39 @@ describe('⭐ SLA — tanımlı değil, uydurulmaz', () => {
 
 describe('⚠️ "gecikti" hiçbir yerde yazmıyor', () => {
   const ROOT = path.resolve(__dirname, '../..')
+
+  /**
+   * ⚠️ FULFILLMENT SAYFALARININ YOLU SABİT YAZILMAZ, ARANIR.
+   *
+   * Eskiden `src/app/yonetim/fulfillment/page.tsx` diye sabitti. Sayfalar
+   * bir rota grubuna (`(panel)`) taşındığında — URL değişmeden — bu test
+   * ENOENT ile patladı. Daha kötüsü de olabilirdi: dosya adı sessizce
+   * eşleşmeseydi, yasaklı kelime taraması hiçbir şeyi taramadan YEŞİL
+   * dönerdi. Arama, rota grubu eklenip çıkarıldığında da doğru kalır.
+   */
+  function findFulfillmentPages(dir: string): string[] {
+    const out: string[] = []
+    for (const entry of readdirSync(dir)) {
+      const full = path.join(dir, entry)
+      if (statSync(full).isDirectory()) out.push(...findFulfillmentPages(full))
+      else if (entry === 'page.tsx' && full.includes(`${path.sep}fulfillment${path.sep}`))
+        out.push(path.relative(ROOT, full))
+    }
+    return out
+  }
+
+  const fulfillmentPages = findFulfillmentPages(path.join(ROOT, 'src/app/yonetim'))
+
   const FILES = [
     'src/lib/fulfillment/waiting.ts',
     'src/server/fulfillment/queue.ts',
-    'src/app/yonetim/fulfillment/page.tsx',
-    'src/app/yonetim/fulfillment/[id]/page.tsx',
+    ...fulfillmentPages,
   ]
+
+  it('taranacak operasyon ekranları gerçekten bulundu', () => {
+    // Boş liste, yasaklı kelime testini anlamsızca yeşile çevirirdi.
+    expect(fulfillmentPages.length, 'fulfillment sayfası bulunamadı').toBeGreaterThanOrEqual(2)
+  })
 
   /** Yorumlar çıkarılır: açıklamalar tam olarak yasakladığımız kelimeyi anlatır. */
   const stripComments = (body: string) =>

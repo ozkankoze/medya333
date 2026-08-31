@@ -61,10 +61,21 @@ describe('migration', () => {
       'Fulfillment', 'FulfillmentEvent', 'ReplacementCase',
       // Faz 8 — bildirim kaydı (idempotency: unique(orderEventId, channel))
       'Notification',
+      /**
+       * ⚠️ KASA (yalnızca SUPERADMIN). Bu tablolar sipariş akışının PARÇASI
+       * DEĞİLDİR — işletmenin kendi defteridir ve müşteri verisiyle hiçbir
+       * yabancı anahtar paylaşmaz. Listeye eklenmelerinin sebebi, tablo
+       * SAYISININ sabitlenmiş olmasıdır: sayı güncellenip isimler
+       * yazılmasaydı, yanlışlıkla düşen bir kasa tablosu sayıyı tutturan
+       * başka bir tabloyla telafi edilip sessizce geçebilirdi.
+       */
+      'CashAccount', 'CashEntry', 'Receivable', 'ScheduledPayment', 'KasaSetting',
+      'ServicePackage',
     ]) {
       expect(names, `${t} tablosu yok`).toContain(t)
     }
-    expect(names).toHaveLength(27)
+    // 27 (sipariş/ödeme/operasyon) + 6 (kasa)
+    expect(names).toHaveLength(33)
   })
 
   it('tüm enum tipleri oluştu ve değerleri doğru', async () => {

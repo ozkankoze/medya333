@@ -152,10 +152,22 @@ test.describe('🔒 admin API korumalı', () => {
     expect(catalog.platforms.some((p: any) => p.slug === 'yetkisiz')).toBe(false)
   })
 
-  test('/panel ve /yonetim oturumsuz girişe yönlendirir', async ({ page }) => {
-    await page.goto('/yonetim')
-    await expect(page).toHaveURL(/\/giris/)
+  /**
+   * ⚠️ İKİ AYRI KAPI. Eskiden bu test yalnızca `/giris` arıyordu ve
+   * `/yonetim/giris` de o kalıba uyduğu için, panelin müşteri girişine
+   * düşmesi ile personel kapısına düşmesi AYNI görünüyordu. Hedef artık
+   * tam olarak sabitlenmiştir.
+   */
+  test('/yonetim oturumsuz PERSONEL kapısına yönlendirir', async ({ page }) => {
+    await page.goto('/yonetim/kasa')
+    await expect(page).toHaveURL(/\/yonetim\/giris/)
+    // Müşteri kapısının davetleri burada olmamalı.
+    await expect(page.getByRole('link', { name: /Kayıt ol/i })).toHaveCount(0)
+  })
+
+  test('/panel oturumsuz MÜŞTERİ kapısına yönlendirir', async ({ page }) => {
     await page.goto('/panel')
     await expect(page).toHaveURL(/\/giris/)
+    await expect(page).not.toHaveURL(/\/yonetim\//)
   })
 })

@@ -39,7 +39,7 @@ export default async function UsersAdminPage({
   searchParams: Promise<{ q?: string; role?: string; guests?: string; cursor?: string }>
 }) {
   const user = await getSessionUser()
-  if (!user) redirect('/giris?next=/yonetim/kullanicilar')
+  if (!user) redirect('/yonetim/giris?next=/yonetim/kullanicilar')
   if (ROLE_LEVEL[user.role] < ROLE_LEVEL.ADMIN) redirect('/yonetim/fulfillment')
 
   const sp = await searchParams

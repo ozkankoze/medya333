@@ -63,7 +63,7 @@ export default async function FulfillmentQueuePage({
   searchParams: Promise<SP>
 }) {
   const user = await getSessionUser()
-  if (!user) redirect('/giris?next=/yonetim/fulfillment')
+  if (!user) redirect('/yonetim/giris?next=/yonetim/fulfillment')
 
   const sp = await searchParams
   const bucket = (

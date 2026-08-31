@@ -44,6 +44,22 @@ export const RATE_LIMITS = {
   /** ⚠️ Para iadesi geri alınamaz; genel admin limitinin altında ayrı tavan */
   'admin.refund.user': { limit: 20, windowMs: 3_600_000 },
   'auth.login.ip': { limit: 5, windowMs: 60_000 },
+  /**
+   * ⚠️ PERSONEL KAPISI MÜŞTERİ KAPISIYLA KOVA PAYLAŞMAZ. Asıl kazanç
+   * budur: paylaşsaydı, müşteri girişindeki olağan trafik yönetim
+   * kapısının bütçesini tüketebilir ve yönetici KENDİ panelinden
+   * kilitlenebilirdi. Ayrıca bu kapıya gelen deneme sayısı ayrı
+   * ölçülebilir olmalı — saldırganın ilgilendiği kapı burasıdır.
+   *
+   * ⚠️ TAVAN MÜŞTERİ KAPISIYLA AYNI (5/dk), DAHA DAR DEĞİL. 3/dk denendi
+   * ve gerçek maliyeti şu: uzun bir şifreyi telefonda iki kez yanlış yazan
+   * yönetici, üçüncü denemesini yapamadan bir dakika bekliyor. Kazancı ise
+   * yok denecek kadar az — argon2 ile korunan güçlü bir şifreye karşı
+   * saatte 180 ile 300 deneme arasında pratik bir fark yoktur. Sınırın
+   * işi, kaba kuvveti imkânsız kılmak değil, otomatik denemeyi ekonomik
+   * olmaktan çıkarmaktır; ikisi de bunu yapar.
+   */
+  'auth.yonetim.ip': { limit: 5, windowMs: 60_000 },
   'auth.register.ip': { limit: 3, windowMs: 3_600_000 },
   'admin.api.user': { limit: 100, windowMs: 60_000 },
   'catalog.read.ip': { limit: 120, windowMs: 60_000 },

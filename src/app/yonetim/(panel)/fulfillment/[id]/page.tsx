@@ -34,7 +34,7 @@ export default async function FulfillmentDetailPage({
   params: Promise<{ id: string }>
 }) {
   const user = await getSessionUser()
-  if (!user) redirect('/giris?next=/yonetim/fulfillment')
+  if (!user) redirect('/yonetim/giris?next=/yonetim/fulfillment')
 
   const { id } = await params
 

@@ -32,7 +32,7 @@ export const metadata: Metadata = {
  */
 export default async function VariantAdminPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getSessionUser()
-  if (!user) redirect('/giris?next=/yonetim/katalog')
+  if (!user) redirect('/yonetim/giris?next=/yonetim/katalog')
 
   const { id } = await params
   const variant = await db.serviceVariant.findUnique({

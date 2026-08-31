@@ -13,11 +13,24 @@ export const dynamic = 'force-dynamic'
  * API ucunda yapılır.
  *
  * Minimum rol: SUPPORT (okuma). Yazma yetkisi uç bazında ayrıca kontrol edilir.
+ *
+ * ⚠️ BU DOSYA `(panel)` ROTA GRUBUNDADIR. Grup URL'e HİÇBİR ŞEY EKLEMEZ —
+ * /yonetim/fulfillment hâlâ aynı adrestir. Tek amacı, /yonetim/giris'i bu
+ * düzenin DIŞINDA bırakmaktır: giriş sayfası oturum isteyen bir düzenin
+ * içinde olsaydı kendi kendini tetikleyen bir yönlendirme döngüsü doğardı.
  */
 export default async function OperationsLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser()
-  if (!user) redirect('/giris?next=/yonetim/fulfillment')
-  if (ROLE_LEVEL[user.role] < ROLE_LEVEL.SUPPORT) redirect('/hesabim')
+  if (!user) redirect('/yonetim/giris?next=/yonetim/fulfillment')
+  /**
+   * ⚠️ YETKİSİZ KULLANICI /hesabim'e DEĞİL, PERSONEL KAPISINA GÖNDERİLİR.
+   * Eskiden müşteri hesap sayfasına atılıyordu; panele girmeye çalışan
+   * personel yanlış hesapla giriş yaptığında hiçbir açıklama görmeden
+   * müşteri ekranında buluyordu kendini. /yonetim/giris o durumu adıyla
+   * söyler ve çıkış yolunu gösterir. (Döngü yok: o sayfa bu düzenin
+   * dışındadır.)
+   */
+  if (ROLE_LEVEL[user.role] < ROLE_LEVEL.SUPPORT) redirect('/yonetim/giris')
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-5">

@@ -69,7 +69,7 @@ export default async function NotificationsPage({
   searchParams: Promise<{ filter?: string; q?: string; cursor?: string; dir?: string }>
 }) {
   const user = await getSessionUser()
-  if (!user) redirect('/giris?next=/yonetim/notifications')
+  if (!user) redirect('/yonetim/giris?next=/yonetim/notifications')
 
   const sp = await searchParams
   const filter = (FILTERS.some((f) => f.key === sp.filter) ? sp.filter : 'failed') as NotificationFilter

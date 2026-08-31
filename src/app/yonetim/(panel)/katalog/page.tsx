@@ -36,7 +36,7 @@ export default async function CatalogAdminPage({
   searchParams: Promise<{ active?: string }>
 }) {
   const user = await getSessionUser()
-  if (!user) redirect('/giris?next=/yonetim/katalog')
+  if (!user) redirect('/yonetim/giris?next=/yonetim/katalog')
 
   const sp = await searchParams
   /**

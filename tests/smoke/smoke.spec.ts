@@ -288,12 +288,32 @@ test.describe('15 · sağlık uçları', () => {
 
 // ===========================================================================
 test.describe('16 · yönetim erişimi kapalı', () => {
-  for (const path of ['/yonetim', '/yonetim/fulfillment', '/yonetim/kullanicilar', '/hesabim']) {
-    test(`16 · oturumsuz ${path} → giriş`, async ({ page }) => {
+  // ⚠️ Yönetim → personel kapısı, müşteri alanı → müşteri kapısı.
+  //    Tek bir `/giris` kalıbı ikisini de geçiriyordu; hedef artık ayrı.
+  for (const path of [
+    '/yonetim',
+    '/yonetim/fulfillment',
+    '/yonetim/kullanicilar',
+    '/yonetim/kasa',
+  ]) {
+    test(`16 · oturumsuz ${path} → yönetim girişi`, async ({ page }) => {
       await page.goto(path)
-      await expect(page).toHaveURL(/\/giris/)
+      await expect(page).toHaveURL(/\/yonetim\/giris/)
     })
   }
+
+  test('16 · oturumsuz /hesabim → müşteri girişi', async ({ page }) => {
+    await page.goto('/hesabim')
+    await expect(page).toHaveURL(/\/giris/)
+    await expect(page).not.toHaveURL(/\/yonetim\//)
+  })
+
+  test('⚠️ 16c · yönetim girişinde KAYIT seçeneği yok', async ({ page }) => {
+    await page.goto('/yonetim/giris')
+    await expect(page).toHaveURL(/\/yonetim\/giris/) // döngü yok
+    await expect(page.locator('a[href="/kayit"]')).toHaveCount(0)
+    await expect(page.getByLabel('E-posta')).toBeVisible()
+  })
 
   test('⚠️ 16b · admin API oturumsuz 401/403 döner', async ({ request }) => {
     for (const path of ['/api/v1/admin/orders', '/api/v1/admin/users', '/api/v1/admin/fulfillments']) {
