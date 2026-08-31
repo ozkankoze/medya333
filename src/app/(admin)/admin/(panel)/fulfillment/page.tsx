@@ -6,6 +6,7 @@ import { ORDER_STATUS_META } from '@/lib/orders/status'
 import { QUEUE_BUCKETS, QUEUE_BUCKET_LABELS, type QueueBucket } from '@/lib/fulfillment/status'
 import { formatQuantity } from '@/lib/money'
 import { cn } from '@/lib/utils'
+import { OrderRowActions } from '@/components/orders/OrderRowActions'
 import { getSessionUser } from '@/server/auth'
 import {
   listAssignableOperators,
@@ -44,6 +45,8 @@ type SP = {
   sort?: string
   cursor?: string
   dir?: string
+  /** '1' → arşiv görünümü */
+  arsiv?: string
 }
 
 /**
@@ -80,6 +83,10 @@ export default async function FulfillmentQueuePage({
         sort,
         ...(sp.q ? { search: sp.q } : {}),
         ...(sp.mine === '1' ? { mineOnly: true } : {}),
+        // ⚠️ Arşiv AYRI bir görünümdür, filtre değil: ya arşivdekiler ya
+        //    kuyruktakiler listelenir. Karışık liste "bu neden hâlâ
+        //    burada?" sorusunu doğururdu.
+        ...(sp.arsiv === '1' ? { archived: true } : {}),
         ...(sp.platform ? { platformSlug: sp.platform } : {}),
         ...(sp.service ? { serviceSlug: sp.service } : {}),
         ...(sp.variant ? { variantSlug: sp.variant } : {}),
@@ -106,7 +113,7 @@ export default async function FulfillmentQueuePage({
     const p = new URLSearchParams()
     const keep: Array<keyof SP> = [
       'q', 'mine', 'platform', 'service', 'variant',
-      'status', 'orderStatus', 'operator', 'from', 'to', 'sort', 'bucket',
+      'status', 'orderStatus', 'operator', 'from', 'to', 'sort', 'bucket', 'arsiv',
     ]
     for (const k of keep) if (sp[k]) p.set(k, sp[k]!)
     for (const [k, v] of Object.entries(patch)) {
@@ -143,8 +150,46 @@ export default async function FulfillmentQueuePage({
       sp.status || sp.orderStatus || sp.operator || sp.from || sp.to,
   )
 
+  const archiveView = sp.arsiv === '1'
+
   return (
     <div className="flex flex-col gap-6">
+      {/* ------------------------- Görünüm: kuyruk / arşiv ------------------- */}
+      {/*
+        ⚠️ ARŞİV AYRI BİR GÖRÜNÜMDÜR, filtre değil. Filtre olsaydı
+        "Arşivi de göster" kutusu gibi davranır ve arşivlenmiş işler
+        kuyruğun arasına karışırdı — arşivlemenin tek amacı olan
+        "kuyruğu temizleme" tam da orada bozulurdu.
+      */}
+      <nav aria-label="Görünüm" className="-mx-1 flex flex-wrap gap-1">
+        {[
+          { on: false, label: 'Kuyruk' },
+          { on: true, label: 'Arşiv' },
+        ].map((v) => (
+          <Link
+            key={v.label}
+            href={qs({ arsiv: v.on ? '1' : undefined, cursor: undefined, dir: undefined })}
+            aria-current={v.on === archiveView ? 'page' : undefined}
+            className={cn(
+              'rounded-[--radius-control] px-3 py-1.5 text-small transition-colors',
+              v.on === archiveView
+                ? 'bg-ink-900 font-semibold text-white'
+                : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900',
+            )}
+          >
+            {v.label}
+          </Link>
+        ))}
+      </nav>
+
+      {archiveView && (
+        <p className="rounded-[--radius-card] border border-ink-200 bg-ink-50 px-4 py-3 text-caption leading-relaxed text-ink-600">
+          Arşivdeki siparişler kuyruktan kaldırılmıştır ama <strong>silinmemiştir</strong> —
+          ödeme kaydı, olay geçmişi ve müşterinin takip linki yerinde durur.{' '}
+          <strong>Geri al</strong> ile kuyruğa dönerler.
+        </p>
+      )}
+
       {/* --------------------------- Kova sayaçları --------------------------- */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {BUCKETS.map((b) => {
@@ -352,6 +397,7 @@ export default async function FulfillmentQueuePage({
                 <Th>İş durumu</Th>
                 <Th>Süre</Th>
                 <Th>Oluşturma</Th>
+                <Th>İşlem</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-200">
@@ -419,6 +465,13 @@ export default async function FulfillmentQueuePage({
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
+                  </td>
+                  <td className="px-4 py-3">
+                    <OrderRowActions
+                      orderNo={f.orderNo}
+                      archived={Boolean(f.archivedAt)}
+                      deletable={f.deletable}
+                    />
                   </td>
                 </tr>
               ))}

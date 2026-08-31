@@ -88,7 +88,8 @@ describe('adres yapısı', () => {
   it('panel /admin altında, rota grubu adrese hiçbir şey eklemiyor', () => {
     for (const p of [
       '(panel)/fulfillment/page.tsx',
-      '(panel)/katalog/page.tsx',
+      // ⚠️ '(panel)/katalog' BİLEREK YOK — katalog ekranları panelden
+      //    kaldırıldı (API uçları ve veri duruyor).
       '(panel)/notifications/page.tsx',
       '(panel)/kullanicilar/page.tsx',
       '(panel)/kasa/page.tsx',
@@ -155,17 +156,19 @@ describe('adres yapısı', () => {
 describe('panel kabuğu', () => {
   const panelLayout = read(path.join(ADMIN_DIR, '(panel)/layout.tsx'))
 
-  it('istenen altı bölümün hepsi menüde', () => {
-    for (const label of [
-      'İş Kuyruğu',
-      'Katalog',
-      'Bildirimler',
-      'Kullanıcılar',
-      'Kasa',
-      'Hesabım',
-    ]) {
+  it('istenen bölümler menüde', () => {
+    for (const label of ['İş Kuyruğu', 'Bildirimler', 'Kullanıcılar', 'Kasa', 'Hesabım']) {
       expect(panelLayout, `menüde "${label}" yok`).toContain(label)
     }
+  })
+
+  it('⚠️ KATALOG MENÜDE YOK — kaldırıldı, unutulmadı', () => {
+    /**
+     * Bu test eskiden Katalog'un VARLIĞINI doğruluyordu. Gereksinim
+     * değiştiği için testin yönü çevrildi; silinmedi. Silinseydi, sekme
+     * bir gün yanlışlıkla geri eklendiğinde hiçbir şey uyarmazdı.
+     */
+    expect(stripComments(panelLayout)).not.toContain('/admin/katalog')
   })
 
   it('⚠️ rol kapıları korundu', () => {

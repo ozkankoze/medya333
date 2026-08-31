@@ -561,6 +561,14 @@ model Order {
   consentPrivacyVersion  String?
   consentSnapshot        Json?
 
+  /// ⚠️ ARŞİV — İş Kuyruğu'ndan kaldırma bayrağı, DURUM DEĞİL.
+  /// `OrderStatus`a "ARCHIVED" eklenmedi: eklenseydi siparişin gerçek
+  /// durumunu (PAID, COMPLETED…) ezer ve arşivden çıkarıldığında hangi
+  /// duruma döneceği bilinemezdi. Arşiv durumdan bağımsız bir görünürlük
+  /// bayrağıdır; kayıt ve para izi yerinde durur.
+  archivedAt   DateTime?
+  archivedById String?
+
   // --- Denormalize katalog referansları (admin filtreleri JOIN'siz çalışsın) ---
   platformId       String
   platform         Platform       @relation(fields: [platformId], references: [id], onDelete: Restrict)

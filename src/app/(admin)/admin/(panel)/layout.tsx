@@ -44,9 +44,21 @@ export default async function OperationsLayout({ children }: { children: React.R
    * satırda okunabilir kalsın diye: bağlantılar JSX içinde koşullu
    * yazıldığında hangi rolün neyi gördüğü altı ayrı yere dağılıyordu.
    */
+  /**
+   * ⚠️ "KATALOG" SEKMESİ BİLEREK YOK — kaldırıldı, unutulmadı.
+   *
+   * Platform / hizmet / varyant / fiyat kademesi ekranları panelden
+   * çıkarıldı. VERİ VE API UÇLARI DURUYOR (`/api/v1/admin/platforms`,
+   * `/services`, `/variants`, `/pricing-rules`); silinmedi, çünkü müşteri
+   * sitesi katalogdan besleniyor ve uçlar kaldırılsa fiyat değiştirmenin
+   * hiçbir yolu kalmazdı.
+   *
+   * ⚠️ SONUÇ: fiyat değişikliği artık arayüzden YAPILAMAZ. API'ye doğrudan
+   * istek atmak ya da veritabanında güncellemek gerekir. Sekmeyi geri
+   * isteyen olursa ekranlar git geçmişinde duruyor.
+   */
   const items: AdminNavItem[] = [
     { href: '/admin/fulfillment', label: 'İş Kuyruğu', match: '/admin/fulfillment' },
-    { href: '/admin/katalog', label: 'Katalog', match: '/admin/katalog' },
     { href: '/admin/notifications', label: 'Bildirimler', match: '/admin/notifications' },
   ]
   // ⚠️ Kullanıcı yönetimi yalnızca ADMIN+ — SUPPORT/OPERATOR görmez.

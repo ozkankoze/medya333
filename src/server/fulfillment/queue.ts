@@ -86,6 +86,13 @@ export interface QueueParams {
   assignedToUserId?: string
   /** Yalnızca bana atanmış işler */
   mineOnly?: boolean
+  /**
+   * ⚠️ ARŞİV GÖRÜNÜMÜ. Varsayılan `false`: arşivlenmiş siparişler kuyrukta
+   * GÖRÜNMEZ — kuyruğu temizlemenin tek anlamı budur. `true` yalnızca
+   * arşivdekileri gösterir, ikisini birden değil; karışık liste "bu neden
+   * hâlâ burada?" sorusunu doğururdu.
+   */
+  archived?: boolean
   /** Sipariş no · müşteri e-postası · hedef */
   search?: string
   /** ISO tarih (dahil) */
@@ -132,6 +139,16 @@ export interface QueueRow {
   waitingKind: WaitingKind
   waitingMs: number | null
   waitingLabel: string | null
+
+  /** Arşivdeyse dolu — kuyrukta yalnızca arşiv görünümünde listelenir. */
+  archivedAt: string | null
+  /**
+   * ⚠️ SİLİNEBİLİR Mİ? Ödeme veya iade kaydı olan sipariş silinemez —
+   * bu bir tercih değil, veritabanı kuralıdır (`Payment`/`Refund` yabancı
+   * anahtarları ON DELETE RESTRICT). Burada hesaplanması yalnızca arayüzün
+   * düğme yerine SEBEBİ gösterebilmesi içindir; asıl engel veritabanında.
+   */
+  deletable: boolean
 }
 
 export interface QueuePage {
@@ -182,6 +199,13 @@ function buildWhere(params: QueueParams, viewerId: string): Record<string, unkno
   const orderWhere: Record<string, unknown> = {
     // ⚠️ İkinci kapı: yalnızca ödenmiş siparişlerin işleri.
     status: { in: PAID_ORDER_STATUSES },
+    /**
+     * ⚠️ ARŞİVLENMİŞ SİPARİŞ KUYRUKTA GÖRÜNMEZ.
+     * Filtre `orderWhere` içinde, yani hem liste hem SAYAÇLAR için geçerli.
+     * Yalnızca listeye uygulansaydı kuyruk boş görünür ama sekme rozetinde
+     * "12 iş" yazmaya devam ederdi.
+     */
+    archivedAt: params.archived ? { not: null } : null,
   }
   const where: Record<string, unknown> = { order: orderWhere }
 
@@ -238,7 +262,19 @@ const QUEUE_SELECT = {
   startedAt: true,
   targetSnapshot: true,
   assignedTo: { select: { name: true, email: true } },
-  order: { select: { orderNo: true, status: true } },
+  /**
+   * ⚠️ `_count` BURADA: satır başına ayrı sorgu atmamak için. Arayüz her
+   * satırda "bu silinebilir mi?" sorusunu cevaplamak zorunda; 50 satırlık
+   * bir sayfada bunu ayrı ayrı sormak 50 ek sorgu demekti.
+   */
+  order: {
+    select: {
+      orderNo: true,
+      status: true,
+      archivedAt: true,
+      _count: { select: { payments: true, refunds: true } },
+    },
+  },
 } as const
 
 type QueueRecord = {
@@ -251,7 +287,12 @@ type QueueRecord = {
   startedAt: Date | null
   targetSnapshot: unknown
   assignedTo: { name: string | null; email: string } | null
-  order: { orderNo: string; status: string }
+  order: {
+    orderNo: string
+    status: string
+    archivedAt: Date | null
+    _count: { payments: number; refunds: number }
+  }
 }
 
 function toRow(f: QueueRecord, now: number): QueueRow {
@@ -265,6 +306,9 @@ function toRow(f: QueueRecord, now: number): QueueRow {
     orderNo: f.order.orderNo,
     status: f.status as FulfillmentStatus,
     orderStatus: f.order.status as OrderStatus,
+    archivedAt: f.order.archivedAt ? f.order.archivedAt.toISOString() : null,
+    // ⚠️ Ödeme veya iade kaydı varsa silinemez — asıl engel veritabanında.
+    deletable: f.order._count.payments === 0 && f.order._count.refunds === 0,
     platformName: snap?.platformName ?? '—',
     serviceName: snap?.serviceName ?? '—',
     variantLabel: snap?.variantLabel ?? '—',
@@ -340,9 +384,21 @@ export async function listFulfillmentQueue(
     db.fulfillment.groupBy({
       by: ['status'],
       _count: { _all: true },
-      // ⚠️ Sekme sayaçları FİLTRELERDEN BAĞIMSIZDIR: arama yaparken sekme
-      // sayıları değişirse operatör "işler kayboldu" sanır.
-      where: { order: { status: { in: PAID_ORDER_STATUSES } } },
+      /**
+       * ⚠️ Sekme sayaçları FİLTRELERDEN BAĞIMSIZDIR: arama yaparken sekme
+       * sayıları değişirse operatör "işler kayboldu" sanır.
+       *
+       * ⚠️ AMA ARŞİV BİR FİLTRE DEĞİL, GÖRÜNÜRLÜK SINIRIDIR ve sayaçlara
+       * da uygulanır. Uygulanmasaydı kuyruk boş görünürken sekmede "12 iş"
+       * yazmaya devam ederdi — arşivlemenin tek amacı olan "kuyruğu
+       * temizleme" hissi tam da orada bozulurdu.
+       */
+      where: {
+        order: {
+          status: { in: PAID_ORDER_STATUSES },
+          archivedAt: params.archived ? { not: null } : null,
+        },
+      },
     }),
     db.fulfillment.count({
       where: {
@@ -503,7 +559,14 @@ export async function getFulfillmentDetail(
       createdAt: true,
       targetSnapshot: true,
       assignedTo: { select: { name: true, email: true } },
-      order: { select: { orderNo: true, status: true } },
+      order: {
+        select: {
+          orderNo: true,
+          status: true,
+          archivedAt: true,
+          _count: { select: { payments: true, refunds: true } },
+        },
+      },
       events: {
         orderBy: { createdAt: 'asc' },
         select: {
@@ -559,6 +622,8 @@ export async function getFulfillmentDetail(
     waitingKind: waiting.kind,
     waitingMs: waiting.ms,
     waitingLabel: waiting.label,
+    archivedAt: f.order.archivedAt ? f.order.archivedAt.toISOString() : null,
+    deletable: f.order._count.payments === 0 && f.order._count.refunds === 0,
     id: f.id,
     orderNo: f.order.orderNo,
     status: f.status as FulfillmentStatus,

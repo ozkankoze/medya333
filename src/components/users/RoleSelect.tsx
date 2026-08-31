@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { useAdminMutation } from '@/components/catalog/admin-client'
+import { useAdminMutation } from '@/components/admin/admin-client'
 import type { UserRole } from '@/lib/enums'
 
 /**

@@ -15,7 +15,7 @@ import {
   minorToLira,
   parseLiraToMinor,
   parseQuantityList,
-} from '@/components/catalog/admin-client'
+} from '@/components/admin/admin-client'
 
 /**
  * ⭐ FAZ 8 — E-POSTA ŞABLONU VE BİLDİRİM BİRİM TESTLERİ

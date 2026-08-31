@@ -1,7 +1,7 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { useAdminMutation } from '@/components/catalog/admin-client'
+import { useAdminMutation } from '@/components/admin/admin-client'
 
 /**
  * BAŞARISIZ BİLDİRİMİ ELLE YENİDEN GÖNDER
