@@ -29,6 +29,37 @@
  * olduğu bilinemez.
  */
 
+/**
+ * ⚠️⚠️ BUGÜN, İSTANBUL TAKVİMİNE GÖRE — SUNUCUNUN UTC GÜNÜNE GÖRE DEĞİL.
+ *
+ * Bir denetimde kanıtlandı: sunucu UTC'de çalışıyor, operatör Türkiye'de
+ * (UTC+3). Her gün saat 21:00–24:00 arasında sunucu HÂLÂ ÖNCEKİ GÜNDE
+ * oluyor. 2 Ekim gece 01:00'de bakan biri, 1 Ekim'de biten paketi "süresi
+ * doldu" yerine "bitiyor" olarak görüyordu.
+ *
+ * Hata günde üç saat boyunca aktif ve tamamen sessiz: ekran makul bir durum
+ * gösteriyor, sadece bir gün geride. Yenileme konuşmasını bir gün geç
+ * başlatmak, aylık bir pakette gerçek para kaybıdır.
+ *
+ * ⚠️ SABİT +3 SAAT EKLENMEZ. Türkiye kalıcı UTC+3 kullanıyor ama bunu koda
+ * gömmek, kural değişirse sessizce yanlışa döner. `Intl` üzerinden IANA
+ * bölgesi sorulur — kuralı işletim sisteminin saat dilimi veritabanı bilir.
+ */
+export const OPERATOR_TIME_ZONE = 'Europe/Istanbul'
+
+const ISTANBUL_DAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: OPERATOR_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+/** Operatörün takvimindeki bugünün gün başlangıcı (UTC olarak temsil edilir). */
+export function todayForOperator(now: Date = new Date()): Date {
+  // en-CA biçimi "YYYY-MM-DD" verir — ayrıştırması güvenlidir.
+  return new Date(`${ISTANBUL_DAY.format(now)}T00:00:00Z`)
+}
+
 export type PackageState =
   /** Başlangıç tarihi henüz gelmedi */
   | 'PLANLANDI'

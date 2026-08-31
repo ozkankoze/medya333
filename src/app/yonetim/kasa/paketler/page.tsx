@@ -185,11 +185,22 @@ export default async function PackagesPage({
                       ) : (
                         <span className="text-ink-500">Bekliyor</span>
                       )}
+                      {/* ⚠️ İPTAL AMA TAHSİL EDİLMİŞ: para kasada duruyor,
+                          paket cirosuna girmiyor. Bu fark görünmezse
+                          "rakamlar neden tutmuyor?" sorusu cevapsız kalır. */}
+                      {r.state === 'IPTAL' && r.paidAt && (
+                        <span className="mt-1 block text-caption text-warning-700">
+                          para kasada — iade elle girilmeli
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <PackageActions
                         id={r.id}
                         accounts={accountOptions}
+                        saleLabel={formatMinor(r.salePriceMinor)}
+                        costLabel={formatMinor(r.costMinor)}
+                        isPaid={Boolean(r.paidAt)}
                         canCollect={!r.paidAt && r.state !== 'IPTAL'}
                         canRecordCost={r.costMinor > 0 && !r.costEntryId && r.state !== 'IPTAL'}
                         canCancel={r.state !== 'IPTAL'}

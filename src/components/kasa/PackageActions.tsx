@@ -21,12 +21,19 @@ import { useState } from 'react'
 export function PackageActions({
   id,
   accounts,
+  saleLabel,
+  costLabel,
+  isPaid,
   canCollect,
   canRecordCost,
   canCancel,
 }: {
   id: string
   accounts: Array<{ id: string; label: string }>
+  /** Tahsil edilecek TAM tutar — düğmede gösterilir. */
+  saleLabel: string
+  costLabel: string
+  isPaid: boolean
   canCollect: boolean
   canRecordCost: boolean
   canCancel: boolean
@@ -96,7 +103,10 @@ export function PackageActions({
               })
             }
           >
-            {busy ? '…' : open === 'tahsil' ? 'Tahsil et' : 'Gideri işle'}
+            {/* ⚠️ KISMİ ÖDEME YOK: tahsil edilen tutar HER ZAMAN paketin
+                tam satış bedelidir. Tutarı düğmeye yazmak, kullanıcının
+                kısmi tahsilat yapabildiğini sanmasını önler. */}
+            {busy ? '…' : open === 'tahsil' ? `${saleLabel} tahsil et` : `${costLabel} gider yaz`}
           </button>
           <button type="button" className={btn} disabled={busy} onClick={() => { setOpen(null); setError(null) }}>
             Vazgeç
@@ -124,7 +134,18 @@ export function PackageActions({
           className={btn}
           disabled={busy}
           onClick={() => {
-            if (!window.confirm('Paket iptal edilsin mi? Kayıt silinmez, iptal olarak işaretlenir.')) return
+            /**
+             * ⚠️ TAHSİLATI ALINMIŞ PAKETİ İPTAL ETMEK PARAYI GERİ GETİRMEZ.
+             * Kasa hareketi yerinde kalır — çünkü para gerçekten geldi.
+             * İade yapılacaksa AYRI bir çıkış hareketi girilmelidir. Bunu
+             * söylememek, operatörün iptalin parayı da geri aldığını
+             * sanmasına yol açardı.
+             */
+            const mesaj = isPaid
+              ? 'Bu paketin ödemesi ALINMIŞ.\n\nİptal etmek kasadaki gelir hareketini SİLMEZ — para gerçekten geldi. '
+                + 'İade yapacaksan ayrıca bir gider hareketi girmen gerekir.\n\nYine de iptal edilsin mi?'
+              : 'Paket iptal edilsin mi? Kayıt silinmez, iptal olarak işaretlenir.'
+            if (!window.confirm(mesaj)) return
             void post(`/api/v1/admin/kasa/paketler/${id}/iptal`)
           }}
         >

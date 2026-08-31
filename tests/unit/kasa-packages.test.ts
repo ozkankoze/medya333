@@ -15,6 +15,7 @@ import {
   netProfitMinor,
   retention,
   summarize,
+  todayForOperator,
   type PackageLike,
 } from '@/lib/kasa/packages'
 
@@ -241,5 +242,53 @@ describe('yenileme çıkarımı', () => {
   it('hiç süresi dolmamış müşteri yenileme listesine GİRMEZ', () => {
     // Henüz devam eden paket için "yenilendi mi?" sorusu doğmaz.
     expect(retention([pkg()], new Date(Date.UTC(2026, 8, 15)))).toEqual([])
+  })
+})
+
+// ===========================================================================
+/**
+ * ⭐⭐ SAAT DİLİMİ — DENETİMDE BULUNAN BİR GÜNLÜK KAYMA
+ *
+ * Sunucu UTC'de çalışıyor, operatör Türkiye'de (UTC+3). Her gün 21:00–24:00
+ * arasında sunucu HÂLÂ ÖNCEKİ GÜNDE oluyordu. 2 Ekim gece 01:00'de bakan
+ * biri, 1 Ekim'de biten paketi "süresi doldu" yerine "bitiyor" görüyordu.
+ *
+ * Hata günde üç saat aktif ve tamamen sessizdi: ekran makul bir durum
+ * gösteriyor, sadece bir gün geride.
+ */
+describe('saat dilimi', () => {
+  it('⚠️ GECE 01:00 İSTANBUL, sunucu hâlâ önceki UTC gününde', () => {
+    const an = new Date('2026-10-01T22:00:00Z') // İstanbul: 2 Ekim 01:00
+    const utcGun = new Date(Date.UTC(an.getUTCFullYear(), an.getUTCMonth(), an.getUTCDate()))
+    expect(utcGun.toISOString().slice(0, 10)).toBe('2026-10-01')
+    expect(todayForOperator(an).toISOString().slice(0, 10)).toBe('2026-10-02')
+  })
+
+  it('⚠️ kayma DURUMU değiştiriyordu — artık değiştirmiyor', () => {
+    const an = new Date('2026-10-01T22:00:00Z')
+    const p = pkg({ startDate: new Date(Date.UTC(2026, 8, 1)), endDate: new Date(Date.UTC(2026, 9, 1)) })
+
+    // Eski (hatalı) davranış: sunucunun UTC günü
+    const utcGun = new Date(Date.UTC(an.getUTCFullYear(), an.getUTCMonth(), an.getUTCDate()))
+    expect(derivePackageState(p, utcGun)).toBe('BITIYOR') // yanlış
+
+    // Yeni davranış: operatörün takvim günü
+    expect(derivePackageState(p, todayForOperator(an))).toBe('SURESI_DOLDU') // doğru
+  })
+
+  it('gündüz saatlerinde iki yöntem AYNI sonucu verir', () => {
+    const oglen = new Date('2026-10-01T09:00:00Z') // İstanbul 12:00
+    const utcGun = new Date(Date.UTC(oglen.getUTCFullYear(), oglen.getUTCMonth(), oglen.getUTCDate()))
+    expect(todayForOperator(oglen).getTime()).toBe(utcGun.getTime())
+  })
+
+  /**
+   * ⚠️ SABİT +3 SAAT EKLENMEDİĞİNİN KANITI. Kural koda gömülseydi, saat
+   * dilimi kuralı değişince sessizce yanlışa dönerdi.
+   */
+  it('⚠️ dönüşüm IANA bölgesinden gelir, sabit ofsetten değil', () => {
+    // Yaz ve kış aylarında aynı takvim gününü doğru üretmeli.
+    expect(todayForOperator(new Date('2026-01-15T21:30:00Z')).toISOString().slice(0, 10)).toBe('2026-01-16')
+    expect(todayForOperator(new Date('2026-07-15T21:30:00Z')).toISOString().slice(0, 10)).toBe('2026-07-16')
   })
 })

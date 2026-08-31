@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { derivePackageState, netProfitMinor, retention, summarize } from '@/lib/kasa/packages'
+import { derivePackageState, netProfitMinor, retention, summarize, todayForOperator } from '@/lib/kasa/packages'
 import type { PackageState } from '@/lib/kasa/packages'
 import { db } from '@/server/db'
 import { dayStartUtc, KasaError } from '@/server/kasa'
@@ -67,7 +67,7 @@ function toRow(p: {
   }
 }
 
-export async function getPackages(year: number, month1: number, today = new Date()) {
+export async function getPackages(year: number, month1: number, today = todayForOperator()) {
   const all = await db.servicePackage.findMany({ orderBy: [{ startDate: 'desc' }] })
 
   const rows = all.map((p) => toRow(p, today))
@@ -87,6 +87,48 @@ export async function getPackages(year: number, month1: number, today = new Date
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * ⚠️⚠️ SATIR KİLİDİ ALAN OKUMA — `findUnique` YETMEZ.
+ *
+ * Bir denetimde kanıtlandı: düz `SELECT` hiçbir kilit almaz. İki eşzamanlı
+ * "tahsil et" isteği paketi AYNI ANDA "ödenmemiş" görüyor, ikisi de kendi
+ * kasa hareketini yazıyordu. Sonuç, 10.000 TL'lik paket için defterde iki
+ * ayrı 10.000 TL hareketi — yani cironun iki katı görünmesi. Hiçbir hata
+ * düşmüyor, çünkü teknik olarak her iki işlem de "geçerli".
+ *
+ * `FOR UPDATE` satırı kilitler: ikinci işlem birincinin commit'ini bekler,
+ * sonra `paidAt` dolu görür ve reddedilir. Kontrol ile yazma arasındaki
+ * pencere kapanır.
+ *
+ * ⚠️ Prisma'nın sorgu API'sinde `FOR UPDATE` yok; bu yüzden ham SQL
+ * zorunludur. Parametre şablon değişkeniyle geçirilir, birleştirilmez.
+ */
+async function lockPackage(
+  tx: Pick<typeof db, '$queryRaw'>,
+  id: string,
+): Promise<LockedPackage | null> {
+  const rows = await tx.$queryRaw<LockedPackage[]>`
+    SELECT "id", "customerName", "serviceName", "salePriceMinor", "costMinor",
+           "paidAt", "canceledAt", "paymentEntryId", "costEntryId"
+    FROM "ServicePackage"
+    WHERE "id" = ${id}
+    FOR UPDATE
+  `
+  return rows[0] ?? null
+}
+
+interface LockedPackage {
+  id: string
+  customerName: string
+  serviceName: string
+  salePriceMinor: number
+  costMinor: number
+  paidAt: Date | null
+  canceledAt: Date | null
+  paymentEntryId: string | null
+  costEntryId: string | null
+}
 
 export interface CreatePackageInput {
   customerName: string
@@ -155,7 +197,7 @@ export async function collectPayment(params: {
   createdById?: string | null
 }) {
   return db.$transaction(async (tx) => {
-    const pkg = await tx.servicePackage.findUnique({ where: { id: params.packageId } })
+    const pkg = await lockPackage(tx, params.packageId)
     if (!pkg) throw new KasaError('NOT_FOUND', 'Paket bulunamadı.', 404)
     if (pkg.paidAt) throw new KasaError('ALREADY_PAID', 'Bu paketin ödemesi zaten alınmış.')
     if (pkg.canceledAt) throw new KasaError('CANCELED', 'İptal edilmiş paket tahsil edilemez.')
@@ -209,7 +251,7 @@ export async function recordCostExpense(params: {
   createdById?: string | null
 }) {
   return db.$transaction(async (tx) => {
-    const pkg = await tx.servicePackage.findUnique({ where: { id: params.packageId } })
+    const pkg = await lockPackage(tx, params.packageId)
     if (!pkg) throw new KasaError('NOT_FOUND', 'Paket bulunamadı.', 404)
     if (pkg.costEntryId) throw new KasaError('ALREADY_RECORDED', 'Bu paketin maliyeti zaten işlendi.')
     if (pkg.costMinor <= 0) throw new KasaError('NO_COST', 'Pakette maliyet girilmemiş.')
