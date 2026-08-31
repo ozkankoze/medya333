@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { KasaTabs } from '@/components/kasa/KasaTabs'
 import { PackageForm } from '@/components/kasa/PackageForm'
 import { PackageActions } from '@/components/kasa/PackageActions'
 import { formatMinor } from '@/lib/money'
@@ -68,6 +68,11 @@ export default async function PackagesPage({
 
   return (
     <div className="flex flex-col gap-8">
+      {/* ⚠️ Sekme çubuğu üç kasa sayfasında da AYNI bileşenden gelir.
+          Her sayfaya elle kopyalansaydı, dördüncü bir sekme eklendiğinde
+          birinde unutulur ve o sayfadan diğerine geçilemezdi. */}
+      <KasaTabs active="paketler" />
+
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-h1 text-ink-900">Aylık Paketler</h1>
@@ -75,12 +80,6 @@ export default async function PackagesPage({
             Süreli müşteri hizmetleri — elle yönetilir, otomatik yenileme yoktur
           </p>
         </div>
-        <Link
-          href="/yonetim/kasa"
-          className="rounded-[--radius-control] border border-ink-200 bg-white px-3 py-2 text-small text-ink-700 hover:bg-ink-50"
-        >
-          ← Kasa
-        </Link>
       </header>
 
       {/* ──────────────────────────── ÖZET ───────────────────────────────── */}

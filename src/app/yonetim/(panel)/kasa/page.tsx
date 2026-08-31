@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { KasaEntryForm } from '@/components/kasa/KasaEntryForm'
+import { KasaTabs } from '@/components/kasa/KasaTabs'
 import { formatMinor, formatQuantity } from '@/lib/money'
 import { getSessionUser } from '@/server/auth'
 import { getKasaOverview, listAccounts, listEntries } from '@/server/kasa'
@@ -58,6 +59,9 @@ export default async function KasaPage({
 
   return (
     <div className="flex flex-col gap-8">
+      {/* ⚠️ Sekme çubuğu üç kasa sayfasında da AYNI bileşenden gelir. */}
+      <KasaTabs active="kasa" />
+
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-h1 text-ink-900">Kasa</h1>
@@ -65,15 +69,7 @@ export default async function KasaPage({
             Gelir, gider ve borç defteri — {monthName}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/yonetim/kasa/paketler"
-            className="rounded-[--radius-control] border border-ink-200 bg-white px-3 py-2 text-small text-ink-700 hover:bg-ink-50"
-          >
-            Aylık Paketler
-          </Link>
-          <MonthNav year={year} month={month} />
-        </div>
+        <MonthNav year={year} month={month} />
       </header>
 
       {/* ────────────────────────── PAKET ÖZETİ ───────────────────────────── */}

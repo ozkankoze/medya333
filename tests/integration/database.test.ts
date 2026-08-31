@@ -71,11 +71,18 @@ describe('migration', () => {
        */
       'CashAccount', 'CashEntry', 'Receivable', 'ScheduledPayment', 'KasaSetting',
       'ServicePackage',
+      /**
+       * ⚠️ `ManualOrder` — ELLE TUTULAN SİPARİŞ DEFTERİ. `Order` DEĞİLDİR
+       * ve onunla hiçbir yabancı anahtar paylaşmaz. `Order` gerçek müşteri
+       * siparişidir ve silinemez; bu tablo işletmenin kendi defteridir,
+       * elle girilir ve elle silinir.
+       */
+      'ManualOrder',
     ]) {
       expect(names, `${t} tablosu yok`).toContain(t)
     }
-    // 27 (sipariş/ödeme/operasyon) + 6 (kasa)
-    expect(names).toHaveLength(33)
+    // 27 (sipariş/ödeme/operasyon) + 7 (kasa)
+    expect(names).toHaveLength(34)
   })
 
   it('tüm enum tipleri oluştu ve değerleri doğru', async () => {

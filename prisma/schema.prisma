@@ -1160,6 +1160,17 @@ enum CashDirection {
   OUT
 }
 
+/// Elle girilen sipariş defterindeki İŞ durumu.
+/// ⚠️ Sitedeki `OrderStatus` ile bilinçli olarak AYRI: burada ödeme durumu
+/// `paidAt` ile ayrıca tutulduğu için "Ödeme Bekleniyor" gibi karma
+/// durumlara gerek yoktur ve olsaydı iki kaynak birbiriyle çelişirdi.
+enum ManualOrderStatus {
+  BEKLIYOR
+  DEVAM_EDIYOR
+  TAMAMLANDI
+  IPTAL
+}
+
 enum CashCategory {
   /// Sipariş geliri — ciroya girer
   SATIS
@@ -1238,6 +1249,10 @@ model CashEntry {
   /// Bu hareketi doğuran paket (varsa) — bkz. `ServicePackage`.
   packagePayment ServicePackage? @relation("PackagePayment")
   packageCost    ServicePackage? @relation("PackageCost")
+
+  /// Bu hareketi doğuran elle girilmiş sipariş (varsa) — bkz. `ManualOrder`.
+  orderPayment ManualOrder? @relation("ManualOrderPayment")
+  orderCost    ManualOrder? @relation("ManualOrderCost")
 
   @@index([accountId, occurredAt])
   @@index([occurredAt])
@@ -1333,12 +1348,18 @@ model ServicePackage {
   /// Gelir hareketi YALNIZCA "tahsil edildi" işleminde oluşur ve buraya
   /// bağlanır. Bağ, aynı paketin iki kez tahsil edilmesini engeller.
   paymentEntryId String?    @unique
-  paymentEntry   CashEntry? @relation("PackagePayment", fields: [paymentEntryId], references: [id], onDelete: SetNull)
+  /// ⚠️ RESTRICT, SetNull DEĞİL. Şema bir süre `SetNull` diyordu ama
+  /// veritabanı `20260825110000_kasa_butunluk` ile RESTRICT'e çevrilmişti.
+  /// Bu sapma tehlikeliydi: `prisma migrate dev` çalıştıran biri şemayı
+  /// doğru sanıp kuralı sessizce geri alırdı. SetNull ile bağlı hareket
+  /// silinince `paymentEntryId` NULL olur, `paidAt` DOLU kalırdı — paket
+  /// "tahsil edildi" görünür, karşılığında para olmazdı.
+  paymentEntry   CashEntry? @relation("PackagePayment", fields: [paymentEntryId], references: [id], onDelete: Restrict)
 
   /// Maliyet gerçek bir gider hareketine dönüştürüldüğünde bağlanır.
   /// İsteğe bağlıdır: maliyet girilmiş olsa da kasadan çıkış yapılmamış olabilir.
   costEntryId String?    @unique
-  costEntry   CashEntry? @relation("PackageCost", fields: [costEntryId], references: [id], onDelete: SetNull)
+  costEntry   CashEntry? @relation("PackageCost", fields: [costEntryId], references: [id], onDelete: Restrict)
 
   canceledAt DateTime?
   note       String?
@@ -1350,4 +1371,58 @@ model ServicePackage {
   @@index([customerName])
   @@index([startDate])
   @@index([endDate, canceledAt])
+}
+
+/// ⚠️⚠️ ELLE GİRİLEN GÜNLÜK SİPARİŞ DEFTERİ — `Order` İLE KARIŞTIRILMAMALI.
+///
+/// `Order` gerçek müşteri siparişidir: ödeme akışı üretir, denetim izi
+/// taşır, SİLİNEMEZ. Bu tablo işletmenin KENDİ defteridir — elle girilir,
+/// elle silinir, yalnızca SUPERADMIN görür ve müşteri tarafıyla hiçbir
+/// yabancı anahtar paylaşmaz.
+///
+/// İkisini tek tabloda birleştirmek cazipti ve yanlış olurdu: gerçek bir
+/// siparişte "maliyet" alanı yoktur ve silinebilir bir defteri müşteri
+/// kayıtlarıyla aynı tabloya koymak, bir gün yanlış satırın silinmesiyle
+/// biterdi.
+model ManualOrder {
+  id String @id @default(cuid())
+
+  /// Tabloda "Kullanıcı adı"
+  customerName String
+
+  /// İşin TAKVİM GÜNÜ — gün başlangıcına sabitlenir, saat tutulmaz.
+  occurredAt DateTime
+
+  salePriceMinor Int
+  costMinor      Int @default(0)
+
+  /// ⚠️ NET KÂR ALANI YOKTUR. `salePriceMinor - costMinor` ile hesaplanır.
+  /// Saklansaydı satış veya maliyet düzeltildiğinde güncellenmeyi unutabilir
+  /// ve üç alan birbiriyle çelişirdi.
+
+  /// ⚠️ İŞ DURUMU — ÖDEME DURUMU DEĞİL. İkisi bağımsızdır: tamamlanmış ama
+  /// tahsil edilmemiş bir sipariş olağandır.
+  status ManualOrderStatus @default(BEKLIYOR)
+
+  /// Ödeme ALINDIĞINDA dolar. Ayrı bir `isPaid` bayrağı YOKTUR — bayrak ile
+  /// tarih er geç ayrışır ve hangisinin doğru olduğu bilinemez.
+  paidAt DateTime?
+
+  /// ⚠️ SİPARİŞ GİRMEK BANKA BAKİYESİNİ ARTIRMAZ.
+  /// Gelir hareketi YALNIZCA "tahsil edildi" işleminde oluşur ve buraya
+  /// bağlanır. Bağ, aynı siparişin iki kez tahsil edilmesini engeller.
+  paymentEntryId String?    @unique
+  paymentEntry   CashEntry? @relation("ManualOrderPayment", fields: [paymentEntryId], references: [id], onDelete: Restrict)
+
+  /// Maliyet gerçek bir gider hareketine dönüştürüldüğünde bağlanır.
+  /// İsteğe bağlıdır: maliyet girilmiş olsa da kasadan çıkış yapılmamış olabilir.
+  costEntryId String?    @unique
+  costEntry   CashEntry? @relation("ManualOrderCost", fields: [costEntryId], references: [id], onDelete: Restrict)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  @@index([occurredAt])
+  @@index([customerName])
 }
