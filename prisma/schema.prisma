@@ -1235,6 +1235,10 @@ model CashEntry {
   createdAt   DateTime @default(now())
   createdById String?
 
+  /// Bu hareketi doğuran paket (varsa) — bkz. `ServicePackage`.
+  packagePayment ServicePackage? @relation("PackagePayment")
+  packageCost    ServicePackage? @relation("PackageCost")
+
   @@index([accountId, occurredAt])
   @@index([occurredAt])
   @@index([category, occurredAt])
@@ -1289,4 +1293,61 @@ model KasaSetting {
   usdRateMinor Int @default(0)
 
   updatedAt DateTime @updatedAt
+}
+
+/// AYLIK MÜŞTERİ PAKETİ — elle yönetilen süreli hizmet satışı.
+///
+/// ⚠️ BU BİR ABONELİK SİSTEMİ DEĞİLDİR.
+///   · Otomatik yenileme YOK
+///   · Otomatik tahakkuk YOK
+///   · Süre bitince yeni kayıt ÜRETİLMEZ
+/// Süresi dolan paket yalnızca "süresi doldu" olarak GÖSTERİLİR. Yenileme,
+/// operatörün elle açtığı yeni bir kayıttır.
+///
+/// ⚠️ DURUM ALANI YOKTUR ve eklenmemelidir. "aktif / süresi doldu"
+/// tarihlerden TÜRETİLİR (bkz. `lib/kasa/packages.ts`). Saklansaydı
+/// bayatlardı: o değeri gece yarısı çevirecek zamanlanmış bir iş yok ve
+/// istenmiyor da. Sonuç, süresi geçmiş paketin ekranda "aktif" görünmesi
+/// olurdu. Tek istisna `canceledAt` — o bir tarihten çıkmaz, karardır.
+///
+/// ⚠️ NET KÂR ALANI DA YOKTUR: `salePriceMinor - costMinor` ile hesaplanır.
+/// Saklansaydı, satış veya maliyet düzeltildiğinde güncellenmeyi unutabilir
+/// ve üç alan birbiriyle çelişirdi.
+model ServicePackage {
+  id           String @id @default(cuid())
+  customerName String
+  /// "Sosyal Medya Yönetimi"
+  serviceName  String
+
+  startDate DateTime
+  endDate   DateTime
+
+  salePriceMinor Int
+  costMinor      Int @default(0)
+
+  /// Ödeme ALINDIĞINDA dolar. Ayrı bir `isPaid` bayrağı YOKTUR — bayrak ile
+  /// tarih er geç ayrışır ve hangisinin doğru olduğu bilinemez.
+  paidAt DateTime?
+
+  /// ⚠️ PAKET AÇILINCA BANKA BAKİYESİ ARTMAZ.
+  /// Gelir hareketi YALNIZCA "tahsil edildi" işleminde oluşur ve buraya
+  /// bağlanır. Bağ, aynı paketin iki kez tahsil edilmesini engeller.
+  paymentEntryId String?    @unique
+  paymentEntry   CashEntry? @relation("PackagePayment", fields: [paymentEntryId], references: [id], onDelete: SetNull)
+
+  /// Maliyet gerçek bir gider hareketine dönüştürüldüğünde bağlanır.
+  /// İsteğe bağlıdır: maliyet girilmiş olsa da kasadan çıkış yapılmamış olabilir.
+  costEntryId String?    @unique
+  costEntry   CashEntry? @relation("PackageCost", fields: [costEntryId], references: [id], onDelete: SetNull)
+
+  canceledAt DateTime?
+  note       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  @@index([customerName])
+  @@index([startDate])
+  @@index([endDate, canceledAt])
 }

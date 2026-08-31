@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { KasaEntryForm } from '@/components/kasa/KasaEntryForm'
 import { formatMinor, formatQuantity } from '@/lib/money'
 import { getSessionUser } from '@/server/auth'
 import { getKasaOverview, listAccounts, listEntries } from '@/server/kasa'
+import { getPackages } from '@/server/kasa/packages'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,10 +41,11 @@ export default async function KasaPage({
   const year = Number(sp.y) || now.getUTCFullYear()
   const month = Number(sp.m) || now.getUTCMonth() + 1
 
-  const [ov, accounts, entries] = await Promise.all([
+  const [ov, accounts, entries, pkg] = await Promise.all([
     getKasaOverview(year, month),
     listAccounts(),
     listEntries(year, month),
+    getPackages(year, month),
   ])
 
   const monthName = new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(
@@ -58,8 +61,49 @@ export default async function KasaPage({
             Gelir, gider ve borç defteri — {monthName}
           </p>
         </div>
-        <MonthNav year={year} month={month} />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/yonetim/kasa/paketler"
+            className="rounded-[--radius-control] border border-ink-200 bg-white px-3 py-2 text-small text-ink-700 hover:bg-ink-50"
+          >
+            Aylık Paketler
+          </Link>
+          <MonthNav year={year} month={month} />
+        </div>
       </header>
+
+      {/* ────────────────────────── PAKET ÖZETİ ───────────────────────────── */}
+      {/**
+       * ⚠️ PAKET SATIŞI İLE KASA KAZANCI AYNI PARA DEĞİL — AYNI PARANIN İKİ
+       * FARKLI ANIDIR. Paket satışı SÖZ verildiği anda, kasa kazancı para
+       * GELDİĞİ anda sayılır. Bu yüzden iki bölüm ayrı duruyor ve toplamları
+       * birbirine EKLENMİYOR; eklenseydi aynı iş iki kez sayılırdı.
+       */}
+      {(pkg.summary.monthCount > 0 || pkg.summary.activeCount > 0) && (
+        <section aria-labelledby="paket-baslik">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 id="paket-baslik" className="text-h3 text-ink-900">Aylık paketler</h2>
+            <Link href="/yonetim/kasa/paketler" className="text-caption text-brand-600 hover:underline">
+              tümünü aç →
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MiniStat label="Paket satışı (bu ay)" value={formatMinor(pkg.summary.monthSaleMinor)} />
+            <MiniStat label="Paket net kârı" value={formatMinor(pkg.summary.monthNetMinor)} />
+            <MiniStat label="Aktif paket" value={String(pkg.summary.activeCount)} />
+            <MiniStat
+              label="Yakında bitecek"
+              value={String(pkg.summary.endingSoonCount)}
+              alert={pkg.summary.endingSoonCount > 0}
+            />
+          </div>
+          <p className="mt-2 text-caption leading-relaxed text-ink-500">
+            Paket satışı, sözün verildiği anda sayılır; yukarıdaki <strong>Kazançlar</strong> ise
+            paranın hesaba girdiği anda. Aynı işin iki farklı anı olduğu için bu iki rakam
+            toplanmaz.
+          </p>
+        </section>
+      )}
 
       {/* ───────────────────────── BANKA BAKİYELERİ ───────────────────────── */}
       <section aria-labelledby="bakiye-baslik">
@@ -336,6 +380,19 @@ function MonthNav({ year, month }: { year: number; month: number }) {
         Sonraki →
       </a>
     </nav>
+  )
+}
+
+function MiniStat({ label, value, alert }: { label: string; value: string; alert?: boolean }) {
+  return (
+    <div
+      className={`rounded-[--radius-card] border p-4 ${
+        alert ? 'border-warning-300 bg-warning-50' : 'border-ink-200 bg-white shadow-[--shadow-card]'
+      }`}
+    >
+      <p className="text-caption uppercase tracking-wide text-ink-500">{label}</p>
+      <p className="tabular mt-1 text-body font-semibold text-ink-900">{value}</p>
+    </div>
   )
 }
 
