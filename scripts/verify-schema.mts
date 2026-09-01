@@ -36,6 +36,24 @@ const REQUIRED_MODELS = [
   'Session',
   'AuditLog',
   'DeploymentStamp',
+  /**
+   * ⚠️⚠️ KASA TABLOLARI DA LİSTEDE — canlıda pahalıya mal olan boşluk buydu.
+   *
+   * Şemaya bir alan eklenip migration'a sütun eklenmediğinde bu script
+   * hiçbir şey demiyordu, çünkü kasa modelleri hiç okunmuyordu. Hata ancak
+   * canlıda, ilgili sayfa 500 verince görüldü: `ServicePackage.dueDate`
+   * şemada vardı, veritabanında yoktu.
+   *
+   * `findFirst` TÜM sütunları seçer; eksik bir sütun burada anında patlar.
+   * Yani bu liste, şema ile veritabanı arasındaki farkı canlıya çıkmadan
+   * yakalayan tek yerdir.
+   */
+  'CashAccount',
+  'CashEntry',
+  'Receivable',
+  'ScheduledPayment',
+  'ServicePackage',
+  'ManualOrder',
 ] as const
 
 const connectionString = process.env.DATABASE_URL
@@ -93,6 +111,44 @@ async function main() {
   } catch (err) {
     readable = false
     console.log(`  ✗ Platform OKUNAMIYOR (${err instanceof Error ? err.name : 'hata'})`)
+  }
+
+  /**
+   * --- 3b) HER MODELİN TÜM SÜTUNLARI YERİNDE Mİ? --------------------------
+   *
+   * ⚠️⚠️ `count()` SÜTUN EKSİĞİNİ YAKALAMAZ. Ürettiği sorgu `SELECT
+   * COUNT(*)`tır; hiçbir sütun adı geçmez, dolayısıyla şemada olup
+   * veritabanında olmayan bir alan sessizce geçer.
+   *
+   * `findFirst()` ise Prisma'nın beklediği BÜTÜN sütunları tek tek
+   * seçer. Tablo boş olsa bile PostgreSQL sorguyu ayrıştırırken eksik
+   * sütunu görüp hata verir — aradığımız tam olarak budur.
+   *
+   * Bu boşluk canlıda pahalıya mal oldu: `ServicePackage.dueDate` şemaya
+   * eklenmiş ama migration'a konmamıştı; bu script "şema doğrulandı"
+   * dedi, Kasa ve Aylık Paketler sayfaları canlıda 500 verdi.
+   */
+  console.log('\n═══ SÜTUN BÜTÜNLÜĞÜ (tüm alanlar okunuyor) ═══')
+  const columnProbes: Array<[string, () => Promise<unknown>]> = [
+    ['CashAccount', () => db.cashAccount.findFirst()],
+    ['CashEntry', () => db.cashEntry.findFirst()],
+    ['Receivable', () => db.receivable.findFirst()],
+    ['ScheduledPayment', () => db.scheduledPayment.findFirst()],
+    ['ServicePackage', () => db.servicePackage.findFirst()],
+    ['ManualOrder', () => db.manualOrder.findFirst()],
+    ['Order', () => db.order.findFirst()],
+    ['Fulfillment', () => db.fulfillment.findFirst()],
+    ['User', () => db.user.findFirst()],
+  ]
+  for (const [name, probe] of columnProbes) {
+    try {
+      await probe()
+      console.log(`  ✓ ${name}`)
+    } catch (err) {
+      readable = false
+      // ⚠️ Yalnızca hata TÜRÜ yazılır: sürücü metinleri bağlantı adresi taşır.
+      console.log(`  ✗ ${name} — SÜTUN EKSİK ya da uyuşmuyor (${err instanceof Error ? err.name : 'hata'})`)
+    }
   }
 
   // --- 4) Dağıtım damgası ---------------------------------------------------

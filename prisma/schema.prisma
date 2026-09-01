@@ -1395,14 +1395,12 @@ model ServicePackage {
   /// tarih er geç ayrışır ve hangisinin doğru olduğu bilinemez.
   paidAt DateTime?
 
-  /// ⚠️ BEKLENEN ödeme günü — ALINMIŞ ödeme değil. `paidAt` boşken doluysa
-  /// bu satır bir ALACAKTIR ve panelin ana sayfasında listelenir.
-  ///
-  /// ⚠️ AYRI BİR "Receivable" SATIRI AÇILMAZ. Açılsaydı tek satış iki kayda
-  /// bölünürdü: alacak tahsil edilince kasaya para girer ama siparişin
-  /// `paidAt` alanı boş kalır, defter o işi sonsuza dek "ödenmedi"
-  /// gösterirdi. Tek kayıt, iki ekranın birbirini yalanlamasını önler.
-  dueDate DateTime?
+  /// ⚠️ BURADA "dueDate" YOKTUR ve olmamalı. Beklenen ödeme günü yalnızca
+  /// `ManualOrder`ın alanıdır; paketin zaten kendi başlangıç–bitiş tarihi
+  /// var. Bir kez yanlışlıkla buraya da eklenmişti: şemada duruyor ama
+  /// migration yalnızca `ManualOrder`a sütun ekliyordu, bu yüzden Kasa ve
+  /// Aylık Paketler sayfaları canlıda "column does not exist" ile 500
+  /// verdi. Şemaya alan eklerken hangi modelde olduğunu iki kez kontrol et.
 
   /// ⚠️ PAKET AÇILINCA BANKA BAKİYESİ ARTMAZ.
   /// Gelir hareketi YALNIZCA "tahsil edildi" işleminde oluşur ve buraya

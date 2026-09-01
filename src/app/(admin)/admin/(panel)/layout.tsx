@@ -69,21 +69,45 @@ export default async function OperationsLayout({ children }: { children: React.R
    * webhook'u ve sipariş durum geçişleri ona bağlı. Silinseydi ödeme
    * alındığında sunucu hata verir, yani ÖDEME AKIŞI kırılırdı.
    */
+  /**
+   * ⚠️⚠️ HER EKRANIN KENDİ KAPISI VAR — SİPARİŞLER VE AYLIK PAKETLER
+   * ARTIK KASA'NIN ALTINDA DEĞİL.
+   *
+   * Eskiden ikisine yalnızca Kasa sayfasındaki sekme çubuğundan
+   * gidilebiliyordu. Kasa sayfası bir hata verdiğinde (canlıda tam bu
+   * oldu: eksik bir migration yüzünden 500) iki ekran birden erişilemez
+   * hâle geldi — oysa ikisinin de o sayfayla hiçbir ilgisi yok. Bir
+   * sayfanın çökmesi diğerlerini de götürmemeli.
+   */
   const items: AdminNavItem[] = [
     { href: '/admin', label: 'Panel', match: '/admin', exact: true },
-    { href: '/admin/notifications', label: 'Bildirimler', match: '/admin/notifications' },
   ]
-  // ⚠️ Kullanıcı yönetimi yalnızca ADMIN+ — SUPPORT/OPERATOR görmez.
-  if (ROLE_LEVEL[user.role] >= ROLE_LEVEL.ADMIN) {
-    items.push({ href: '/admin/kullanicilar', label: 'Kullanıcılar', match: '/admin/kullanicilar' })
-  }
+
   /**
-   * ⚠️ KASA YALNIZCA SUPERADMIN. Banka bakiyesi, borç ve alacak verisi
-   * ADMIN'e bile açılmaz — bağlantıyı gizlemek yetki mekanizması değildir,
-   * asıl kapı sayfada ve API ucundadır.
+   * ⚠️ FİNANS EKRANLARI YALNIZCA SUPERADMIN. Banka bakiyesi, kâr, borç ve
+   * alacak verisi ADMIN'e bile açılmaz. Bağlantıyı gizlemek bir yetki
+   * mekanizması DEĞİLDİR; asıl kapı her sayfanın kendisinde ve API
+   * ucundadır (`minimumRole: 'SUPERADMIN'`).
    */
   if (user.role === 'SUPERADMIN') {
-    items.push({ href: '/admin/kasa', label: 'Kasa', match: '/admin/kasa' })
+    items.push(
+      { href: '/admin/kasa/siparisler', label: 'Siparişler', match: '/admin/kasa/siparisler' },
+      { href: '/admin/kasa/paketler', label: 'Aylık Paketler', match: '/admin/kasa/paketler' },
+      { href: '/admin/finans', label: 'Gelir–Gider', match: '/admin/finans' },
+      /**
+       * ⚠️ `exact: true` ŞART: '/admin/kasa' diğer ikisinin ÖN EKİ.
+       * Sınır kontrollü `startsWith` bile Siparişler sayfasındayken
+       * "Kasa"yı da aydınlatır, iki sekme birden aktif görünürdü.
+       */
+      { href: '/admin/kasa', label: 'Kasa', match: '/admin/kasa', exact: true },
+    )
+  }
+
+  items.push({ href: '/admin/notifications', label: 'Bildirimler', match: '/admin/notifications' })
+
+  // ⚠️ Kullanıcı yönetimi ADMIN+ — SUPPORT/OPERATOR görmez.
+  if (ROLE_LEVEL[user.role] >= ROLE_LEVEL.ADMIN) {
+    items.push({ href: '/admin/kullanicilar', label: 'Kullanıcılar', match: '/admin/kullanicilar' })
   }
 
   return (
