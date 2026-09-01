@@ -32,7 +32,8 @@ import { dayStartUtc, KasaError } from '@/server/kasa'
 
 const FROZEN =
   'Bu kayıttan kasaya hareket yazılmış; tutar artık değiştirilemez. ' +
-  'Düzeltme gerekiyorsa tahsilatı geri alın ya da ters kayıt girin.'
+  'Düzeltme gerekiyorsa kasa hareketini silin (kayıt otomatik geri alınır) ' +
+  'ya da ters kayıt girin.'
 
 // ---------------------------------------------------------------------------
 // KASA HAREKETİ
@@ -175,28 +176,85 @@ export async function deleteEntry(entryId: string) {
   const entry = await db.cashEntry.findUnique({ where: { id: entryId } })
   if (!entry) throw new KasaError('NOT_FOUND', 'Hareket bulunamadı.', 404)
 
-  const linkedTo = await entryLinkedTo(entryId)
-  if (linkedTo) {
-    throw new KasaError(
-      'ENTRY_LINKED',
-      `Bu hareket bir ${linkedTo} kaydına bağlı; silinemez. Önce o kayıttaki tahsilatı geri alın.`,
-    )
-  }
-
   /**
    * ⚠️ TRANSFERİN İKİ BACAĞI BİRLİKTE SİLİNİR. Yalnızca biri silinseydi
    * para bir hesaptan çıkmış ama diğerine hiç girmemiş görünürdü — toplam
    * bakiye sessizce değişirdi.
    */
-  if (entry.transferGroupId) {
-    const { count } = await db.cashEntry.deleteMany({
-      where: { transferGroupId: entry.transferGroupId },
-    })
-    return { deleted: count, transfer: true }
-  }
+  const ids = entry.transferGroupId
+    ? (
+        await db.cashEntry.findMany({
+          where: { transferGroupId: entry.transferGroupId },
+          select: { id: true },
+        })
+      ).map((e) => e.id)
+    : [entryId]
 
-  await db.cashEntry.delete({ where: { id: entryId } })
-  return { deleted: 1, transfer: false }
+  return db.$transaction(async (tx) => {
+    /**
+     * ⚠️⚠️ BAĞLI HAREKET SİLİNEBİLİR — AMA KAYNAK KAYIT DA GERİ ALINIR.
+     *
+     * Önceden bu işlem reddediliyordu. Sebebi geçerliydi: hareketi tek
+     * başına silmek, paketi "tahsil edildi" gösterirken karşılığında
+     * hiçbir para bırakmazdı — defter kendi kendini yalanlardı. Ama
+     * yasaklamak da yanlıştı: yanlış hesaba yazılmış bir tahsilatı
+     * düzeltmenin hiçbir yolu kalmıyordu.
+     *
+     * Doğru davranış ikisinin ortası: hareket silinir VE onu doğuran
+     * kayıt "tahsil edilmedi" durumuna döner. Paket yeniden tahsil
+     * edilebilir hâle gelir, bakiye hareketin tutarı kadar düzelir ve
+     * hiçbir yerde karşılıksız "ödendi" kalmaz.
+     *
+     * ⚠️ TEK İŞLEMDE. Ayrı yapılsaydı, araya düşen bir hata paketi
+     * "ödendi" bırakırken hareketi silmiş olabilirdi — tam kaçındığımız
+     * durum.
+     *
+     * ⚠️ TARİH VE BAĞ BİRLİKTE BOŞALTILIR (`paidAt` + `paymentEntryId`).
+     * Veritabanındaki `*_paid_pair` kısıtı ikisinin birlikte dolu ya da
+     * birlikte boş olmasını şart koşuyor; yalnızca birini boşaltmak
+     * kısıta takılırdı.
+     */
+    const geriAlinan: string[] = []
+
+    for (const id of ids) {
+      const [pkgPay, pkgCost, ordPay, ordCost, rec, pay] = await Promise.all([
+        tx.servicePackage.updateMany({
+          where: { paymentEntryId: id },
+          data: { paidAt: null, paymentEntryId: null },
+        }),
+        tx.servicePackage.updateMany({ where: { costEntryId: id }, data: { costEntryId: null } }),
+        tx.manualOrder.updateMany({
+          where: { paymentEntryId: id },
+          data: { paidAt: null, paymentEntryId: null },
+        }),
+        tx.manualOrder.updateMany({ where: { costEntryId: id }, data: { costEntryId: null } }),
+        tx.receivable.updateMany({
+          where: { settledEntryId: id },
+          data: { settledAt: null, settledEntryId: null },
+        }),
+        tx.scheduledPayment.updateMany({
+          where: { paidEntryId: id },
+          data: { paidAt: null, paidEntryId: null },
+        }),
+      ])
+
+      if (pkgPay.count) geriAlinan.push('paketin tahsilatı')
+      if (pkgCost.count) geriAlinan.push('paketin gider kaydı')
+      if (ordPay.count) geriAlinan.push('siparişin tahsilatı')
+      if (ordCost.count) geriAlinan.push('siparişin gider kaydı')
+      if (rec.count) geriAlinan.push('alacağın tahsilatı')
+      if (pay.count) geriAlinan.push('borcun ödemesi')
+    }
+
+    const { count } = await tx.cashEntry.deleteMany({ where: { id: { in: ids } } })
+
+    return {
+      deleted: count,
+      transfer: Boolean(entry.transferGroupId),
+      /** Hangi kayıtlar "yapılmadı" durumuna döndü — arayüzde kullanıcıya yazılır. */
+      geriAlinan,
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------

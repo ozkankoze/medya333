@@ -95,8 +95,16 @@ export function InlineEdit({
   /** İstekle birlikte her zaman gönderilen sabit alanlar (örn. `kind`). */
   extra?: Record<string, unknown>
   fields: readonly EditField[]
-  /** Silme desteği — yoksa düğme çıkmaz. */
-  remove?: { endpoint: string; body?: Record<string, unknown>; confirm: string; blocked?: string }
+  /**
+   * Silme desteği — yoksa düğme çıkmaz.
+   *
+   * ⚠️ "ENGELLİ" DURUMU KALDIRILDI. Eskiden `blocked` verilince yerinde
+   * "🔒 silinemez" yazıyordu. Kural değişti: kasaya bağlı hareketler de
+   * silinebiliyor, silinince kaynak kayıt "tahsil edilmedi" durumuna
+   * dönüyor. Alanı burada bırakmak, bir gün yeniden kullanılıp kullanıcıya
+   * artık doğru olmayan bir "silinemez" göstermesine kapı açardı.
+   */
+  remove?: { endpoint: string; body?: Record<string, unknown>; confirm: string }
   label?: string
 }) {
   const router = useRouter()
@@ -247,25 +255,16 @@ export function InlineEdit({
         >
           Vazgeç
         </button>
-        {remove &&
-          (remove.blocked ? (
-            /**
-             * ⚠️ SİLME ENGELLİYSE DÜĞME GİZLENMEZ, SEBEBİ YAZILIR. Aynı
-             * gerekçe: gizlemek "bozuk" hissi verir, sebep kuralı öğretir.
-             */
-            <span className="self-center text-caption text-ink-400" title={remove.blocked}>
-              🔒 silinemez
-            </span>
-          ) : (
-            <button
-              type="button"
-              className={`${btn} text-danger-600 hover:bg-danger-50`}
-              disabled={busy}
-              onClick={() => void doRemove()}
-            >
-              Sil
-            </button>
-          ))}
+        {remove && (
+          <button
+            type="button"
+            className={`${btn} text-danger-600 hover:bg-danger-50`}
+            disabled={busy}
+            onClick={() => void doRemove()}
+          >
+            Sil
+          </button>
+        )}
       </div>
     </form>
   )

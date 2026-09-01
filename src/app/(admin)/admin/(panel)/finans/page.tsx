@@ -142,9 +142,107 @@ export default async function FinansPage({
         )}
       </section>
 
+      {/* ────────────────────────── BU AYIN İŞLERİ ───────────────────────── */}
+      <section aria-labelledby="isler-baslik">
+        <h2 id="isler-baslik" className="text-h3 text-ink-900">Bu ayın işleri</h2>
+        {/*
+          ⚠️⚠️ BU BLOK YUKARIDAKİ "GİREN"E EKLENMEZ — ayrı durması şart.
+          Sipariş girmek kasaya dokunmaz; para ancak tahsil edilince girer.
+          İkisi toplansaydı tahsil edilmiş bir sipariş hem iş cirosunda
+          hem kasa girişinde sayılır, yani aynı satış iki kez görünürdü.
+        */}
+        <p className="mt-1 text-caption text-ink-500">
+          Bu ay yapılan siparişler ve başlayan paketler — <strong>tahsil edilsin edilmesin</strong>.
+          Yukarıdaki “giren” yalnızca kasaya fiilen giren parayı sayar.
+        </p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="İş cirosu" value={formatMinor(data.isCiroMinor)} tone="in" />
+          <Stat label="Maliyet" value={formatMinor(data.isMaliyetMinor)} tone="out" />
+          <Stat label="Net kâr" value={formatMinor(data.isNetMinor)} tone={data.isNetMinor < 0 ? 'out' : 'in'} strong />
+          <Stat
+            label="Tahsil edilmeyen"
+            value={formatMinor(data.tahsilEdilmeyenMinor)}
+            tone={data.tahsilEdilmeyenMinor > 0 ? 'out' : 'in'}
+          />
+        </div>
+
+        {data.isler.length === 0 ? (
+          <p className="mt-4 rounded-[--radius-card] border border-dashed border-ink-300 bg-white p-6 text-center text-small text-ink-600">
+            Bu ayda iş kaydı yok.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
+            <table className="w-full border-collapse text-small">
+              <thead>
+                <tr className="border-b border-ink-200 bg-ink-50 text-left text-caption uppercase tracking-wide text-ink-500">
+                  <th scope="col" className="px-3 py-2 font-semibold">Tarih</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Kullanıcı adı</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">İşlem</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Fiyat</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Maliyet</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Net kâr</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Ödeme</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100">
+                {data.isler.map((i) => (
+                  <tr key={`${i.kaynak}-${i.id}`} className="align-middle odd:bg-white even:bg-ink-50">
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-ink-600">
+                      {fmtDate(i.tarih)}
+                    </td>
+                    <td className="max-w-[12rem] truncate px-3 py-2 font-medium text-ink-900" title={i.kisi}>
+                      {i.kisi}
+                      {/* ⚠️ KAYNAK YAZILIR: aynı listede sipariş ve paket
+                          yan yana duruyor; hangisinin nereden geldiği
+                          görünmezse "bunu ben mi girdim?" sorusu doğar. */}
+                      {i.kaynak === 'paket' && (
+                        <span className="ml-1.5 rounded-full bg-ink-100 px-1.5 py-0.5 text-caption text-ink-600">
+                          paket
+                        </span>
+                      )}
+                    </td>
+                    <td className="max-w-[20rem] px-3 py-2 text-ink-700" title={i.islem}>
+                      <span className="line-clamp-2">{i.islem}</span>
+                    </td>
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-right text-ink-900">
+                      {formatMinor(i.saleMinor)}
+                    </td>
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-right text-ink-600">
+                      {formatMinor(i.costMinor)}
+                    </td>
+                    <td
+                      className={`tabular whitespace-nowrap px-3 py-2 text-right font-medium ${
+                        i.netMinor < 0 ? 'text-danger-600' : 'text-ink-900'
+                      }`}
+                    >
+                      {formatMinor(i.netMinor)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-caption">
+                      {i.tahsilat ? (
+                        <span className="text-success-700">
+                          {i.tahsilat.accountName ?? 'Tahsil'} · {fmtDate(i.tahsilat.at)}
+                        </span>
+                      ) : i.dueDate ? (
+                        <span className="text-ink-600">{fmtDate(i.dueDate)} bekliyor</span>
+                      ) : (
+                        <span className="text-ink-500">bekliyor</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {/* ──────────────────────────── LİSTE ──────────────────────────────── */}
       <section aria-labelledby="liste-baslik">
         <h2 id="liste-baslik" className="text-h3 text-ink-900">Hareketler</h2>
+        <p className="mt-1 text-caption text-ink-500">
+          Hesaplara fiilen giren ve çıkan para.
+        </p>
 
         {data.rows.length === 0 ? (
           <div className="mt-4 rounded-[--radius-card] border border-dashed border-ink-300 bg-white p-8 text-center">
@@ -214,12 +312,22 @@ export default async function FinansPage({
                             },
                             { kind: 'text', name: 'note', label: 'Not', value: r.note ?? '' },
                           ]}
+                          /*
+                            ⚠️ BAĞLI HAREKET DE SİLİNEBİLİR — ama onay
+                            metni sonucu AÇIKÇA söyler: kaynak kayıt
+                            "tahsil edilmedi" durumuna döner. Söylenmeseydi
+                            kullanıcı hareketi silip paketin de ödenmemiş
+                            hâle geldiğini ancak paket listesinde fark
+                            ederdi.
+                          */
                           remove={{
                             endpoint: `/api/v1/admin/kasa/entries/${r.id}`,
-                            confirm: `"${r.description}" hareketi silinsin mi? Bakiye buna göre değişir.`,
-                            blocked: r.linkedTo
-                              ? `Bu hareket bir ${r.linkedTo} kaydına bağlı; önce oradan geri alın.`
-                              : undefined,
+                            confirm: r.linkedTo
+                              ? `"${r.description}" hareketi silinsin mi?\n\n` +
+                                `Bu hareket bir ${r.linkedTo} kaydından yazılmıştı. Silersen o kayıt ` +
+                                `"tahsil edilmedi" durumuna DÖNER ve bakiye ${formatMinor(r.amountMinor)} ` +
+                                `${r.direction === 'IN' ? 'düşer' : 'artar'}.`
+                              : `"${r.description}" hareketi silinsin mi? Bakiye ${formatMinor(r.amountMinor)} ${r.direction === 'IN' ? 'düşer' : 'artar'}.`,
                           }}
                         />
                       </RowMenu>

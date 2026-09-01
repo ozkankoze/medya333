@@ -46,6 +46,21 @@ export interface FinansRow {
   linkedTo: 'paket' | 'sipariş' | 'alacak' | 'borç' | null
 }
 
+export interface IsSatiri {
+  id: string
+  kaynak: 'sipariş' | 'paket'
+  tarih: Date
+  kisi: string
+  islem: string
+  saleMinor: number
+  costMinor: number
+  netMinor: number
+  /** Tahsil edildiyse hesap adı + tarih; edilmediyse null. */
+  tahsilat: { accountName: string | null; at: Date } | null
+  /** Beklenen ödeme günü (yalnızca siparişte, tahsil edilmemişse). */
+  dueDate: Date | null
+}
+
 export async function getFinance(year: number, month1: number) {
   const range = monthRange(year, month1)
 
@@ -101,6 +116,72 @@ export async function getFinance(year: number, month1: number) {
     }
   }
 
+  /**
+   * ⚠️⚠️ BU AYIN İŞLERİ, PARA HAREKETLERİNDEN AYRI HESAPLANIR.
+   *
+   * Sipariş girmek kasaya dokunmaz; para ancak tahsil edilince girer. Bu
+   * yüzden "bu ay ne kadar iş yaptım?" ile "bu ay kasaya ne girdi?"
+   * farklı sayılardır ve ekranda ayrı bloklarda gösterilir.
+   *
+   * ⚠️ İKİSİ TOPLANMAZ. Toplansaydı, tahsil edilen bir sipariş HEM iş
+   * cirosunda HEM kasa girişinde sayılır — yani aynı satış iki kez
+   * görünürdü.
+   */
+  const [orders, packages] = await Promise.all([
+    db.manualOrder.findMany({
+      where: { occurredAt: { gte: range.gte, lt: range.lt }, status: { not: 'IPTAL' } },
+      orderBy: [{ occurredAt: 'desc' }],
+      include: { paymentEntry: { select: { account: { select: { name: true } } } } },
+    }),
+    // ⚠️ Paketler AYDA BAŞLAYANA göre — paket sayfasındaki özetle aynı kural.
+    db.servicePackage.findMany({
+      where: { startDate: { gte: range.gte, lt: range.lt }, canceledAt: null },
+      orderBy: [{ startDate: 'desc' }],
+      include: { paymentEntry: { select: { account: { select: { name: true } } } } },
+    }),
+  ])
+
+  const isler: IsSatiri[] = [
+    ...orders.map((o) => ({
+      id: o.id,
+      kaynak: 'sipariş' as const,
+      tarih: o.occurredAt,
+      kisi: o.customerName,
+      islem: o.description,
+      saleMinor: o.salePriceMinor,
+      costMinor: o.costMinor,
+      netMinor: o.salePriceMinor - o.costMinor,
+      tahsilat: o.paidAt
+        ? { accountName: o.paymentEntry?.account.name ?? null, at: o.paidAt }
+        : null,
+      dueDate: o.paidAt ? null : o.dueDate,
+    })),
+    ...packages.map((p) => ({
+      id: p.id,
+      kaynak: 'paket' as const,
+      tarih: p.startDate,
+      kisi: p.customerName,
+      islem: p.serviceName,
+      saleMinor: p.salePriceMinor,
+      costMinor: p.costMinor,
+      netMinor: p.salePriceMinor - p.costMinor,
+      tahsilat: p.paidAt
+        ? { accountName: p.paymentEntry?.account.name ?? null, at: p.paidAt }
+        : null,
+      dueDate: null,
+    })),
+  ].sort((a, b) => b.tarih.getTime() - a.tarih.getTime())
+
+  const isCiroMinor = isler.reduce((n, i) => n + i.saleMinor, 0)
+  const isMaliyetMinor = isler.reduce((n, i) => n + i.costMinor, 0)
+  /**
+   * ⚠️ TAHSİL EDİLMEYEN TUTAR AYRI GÖSTERİLİR. Ciroya bakıp "bu para
+   * bende" sanmak, bu ekranda yapılabilecek en pahalı yanlış okumadır.
+   */
+  const tahsilEdilmeyenMinor = isler
+    .filter((i) => i.tahsilat === null)
+    .reduce((n, i) => n + i.saleMinor, 0)
+
   const movements: CashMovement[] = rows.map((e) => ({
     accountId: e.accountId,
     occurredAt: e.occurredAt,
@@ -112,6 +193,11 @@ export async function getFinance(year: number, month1: number) {
 
   return {
     rows: list,
+    isler,
+    isCiroMinor,
+    isMaliyetMinor,
+    isNetMinor: isCiroMinor - isMaliyetMinor,
+    tahsilEdilmeyenMinor,
     girenMinor,
     cikanMinor,
     /** ⚠️ KASA AKIŞI — kâr DEĞİL. */

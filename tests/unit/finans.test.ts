@@ -138,3 +138,45 @@ describe('menü', () => {
     expect(blok).toContain("label: 'Gelir–Gider'")
   })
 })
+
+// ===========================================================================
+describe('bu ayın işleri', () => {
+  it('⚠️⚠️ İŞ CİROSU KASA GİRİŞİNE EKLENMEZ', () => {
+    /**
+     * Toplansaydı tahsil edilmiş bir sipariş HEM iş cirosunda HEM kasa
+     * girişinde sayılır — aynı satış iki kez görünürdü. İki blok ayrı
+     * hesaplanır ve ekranda ayrı gösterilir.
+     */
+    expect(server).toContain('const isCiroMinor = isler.reduce')
+    expect(server).toContain('akisMinor: girenMinor - cikanMinor')
+    expect(server).not.toMatch(/girenMinor \+= .*isCiro/)
+    expect(page).toContain('Yukarıdaki “giren” yalnızca kasaya fiilen giren parayı sayar.')
+  })
+
+  it('sipariş ve paketler birlikte listelenir', () => {
+    expect(server).toContain('db.manualOrder.findMany')
+    expect(server).toContain('db.servicePackage.findMany')
+    // ⚠️ Paketler AYDA BAŞLAYANA göre — paket sayfasındaki özetle aynı kural.
+    expect(server).toMatch(/startDate: \{ gte: range\.gte, lt: range\.lt \}/)
+  })
+
+  it('⚠️ İPTALLER SAYILMAZ', () => {
+    // İptal edilmiş bir iş ciroya girseydi, yapılmamış iş kâr gibi görünürdü.
+    expect(server).toContain("status: { not: 'IPTAL' }")
+    expect(server).toContain('canceledAt: null')
+  })
+
+  it('⚠️ TAHSİL EDİLMEYEN TUTAR AYRI GÖSTERİLİR', () => {
+    /**
+     * Ciroya bakıp "bu para bende" sanmak, bu ekranda yapılabilecek en
+     * pahalı yanlış okumadır.
+     */
+    expect(server).toContain('tahsilEdilmeyenMinor')
+    expect(page).toContain('Tahsil edilmeyen')
+  })
+
+  it('hangi hesaba tahsil edildiği satırda yazıyor', () => {
+    expect(server).toContain('accountName: o.paymentEntry?.account.name ?? null')
+    expect(page).toContain('i.tahsilat.accountName')
+  })
+})

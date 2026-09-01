@@ -436,14 +436,24 @@ export default async function KasaPage({
                             frozen: e.linkedTo ? `${e.linkedTo} kaydına bağlı — hesap donmuş` : undefined,
                           },
                         ]}
+                        /*
+                          ⚠️ BAĞLI HAREKET DE SİLİNEBİLİR. Eskiden
+                          engelleniyordu; sebebi geçerliydi ama sonucu
+                          kötüydü — yanlış hesaba yazılmış bir tahsilatı
+                          düzeltmenin hiçbir yolu kalmıyordu. Artık
+                          hareket silinince KAYNAK KAYIT DA "tahsil
+                          edilmedi" durumuna dönüyor ve bu, onay metninde
+                          açıkça yazıyor.
+                        */
                         remove={{
                           endpoint: `/api/v1/admin/kasa/entries/${e.id}`,
                           confirm: e.transferGroupId
                             ? 'Bu bir TRANSFER hareketidir; iki bacağı birlikte silinecek. Emin misin?'
-                            : 'Bu kasa hareketi kalıcı olarak silinecek. Emin misin?',
-                          blocked: e.linkedTo
-                            ? `Bu hareket bir ${e.linkedTo} kaydına bağlı; önce oradaki tahsilatı geri alın.`
-                            : undefined,
+                            : e.linkedTo
+                              ? `Bu hareket bir ${e.linkedTo} kaydından yazılmıştı.\n\n` +
+                                'Silersen o kayıt "tahsil edilmedi" durumuna DÖNER ve bakiye ' +
+                                'buna göre değişir. Emin misin?'
+                              : 'Bu kasa hareketi kalıcı olarak silinecek. Emin misin?',
                         }}
                       />
                     </td>

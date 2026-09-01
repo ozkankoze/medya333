@@ -115,9 +115,51 @@ describe('kasa hareketi düzenleme', () => {
     expect(edit).toMatch(/deleteMany\(\{[\s\S]{0,120}transferGroupId/)
   })
 
-  it('bağlı hareket silinemez', () => {
+  it('⚠️⚠️ BAĞLI HAREKET SİLİNEBİLİR — AMA KAYNAK KAYIT DA GERİ ALINIR', () => {
+    /**
+     * Kural DEĞİŞTİ. Eskiden bağlı hareketin silinmesi reddediliyordu;
+     * gerekçe geçerliydi (hareketi tek başına silmek, paketi "tahsil
+     * edildi" gösterirken karşılığında hiç para bırakmazdı) ama sonucu
+     * kötüydü: yanlış hesaba yazılmış bir tahsilatı düzeltmenin hiçbir
+     * yolu kalmıyordu.
+     *
+     * Yeni davranış ikisinin ortası: hareket silinir VE onu doğuran kayıt
+     * "tahsil edilmedi" durumuna döner. Hiçbir yerde karşılıksız "ödendi"
+     * kalmaz.
+     */
     const del = edit.slice(edit.indexOf('export async function deleteEntry'))
-    expect(del).toContain('ENTRY_LINKED')
+    expect(del, 'silme artık reddedilmemeli').not.toContain('ENTRY_LINKED')
+
+    // Dört kaynak da geri alınmalı — biri unutulsaydı o tabloda
+    // karşılıksız bir "ödendi" kalırdı.
+    for (const t of ['servicePackage', 'manualOrder', 'receivable', 'scheduledPayment']) {
+      expect(del, `${t} geri alınmıyor`).toContain(t)
+    }
+
+    /**
+     * ⚠️ TARİH VE BAĞ BİRLİKTE BOŞALTILIR. Veritabanındaki `*_paid_pair`
+     * kısıtı ikisinin birlikte dolu ya da birlikte boş olmasını şart
+     * koşuyor; yalnızca birini boşaltmak kısıta takılırdı.
+     */
+    expect(del).toContain('paidAt: null, paymentEntryId: null')
+    expect(del).toContain('settledAt: null, settledEntryId: null')
+    expect(del).toContain('paidAt: null, paidEntryId: null')
+
+    // ⚠️ TEK İŞLEMDE — araya düşen bir hata kaydı "ödendi" bırakıp
+    //    hareketi silmiş olmamalı.
+    expect(del).toContain('db.$transaction')
+  })
+
+  it('arayüzde artık "silinemez" yok', () => {
+    /**
+     * Kullanıcının şikâyeti tam buydu: düğmenin yerinde "🔒 silinemez"
+     * yazıyordu. Bileşendeki `blocked` durumu tamamen kaldırıldı ki
+     * ileride yeniden kullanılıp artık doğru olmayan bir yasak
+     * gösterilmesin.
+     */
+    const inline = read('src/components/kasa/InlineEdit.tsx')
+    expect(stripComments(inline)).not.toContain('silinemez')
+    expect(stripComments(inline)).not.toContain('remove.blocked')
   })
 })
 
