@@ -21,6 +21,12 @@ export interface AdminNavItem {
   label: string
   /** Alt yolları da aynı bölüm sayılır (örn. /admin/kasa/paketler). */
   match: string
+  /**
+   * ⚠️ YALNIZCA TAM EŞLEŞME. Ana sayfa için şart: `/admin` her panel
+   * yolunun ön ekidir, sınır kontrollü `startsWith` bile "/admin/kasa"da
+   * "Panel"i aktif gösterirdi ve iki sekme birden aydınlanırdı.
+   */
+  exact?: boolean
 }
 
 export function AdminNav({ items }: { items: readonly AdminNavItem[] }) {
@@ -34,7 +40,9 @@ export function AdminNav({ items }: { items: readonly AdminNavItem[] }) {
          * `/admin/kasa` bağlantısı `/admin/kasalar` gibi bir yolda da aktif
          * görünürdü. Ya tam eşleşme ya da eğik çizgiyle devam etmeli.
          */
-        const active = pathname === item.match || pathname.startsWith(`${item.match}/`)
+        const active = item.exact
+          ? pathname === item.match
+          : pathname === item.match || pathname.startsWith(`${item.match}/`)
         return (
           <Link
             key={item.href}

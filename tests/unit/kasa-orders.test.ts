@@ -351,8 +351,14 @@ describe('⭐ "Sipariş içeriği" — zorunlu alan', () => {
   })
 
   it('tabloda ayrı bir sütun olarak görünüyor', () => {
+    /**
+     * ⚠️ SÜTUN BAŞLIĞI "İşlem" — tablo düzeni kullanıcının yıllardır
+     * kullandığı e-tabloya birebir uyduruldu. Alan adı (`description`)
+     * ve zorunluluğu değişmedi; değişen yalnızca başlık.
+     */
     const page = read('src/app/(admin)/admin/(panel)/kasa/siparisler/page.tsx')
-    expect(page).toContain('>Sipariş içeriği<')
+    expect(page).toContain('>İşlem<')
+    expect(page).toContain('r.description')
     expect(page).toContain('{r.description}')
   })
 

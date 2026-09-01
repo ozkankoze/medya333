@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { adminHandler } from '../../_handler'
 import { apiError } from '@/server/http'
 import { KasaError } from '@/server/kasa'
-import { createOrder } from '@/server/kasa/orders'
+import { cozumleOdeme, createOrder, uygulaOdeme } from '@/server/kasa/orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,6 +34,14 @@ const schema = z.object({
   salePriceMinor: z.number().int().nonnegative(),
   costMinor: z.number().int().nonnegative(),
   status: z.enum(['BEKLIYOR', 'DEVAM_EDIYOR', 'TAMAMLANDI', 'IPTAL']).optional(),
+  /**
+   * ⚠️ TEK KUTU, İKİ ANLAM — tabloda "Ödeme".
+   *   "12.09.2026" → para beklenİyor, o gün alacak olarak görünür
+   *   "yapıkredi"  → para geldi, o hesaba gelir yazılır
+   * Ayrım `odemeCozumle` içinde kesin kurallara bağlı; burada serbest
+   * metindir çünkü kullanıcı ikisinden birini yazar.
+   */
+  odeme: z.string().max(60).optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -50,7 +58,29 @@ export async function POST(req: NextRequest) {
         status: input.status,
         createdById: user.id,
       })
-      return { id: order.id }
+      /**
+       * ⚠️ ÖDEME KUTUSU SİPARİŞ YAZILDIKTAN SONRA UYGULANIR ve hatası
+       * AYRI raporlanır. Aynı işleme sokulsaydı, tanınmayan bir hesap adı
+       * yüzünden doğru girilmiş sipariş de kaybolurdu — kullanıcı satırı
+       * baştan yazmak zorunda kalırdı.
+       */
+      let odeme: Awaited<ReturnType<typeof uygulaOdeme>> | null = null
+      let odemeHatasi: string | null = null
+      if (input.odeme?.trim()) {
+        try {
+          odeme = await uygulaOdeme({
+            orderId: order.id,
+            girdi: await cozumleOdeme(input.odeme),
+            bugun: new Date(),
+            createdById: user.id,
+          })
+        } catch (err) {
+          if (err instanceof KasaError) odemeHatasi = err.message
+          else throw err
+        }
+      }
+
+      return { id: order.id, odeme, odemeHatasi }
     } catch (err) {
       if (err instanceof KasaError) return apiError(err.code, err.message, err.status)
       throw err

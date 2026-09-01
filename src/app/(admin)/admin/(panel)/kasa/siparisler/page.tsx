@@ -4,11 +4,9 @@ import { KasaTabs } from '@/components/kasa/KasaTabs'
 import { ManualOrderActions } from '@/components/kasa/ManualOrderActions'
 import { InlineEdit } from '@/components/kasa/InlineEdit'
 import { ManualOrderForm } from '@/components/kasa/ManualOrderForm'
-import {
-  ORDER_STATUS_LABEL,
-  PAYMENT_STATE_LABEL,
-  type ManualOrderStatus,
-} from '@/lib/kasa/orders'
+import { OdemeCell } from '@/components/kasa/OdemeCell'
+import { RowMenu } from '@/components/kasa/RowMenu'
+import { ORDER_STATUS_LABEL, type ManualOrderStatus } from '@/lib/kasa/orders'
 import { formatMinor } from '@/lib/money'
 import { getSessionUser } from '@/server/auth'
 import { listAccounts } from '@/server/kasa'
@@ -31,11 +29,14 @@ const STATUS_CLASS: Record<ManualOrderStatus, string> = {
 /**
  * /admin/kasa/siparisler — ELLE GİRİLEN GÜNLÜK SİPARİŞ DEFTERİ
  *
- * ⚠️⚠️ BU EKRAN SİTEDEKİ SİPARİŞLERİ GÖSTERMEZ. Gerçek müşteri siparişleri
- * `/admin/fulfillment` altındadır: ödeme akışı üretirler, denetim izi
- * taşırlar ve SİLİNEMEZLER. Burası işletmenin kendi defteridir — elle
- * girilir, elle silinir. İkisi bilinçli olarak ayrı tutuldu; birleştirmek,
- * bir gün yanlış satırın silinmesiyle biterdi.
+ * ⚠️ SÜTUN SIRASI TABLOYLA BİREBİR: Tarih · Kullanıcı adı · İşlem · Fiyat ·
+ * Maliyet · Net kâr · Ödeme. Alışılmış bir düzeni "daha mantıklı" diye
+ * değiştirmek, yıllardır aynı sırayla okuyan gözü her satırda yavaşlatır.
+ *
+ * ⚠️⚠️ BU EKRAN SİTEDEKİ SİPARİŞLERİ GÖSTERMEZ. Siteden gelen gerçek
+ * müşteri siparişleri ayrı bir tablodadır ve panelde artık hiç
+ * görüntülenmez (İş Kuyruğu ekranı kaldırıldı). Burası işletmenin kendi
+ * defteridir — elle girilir, elle silinir.
  *
  * ⚠️ AYLIK TOPLAMLAR SİPARİŞ TARİHİNE GÖREDİR, tahsil tarihine göre değil.
  * "Bu ay ne kadar iş yaptım?" ile "bu ay kasaya ne kadar girdi?" farklı
@@ -50,7 +51,7 @@ export default async function ManualOrdersPage({
   const user = await getSessionUser()
   // ⚠️ Oturumsuz istek personel kapısına, yetkisiz oturum panele döner.
   if (!user) redirect('/admin/giris?next=/admin/kasa/siparisler')
-  if (user.role !== 'SUPERADMIN') redirect('/admin/fulfillment')
+  if (user.role !== 'SUPERADMIN') redirect('/admin/notifications')
 
   const sp = await searchParams
   const now = new Date()
@@ -96,9 +97,10 @@ export default async function ManualOrdersPage({
         yerde bulunamazdı.
       */}
       <p className="rounded-[--radius-card] border border-ink-200 bg-ink-50 px-4 py-3 text-caption leading-relaxed text-ink-600">
-        Bu defter <strong>yalnızca senin elle girdiğin</strong> kayıtları tutar. Siteden gelen
-        gerçek müşteri siparişleri burada görünmez; onlar <strong>İş Kuyruğu</strong>’ndadır ve
-        silinemez.
+        <strong>Ödeme</strong> sütununa <strong>tarih</strong> yazarsan satır alacak olur ve
+        panelin ana sayfasında görünür; <strong>hesap adı</strong> yazarsan (
+        {accounts.map((a) => a.name).join(', ') || 'önce hesap ekleyin'}) o hesaba gelir yazılır
+        ve bakiye artar.
       </p>
 
       {/* ──────────────────────────── ÖZET ───────────────────────────────── */}
@@ -152,69 +154,79 @@ export default async function ManualOrdersPage({
           </div>
         ) : (
           <div className="mt-4 overflow-x-auto rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
-            <table className="w-full text-small">
+            <table className="w-full border-collapse text-small">
               <thead>
-                <tr className="border-b border-ink-100 text-left text-caption uppercase tracking-wide text-ink-500">
-                  <th scope="col" className="px-4 py-3 font-medium">Kullanıcı adı</th>
-                  {/* ⚠️ Satırı okunur kılan sütun budur — kullanıcı adının
-                      hemen yanında durur, tutarların arasında değil. */}
-                  <th scope="col" className="px-4 py-3 font-medium">Sipariş içeriği</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Tarih</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Sipariş tutarı</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Maliyet</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Net kâr</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Sipariş durumu</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Ödeme durumu</th>
-                  <th scope="col" className="px-4 py-3 font-medium">İşlem</th>
+                <tr className="border-b border-ink-200 bg-ink-50 text-left text-caption uppercase tracking-wide text-ink-500">
+                  <th scope="col" className="px-3 py-2 font-semibold">Tarih</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Kullanıcı adı</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">İşlem</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Fiyat</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Maliyet</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Net kâr</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Ödeme</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
                 {data.rows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-4 py-3 font-medium text-ink-900">{r.customerName}</td>
-                    {/* ⚠️ `break-words` şart: uzun içerik metni tabloyu yana
-                        taşırıp diğer sütunları ekrandan çıkarabilir. */}
-                    <td className="max-w-[18rem] break-words px-4 py-3 text-ink-700">
-                      {r.description}
-                    </td>
-                    <td className="tabular whitespace-nowrap px-4 py-3 text-ink-600">
+                  <tr key={r.id} className="align-middle odd:bg-white even:bg-ink-50">
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-ink-600">
                       {fmtDate(r.occurredAt)}
                     </td>
-                    <td className="tabular px-4 py-3 text-right text-ink-900">
+                    <td className="max-w-[12rem] truncate px-3 py-2 font-medium text-ink-900" title={r.customerName}>
+                      {r.customerName}
+                      {/* ⚠️ İPTAL DURUMU AYRI SÜTUN DEĞİL, ADIN ALTINDA BİR
+                          ETİKET. Kendi sütununu hak edecek kadar sık
+                          kullanılmıyor; sütun açmak diğer yedi sütunu
+                          daraltırdı. */}
+                      {r.status !== 'BEKLIYOR' && (
+                        <span
+                          className={`ml-1.5 whitespace-nowrap rounded-full px-1.5 py-0.5 text-caption font-medium ${STATUS_CLASS[r.status]}`}
+                        >
+                          {ORDER_STATUS_LABEL[r.status]}
+                        </span>
+                      )}
+                    </td>
+                    <td className="max-w-[22rem] px-3 py-2 text-ink-700" title={r.description}>
+                      <span className="line-clamp-2">{r.description}</span>
+                    </td>
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-right text-ink-900">
                       {formatMinor(r.salePriceMinor)}
                     </td>
-                    <td className="tabular px-4 py-3 text-right text-ink-600">
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-right text-ink-600">
                       {formatMinor(r.costMinor)}
                     </td>
-                    <td className="tabular px-4 py-3 text-right font-medium text-ink-900">
+                    {/* ⚠️ EKSİ NET KÂR KIRMIZI — diğerleriyle aynı siyah
+                        olsaydı zarar eden satır göze çarpmazdı. */}
+                    <td
+                      className={`tabular whitespace-nowrap px-3 py-2 text-right font-medium ${
+                        r.netMinor < 0 ? 'text-danger-600' : 'text-ink-900'
+                      }`}
+                    >
                       {formatMinor(r.netMinor)}
                     </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`whitespace-nowrap rounded-full px-2 py-0.5 text-caption font-medium ${STATUS_CLASS[r.status]}`}
-                      >
-                        {ORDER_STATUS_LABEL[r.status]}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {r.paidAt ? (
-                        <span className="text-success-700">
-                          {PAYMENT_STATE_LABEL.ODENDI} · {fmtDate(r.paidAt)}
-                        </span>
-                      ) : (
-                        <span className="text-ink-500">{PAYMENT_STATE_LABEL.BEKLIYOR}</span>
-                      )}
+                    <td className="px-3 py-2">
+                      <OdemeCell
+                        orderId={r.id}
+                        paidLabel={
+                          r.paidAt
+                            ? `${r.paidAccountName ?? 'Tahsil'} · ${fmtDate(r.paidAt)}`
+                            : null
+                        }
+                        dueLabel={r.dueDate ? fmtDate(r.dueDate) : null}
+                        hesapAdlari={accounts.map((a) => a.name)}
+                      />
                       {/* ⚠️ İPTAL AMA TAHSİL EDİLMİŞ: para kasada duruyor,
                           ciroya girmiyor. Bu fark görünmezse "rakamlar neden
                           tutmuyor?" sorusu cevapsız kalır. */}
                       {r.status === 'IPTAL' && r.paidAt && (
-                        <span className="mt-1 block text-caption text-warning-700">
+                        <span className="mt-0.5 block text-caption text-warning-700">
                           para kasada — iade elle girilmeli
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-start gap-1.5">
+                    <td className="px-3 py-2 text-right">
+                      <RowMenu>
                         <ManualOrderActions
                           id={r.id}
                           accounts={accountOptions}
@@ -226,7 +238,7 @@ export default async function ManualOrdersPage({
                           canDelete={r.canDelete}
                         />
                         {/*
-                          ⚠️ Kullanıcı adı, içerik, tarih ve durum HER ZAMAN
+                          ⚠️ Kullanıcı adı, içerik ve tarih HER ZAMAN
                           düzenlenir. Tutar ve maliyet yalnızca o kayda bağlı
                           bir kasa hareketi YOKKEN — aksi hâlde kayıtla kasa
                           arasında sessiz bir fark açılırdı.
@@ -236,12 +248,12 @@ export default async function ManualOrdersPage({
                           method="POST"
                           fields={[
                             { kind: 'text', name: 'customerName', label: 'Kullanıcı adı', value: r.customerName, required: true },
-                            { kind: 'text', name: 'description', label: 'Sipariş içeriği', value: r.description, required: true },
+                            { kind: 'text', name: 'description', label: 'İşlem', value: r.description, required: true },
                             { kind: 'date', name: 'occurredAt', label: 'Tarih', value: isoDay(r.occurredAt), required: true },
                             {
                               kind: 'money',
                               name: 'salePriceMinor',
-                              label: 'Sipariş tutarı',
+                              label: 'Fiyat',
                               valueMinor: r.salePriceMinor,
                               required: true,
                               frozen: r.paymentEntryId ? 'Tahsilat yazılmış — tutar donmuş' : undefined,
@@ -256,7 +268,7 @@ export default async function ManualOrdersPage({
                             },
                           ]}
                         />
-                      </div>
+                      </RowMenu>
                     </td>
                   </tr>
                 ))}

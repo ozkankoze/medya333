@@ -7,6 +7,7 @@ import {
   type ManualOrderStatus,
   type PaymentState,
 } from '@/lib/kasa/orders'
+import { odemeCozumle, type OdemeGirdisi } from '@/lib/kasa/odeme-alani'
 import { db } from '@/server/db'
 import { dayStartUtc, KasaError } from '@/server/kasa'
 
@@ -14,8 +15,9 @@ import { dayStartUtc, KasaError } from '@/server/kasa'
  * ⭐ ELLE GİRİLEN SİPARİŞ DEFTERİ — SUNUCU KATMANI
  *
  * ⚠️ SİTEDEKİ `Order` TABLOSUNA HİÇ DOKUNULMAZ. Bu modül yalnızca
- * `ManualOrder` okur ve yazar. Gerçek müşteri siparişleri
- * `/admin/fulfillment` altındadır ve oradan yönetilir.
+ * `ManualOrder` okur ve yazar. Siteden gelen gerçek müşteri siparişleri
+ * ayrı bir tablodadır ve panelde ARTIK GÖRÜNTÜLENMEZ (İş Kuyruğu ekranı
+ * kaldırıldı) — ikisi hiçbir noktada birbirine karışmaz.
  *
  * ⚠️ YETKİ BURADA DEĞİL, UÇTA (`minimumRole: 'SUPERADMIN'`). Kontrolü iki
  * yere dağıtmak, birinde unutulduğunda diğerinin koruduğu yanılsaması
@@ -36,7 +38,18 @@ export interface OrderRow {
   /** ⚠️ SAKLANMAZ — `paidAt`ten türetilir. */
   paymentState: PaymentState
   paidAt: Date | null
+  /**
+   * BEKLENEN ödeme günü — alınmış ödeme değil. `paidAt` boşken doluysa bu
+   * satır bir ALACAKTIR ve panelin ana sayfasında listelenir.
+   */
+  dueDate: Date | null
   paymentEntryId: string | null
+  /**
+   * Tahsilatın yazıldığı hesabın adı ("Yapıkredi").
+   * ⚠️ Ekranda ŞART: hangi hesaba girdiği görünmezse, dört hesabı olan
+   * biri parayı bulmak için kasa dökümünü taramak zorunda kalır.
+   */
+  paidAccountName: string | null
   costEntryId: string | null
   /**
    * Satır silinebilir mi? Kasaya hareket yazılmışsa HAYIR — para öksüz
@@ -55,7 +68,9 @@ interface DbOrder {
   costMinor: number
   status: ManualOrderStatus
   paidAt: Date | null
+  dueDate: Date | null
   paymentEntryId: string | null
+  paymentEntry?: { account: { name: string } } | null
   costEntryId: string | null
 }
 
@@ -71,7 +86,9 @@ function toRow(o: DbOrder): OrderRow {
     status: o.status,
     paymentState: paymentStateOf(o),
     paidAt: o.paidAt,
+    dueDate: o.dueDate,
     paymentEntryId: o.paymentEntryId,
+    paidAccountName: o.paymentEntry?.account.name ?? null,
     costEntryId: o.costEntryId,
     canDelete: o.paymentEntryId === null && o.costEntryId === null,
   }
@@ -92,6 +109,9 @@ export async function getOrders(year: number, month1: number) {
   const all = await db.manualOrder.findMany({
     where: { occurredAt: { gte: start, lt: end } },
     orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+    // ⚠️ TEK SORGUDA hesap adı. Satır başına ayrı sorgu, 200 siparişlik
+    //    bir ayda 200 ek gidiş-geliş demekti.
+    include: { paymentEntry: { select: { account: { select: { name: true } } } } },
   })
 
   return {
@@ -120,7 +140,7 @@ async function lockOrder(
 ): Promise<LockedOrder | null> {
   const rows = await tx.$queryRaw<LockedOrder[]>`
     SELECT "id", "customerName", "description", "occurredAt", "salePriceMinor", "costMinor",
-           "status", "paidAt", "paymentEntryId", "costEntryId"
+           "status", "paidAt", "dueDate", "paymentEntryId", "costEntryId"
     FROM "ManualOrder"
     WHERE "id" = ${id}
     FOR UPDATE
@@ -137,6 +157,7 @@ interface LockedOrder {
   costMinor: number
   status: ManualOrderStatus
   paidAt: Date | null
+  dueDate: Date | null
   paymentEntryId: string | null
   costEntryId: string | null
 }
@@ -149,6 +170,8 @@ export interface CreateOrderInput {
   salePriceMinor: number
   costMinor: number
   status?: ManualOrderStatus
+  /** Beklenen ödeme günü — "Ödeme" kutusuna tarih yazıldığında dolar. */
+  dueDate?: Date | null
   createdById?: string | null
 }
 
@@ -189,6 +212,7 @@ export async function createOrder(input: CreateOrderInput) {
       salePriceMinor: input.salePriceMinor,
       costMinor: input.costMinor,
       status: input.status ?? 'BEKLIYOR',
+      dueDate: input.dueDate ? dayStartUtc(input.dueDate) : null,
       createdById: input.createdById ?? null,
     },
   })
@@ -346,4 +370,95 @@ export async function deleteOrder(orderId: string) {
 
   await db.manualOrder.delete({ where: { id: orderId } })
   return { id: orderId }
+}
+
+/**
+ * Beklenen ödeme gününü yazar ya da siler.
+ *
+ * ⚠️ TAHSİL EDİLMİŞ SİPARİŞE VADE YAZILMAZ. Para gelmişken "12 Eylül'de
+ * bekleniyor" demek, ana sayfadaki alacak listesine tahsil edilmiş bir işi
+ * koymak olurdu; toplam alacak olduğundan yüksek görünür ve o rakama
+ * bakarak verilen her karar yanlış olurdu.
+ */
+export async function setOrderDueDate(orderId: string, dueDate: Date | null) {
+  const order = await db.manualOrder.findUnique({ where: { id: orderId } })
+  if (!order) throw new KasaError('NOT_FOUND', 'Sipariş bulunamadı.', 404)
+  if (order.paidAt && dueDate) {
+    throw new KasaError(
+      'ALREADY_PAID',
+      'Bu siparişin ödemesi alınmış; beklenen ödeme tarihi yazılamaz.',
+    )
+  }
+
+  return db.manualOrder.update({
+    where: { id: orderId },
+    data: { dueDate: dueDate ? dayStartUtc(dueDate) : null },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// "ÖDEME" KUTUSU
+// ---------------------------------------------------------------------------
+
+/**
+ * Ödeme kutusuna yazılanı çözer: tarih mi, hesap adı mı?
+ *
+ * ⚠️ HESAP LİSTESİ HER ÇÖZÜMLEMEDE VERİTABANINDAN OKUNUR, önbelleğe
+ * alınmaz. Yeni açılan bir hesabın adı ilk denemede tanınmalı; "biraz
+ * bekle, önbellek yenilensin" diye bir kural kullanıcıya anlatılamaz.
+ */
+export async function cozumleOdeme(raw: string): Promise<OdemeGirdisi> {
+  const accounts = await db.cashAccount.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, owner: true },
+    orderBy: [{ owner: 'asc' }, { name: 'asc' }],
+  })
+  return odemeCozumle(
+    raw,
+    accounts.map((a) => ({ id: a.id, name: a.name, label: `${a.owner} · ${a.name}` })),
+  )
+}
+
+/**
+ * Çözülmüş ödeme girdisini bir siparişe uygular.
+ *
+ * ⚠️⚠️ İKİ SONUÇ BİRBİRİNİN YERİNE GEÇMEZ:
+ *   tarih  → hiçbir kasa hareketi YAZILMAZ, yalnızca beklenen gün işaretlenir
+ *   hesap  → gerçek bir gelir hareketi yazılır ve BANKA BAKİYESİ ARTAR
+ *
+ * Yanlış dalın çalışması, ya gelmemiş parayı bakiyeye eklemek ya da gelmiş
+ * parayı hiç görmemek demektir. Ayrım `odemeCozumle` içinde kesin kurallara
+ * bağlandı; burada tahmin yapılmaz.
+ */
+export async function uygulaOdeme(params: {
+  orderId: string
+  girdi: OdemeGirdisi
+  bugun: Date
+  createdById?: string | null
+}) {
+  const { girdi } = params
+  if (girdi.kind === 'gecersiz') throw new KasaError('ODEME_ANLASILMADI', girdi.message)
+  if (girdi.kind === 'bos') {
+    await setOrderDueDate(params.orderId, null)
+    return { kind: 'bos' as const }
+  }
+  if (girdi.kind === 'tarih') {
+    await setOrderDueDate(params.orderId, girdi.date)
+    return { kind: 'tarih' as const, date: girdi.date }
+  }
+
+  await collectOrderPayment({
+    orderId: params.orderId,
+    accountId: girdi.accountId,
+    occurredAt: params.bugun,
+    createdById: params.createdById ?? null,
+  })
+  /**
+   * ⚠️ TAHSİL EDİLİNCE BEKLENEN TARİH SİLİNİR. Kalsaydı ana sayfadaki
+   * alacak listesi bu satırı filtreliyor olsa bile, düzenleme ekranında
+   * "beklenen ödeme: 12.09" yazmaya devam eder ve ödenmiş bir işin hâlâ
+   * beklendiği izlenimini verirdi.
+   */
+  await db.manualOrder.update({ where: { id: params.orderId }, data: { dueDate: null } })
+  return { kind: 'hesap' as const, accountLabel: girdi.accountLabel }
 }

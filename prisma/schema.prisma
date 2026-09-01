@@ -1194,6 +1194,9 @@ enum CashCategory {
   TRANSFER_IN
   TRANSFER_OUT
   DIGER
+  /// ⚠️ ELLE BAKİYE DÜZELTMESİ — kâra GİRMEZ. "DIGER" ile karıştırılsaydı
+  /// bir sayım farkı, gerçek bir harcama gibi raporlanırdı.
+  DUZELTME
 }
 
 /// Banka hesabı veya kasa. "Vakıfbank", "Shopier", "Yapıkredi"…
@@ -1392,6 +1395,15 @@ model ServicePackage {
   /// tarih er geç ayrışır ve hangisinin doğru olduğu bilinemez.
   paidAt DateTime?
 
+  /// ⚠️ BEKLENEN ödeme günü — ALINMIŞ ödeme değil. `paidAt` boşken doluysa
+  /// bu satır bir ALACAKTIR ve panelin ana sayfasında listelenir.
+  ///
+  /// ⚠️ AYRI BİR "Receivable" SATIRI AÇILMAZ. Açılsaydı tek satış iki kayda
+  /// bölünürdü: alacak tahsil edilince kasaya para girer ama siparişin
+  /// `paidAt` alanı boş kalır, defter o işi sonsuza dek "ödenmedi"
+  /// gösterirdi. Tek kayıt, iki ekranın birbirini yalanlamasını önler.
+  dueDate DateTime?
+
   /// ⚠️ PAKET AÇILINCA BANKA BAKİYESİ ARTMAZ.
   /// Gelir hareketi YALNIZCA "tahsil edildi" işleminde oluşur ve buraya
   /// bağlanır. Bağ, aynı paketin iki kez tahsil edilmesini engeller.
@@ -1463,6 +1475,15 @@ model ManualOrder {
   /// Ödeme ALINDIĞINDA dolar. Ayrı bir `isPaid` bayrağı YOKTUR — bayrak ile
   /// tarih er geç ayrışır ve hangisinin doğru olduğu bilinemez.
   paidAt DateTime?
+
+  /// ⚠️ BEKLENEN ödeme günü — ALINMIŞ ödeme değil. `paidAt` boşken doluysa
+  /// bu satır bir ALACAKTIR ve panelin ana sayfasında listelenir.
+  ///
+  /// ⚠️ AYRI BİR "Receivable" SATIRI AÇILMAZ. Açılsaydı tek satış iki kayda
+  /// bölünürdü: alacak tahsil edilince kasaya para girer ama siparişin
+  /// `paidAt` alanı boş kalır, defter o işi sonsuza dek "ödenmedi"
+  /// gösterirdi. Tek kayıt, iki ekranın birbirini yalanlamasını önler.
+  dueDate DateTime?
 
   /// ⚠️ SİPARİŞ GİRMEK BANKA BAKİYESİNİ ARTIRMAZ.
   /// Gelir hareketi YALNIZCA "tahsil edildi" işleminde oluşur ve buraya

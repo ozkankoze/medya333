@@ -13,20 +13,24 @@ import { formatMinor, parseMajorToMinor } from '@/lib/money'
  * ⚠️ NET KÂR YAZILMAZ, HESAPLANIR. Kullanıcı tutar ve maliyeti girer; kâr
  * anında türetilir. Ayrı bir alan olsaydı üçü birbiriyle çelişebilirdi.
  *
- * ⚠️ ÖDEME DURUMU BU FORMDA YOKTUR ve bilinçli olarak yoktur. Buradan
- * "ödendi" seçilebilseydi, kasaya hiçbir hareket yazılmadan sipariş
- * "tahsil edildi" görünürdü — yani bakiye ile defter ayrışırdı. Ödeme,
- * listedeki "Tahsil et" işlemiyle ve bir hesap seçilerek yapılır.
+ * ⚠️⚠️ "ÖDEME" KUTUSU — TEK KUTU, İKİ ANLAM:
+ *     "12.09.2026" → para BEKLENİYOR. Kasaya hiçbir hareket yazılmaz;
+ *                    satır ana sayfada ALACAK olarak görünür.
+ *     "yapıkredi"  → para GELDİ. O hesaba gelir hareketi yazılır ve
+ *                    banka bakiyesi ARTAR.
+ *     boş          → hiçbiri.
  *
- * ⚠️ BU FORM KASAYA DOKUNMAZ. Kaydetmek banka bakiyesini DEĞİŞTİRMEZ.
- * Bu, ekranda da yazılıdır — kullanıcının bakiyenin neden artmadığını
- * merak etmemesi için.
+ * ⚠️ "ÖDENDİ" DİYE İŞARETLENEBİLEN BİR KUTU YOKTUR ve olmamalıdır. Hesap
+ * adı yazmadan "ödendi" denebilseydi, kasaya hiçbir hareket yazılmadan
+ * sipariş tahsil edilmiş görünürdü — bakiye ile defter ayrışırdı. Para
+ * geldi demek, hangi hesaba geldiğini söylemek zorundadır.
  */
 export function ManualOrderForm() {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
+  const [uyari, setUyari] = useState<string | null>(null)
   const [sale, setSale] = useState('')
   const [cost, setCost] = useState('')
 
@@ -46,6 +50,7 @@ export function ManualOrderForm() {
     e.preventDefault()
     setError(null)
     setOk(false)
+    setUyari(null)
     const form = e.currentTarget
     const data = new FormData(form)
 
@@ -75,6 +80,7 @@ export function ManualOrderForm() {
       salePriceMinor,
       costMinor,
       status: data.get('status'),
+      odeme: data.get('odeme'),
     })
     setBusy(false)
 
@@ -83,10 +89,18 @@ export function ManualOrderForm() {
       return
     }
 
+    /**
+     * ⚠️ SİPARİŞ YAZILDI AMA ÖDEME KUTUSU ANLAŞILMADIYSA, BU BİR HATA
+     * DEĞİL UYARIDIR. Satır kaydedildi; yalnızca ödeme kısmı uygulanamadı.
+     * "Hata" diye gösterilseydi kullanıcı satırı ikinci kez girer ve
+     * defterde çift kayıt oluşurdu.
+     */
+    const body = res.data as { odemeHatasi?: string | null; odeme?: { kind: string } | null }
     form.reset()
     setSale('')
     setCost('')
     setOk(true)
+    setUyari(body?.odemeHatasi ?? null)
     router.refresh()
   }
 
@@ -150,6 +164,21 @@ export function ManualOrderForm() {
             value={cost} onChange={(ev) => setCost(ev.target.value)}
             className={`${field} mt-1 tabular`} />
         </div>
+        {/*
+          ⚠️ ÖDEME KUTUSU TUTARLARIN YANINDA, EN SONDA. Sıralama tabloyla
+          birebir aynı: kim → ne → ne zaman → fiyat → maliyet → net → ödeme.
+          Formu doldururken göz, sonra bakacağı tabloyla aynı yolu izler.
+        */}
+        <div>
+          <label className={label} htmlFor="o-odeme">Ödeme</label>
+          <input id="o-odeme" name="odeme" maxLength={60}
+            placeholder="12.09.2026 ya da Yapıkredi" className={`${field} mt-1`} />
+          <p className="mt-1 text-caption leading-snug text-ink-500">
+            Tarih yazarsan <strong>alacak</strong> olur, hesap adı yazarsan o hesaba{' '}
+            <strong>gelir</strong> yazılır.
+          </p>
+        </div>
+
         <div>
           <span className={label}>Net kâr</span>
           {/* ⚠️ Girilmez, hesaplanır. */}
@@ -163,12 +192,17 @@ export function ManualOrderForm() {
       {ok && !error && (
         <p role="status" className="mt-4 text-small text-success-700">Sipariş eklendi.</p>
       )}
+      {uyari && (
+        <p role="alert" className="mt-2 text-small text-warning-700">
+          Sipariş kaydedildi, ama ödeme kutusu uygulanamadı: {uyari}
+        </p>
+      )}
 
       <div className="mt-5 flex flex-wrap items-center gap-4">
         <Button type="submit" loading={busy} disabled={busy}>Siparişi Kaydet</Button>
         <p className="text-caption text-ink-500">
-          Kaydetmek banka bakiyesini <strong>değiştirmez</strong>. Para geldiğinde listeden
-          “Tahsil et” deyin.
+          Ödeme kutusu boşsa ya da tarihliyse banka bakiyesi{' '}
+          <strong>değişmez</strong>. Bakiye yalnızca hesap adı yazıldığında artar.
         </p>
       </div>
     </form>

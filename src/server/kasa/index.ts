@@ -285,6 +285,9 @@ const DIRECTION_OF: Record<CashCategory, CashDirection | 'ANY'> = {
   BORC_ODEME: 'OUT',
   TRANSFER_OUT: 'OUT',
   DIGER: 'ANY',
+  // ⚠️ Düzeltme iki yönlü olabilir: defterdeki bakiye gerçekte olandan
+  //    az da olabilir çok da. Yön, farkın işaretinden gelir.
+  DUZELTME: 'ANY',
 }
 
 export async function createEntry(input: CreateEntryInput) {

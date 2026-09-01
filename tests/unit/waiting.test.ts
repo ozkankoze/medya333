@@ -6,7 +6,7 @@
  *   2. Tanımlı SLA olmadan HİÇBİR yargı üretilmez — "gecikti" yok.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -214,9 +214,22 @@ describe('⚠️ "gecikti" hiçbir yerde yazmıyor', () => {
     ...fulfillmentPages,
   ]
 
-  it('taranacak operasyon ekranları gerçekten bulundu', () => {
-    // Boş liste, yasaklı kelime testini anlamsızca yeşile çevirirdi.
-    expect(fulfillmentPages.length, 'fulfillment sayfası bulunamadı').toBeGreaterThanOrEqual(2)
+  it('⚠️ FULFILLMENT EKRANLARI SİLİNDİ — tarama sunucu katmanında sürüyor', () => {
+    /**
+     * İş Kuyruğu ekranları panelden tamamen kaldırıldı, bu yüzden
+     * taranacak sayfa kalmadı. Kural sunucu katmanında hâlâ geçerli:
+     * bekleme süresini "gecikme" diye adlandırmak, tanımlı bir teslim
+     * hedefi olmadığı hâlde sahte aciliyet üretir ve o metin bir gün
+     * müşteriye giden bir bildirime sızabilir.
+     *
+     * ⚠️ ALACAK LİSTESİNDEKİ "gecikti" BUNUN İSTİSNASI DEĞİL, BAŞKA BİR
+     * ŞEY: orada müşteriyle KARARLAŞTIRILMIŞ bir ödeme günü var ve
+     * geçmiş olması bir yargı değil, ölçülebilir bir olgudur.
+     */
+    expect(fulfillmentPages.length, 'ekranlar silinmişti, geri mi geldi?').toBe(0)
+    for (const f of FILES) {
+      expect(existsSync(path.join(ROOT, f)), `${f} yok`).toBe(true)
+    }
   })
 
   /** Yorumlar çıkarılır: açıklamalar tam olarak yasakladığımız kelimeyi anlatır. */

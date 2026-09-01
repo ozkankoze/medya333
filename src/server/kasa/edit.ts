@@ -52,6 +52,9 @@ const DIRECTION_OF: Record<CashCategory, CashDirection | 'ANY'> = {
   TRANSFER_IN: 'IN',
   TRANSFER_OUT: 'OUT',
   DIGER: 'ANY',
+  // ⚠️ Düzeltme iki yönlü olabilir — defterdeki bakiye gerçekte olandan
+  //    az da olabilir çok da.
+  DUZELTME: 'ANY',
 }
 
 export interface UpdateEntryInput {

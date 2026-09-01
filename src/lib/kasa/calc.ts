@@ -43,6 +43,13 @@ export type CashCategory =
   | 'TRANSFER_IN'
   | 'TRANSFER_OUT'
   | 'DIGER'
+  /**
+   * Elle bakiye düzeltmesi (sayım farkı).
+   * ⚠️ KÂRA GİRMEZ — bir düzeltme ne gelir ne giderdir; yalnızca defterdeki
+   * bakiyeyi gerçekte hesapta duran paraya eşitler. Kâra katılsaydı,
+   * unutulmuş bir hareketi sonradan eklemek "kâr" gibi görünürdü.
+   */
+  | 'DUZELTME'
 
 export interface CashMovement {
   accountId: string
@@ -54,6 +61,17 @@ export interface CashMovement {
   /** Sipariş satırında işin bize maliyeti. Banka hareketi DEĞİLDİR — bkz. `profitOf`. */
   costMinor?: number | null
 }
+
+/**
+ * ⚠️ BAKİYE İÇİN GEREKEN EN AZ ALAN.
+ *
+ * Bakiye hesabı yalnızca hesap, yön ve tutar ister; tarih ve kategori
+ * bakiyeyi hiç etkilemez. Tam `CashMovement` istenseydi çağıran kod
+ * veritabanından gereksiz sütunlar çekmek zorunda kalırdı — ve "her
+ * hareketi tüm alanlarıyla oku" alışkanlığı, tablo büyüdükçe pahalıya
+ * dönüşür.
+ */
+export type BalanceMovement = Pick<CashMovement, 'accountId' | 'direction' | 'amountMinor'>
 
 export interface AccountLike {
   id: string
@@ -73,7 +91,7 @@ export interface AccountLike {
  */
 export function accountBalance(
   account: AccountLike,
-  entries: readonly CashMovement[],
+  entries: readonly BalanceMovement[],
 ): number {
   let total = account.openingBalanceMinor
   for (const e of entries) {
@@ -90,7 +108,7 @@ export function accountBalance(
 /** Karışık hareket listesinden hesap → bakiye eşlemesi. */
 export function balancesByAccount(
   accounts: readonly AccountLike[],
-  entries: readonly CashMovement[],
+  entries: readonly BalanceMovement[],
 ): Map<string, number> {
   const out = new Map<string, number>()
   for (const a of accounts) out.set(a.id, a.openingBalanceMinor)
@@ -158,7 +176,7 @@ export function profitOf(entries: readonly CashMovement[]): ProfitBreakdown {
       case 'BORC_ODEME':
         expenseMinor += e.amountMinor
         break
-      // TAHSILAT, TRANSFER_IN, TRANSFER_OUT, DIGER → kâra girmez (bkz. üst not)
+      // TAHSILAT, TRANSFER_*, DIGER, DUZELTME → kâra girmez (bkz. üst not)
       default:
         break
     }

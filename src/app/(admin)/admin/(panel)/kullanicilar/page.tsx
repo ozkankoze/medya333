@@ -40,7 +40,7 @@ export default async function UsersAdminPage({
 }) {
   const user = await getSessionUser()
   if (!user) redirect('/admin/giris?next=/admin/kullanicilar')
-  if (ROLE_LEVEL[user.role] < ROLE_LEVEL.ADMIN) redirect('/admin/fulfillment')
+  if (ROLE_LEVEL[user.role] < ROLE_LEVEL.ADMIN) redirect('/admin/notifications')
 
   const sp = await searchParams
   const roleFilter = (USER_ROLE as readonly string[]).includes(sp.role ?? '')

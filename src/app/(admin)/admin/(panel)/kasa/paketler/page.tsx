@@ -60,7 +60,7 @@ export default async function PackagesPage({
   //    İkisini tek satırda birleştirmek, oturumsuz ziyaretçiyi düzenin
   //    yeniden yönlendireceği bir sayfaya göndermek olurdu.
   if (!user) redirect('/admin/giris?next=/admin/kasa/paketler')
-  if (user.role !== 'SUPERADMIN') redirect('/admin/fulfillment')
+  if (user.role !== 'SUPERADMIN') redirect('/admin/notifications')
 
   const sp = await searchParams
   const now = new Date()

@@ -176,14 +176,15 @@ const nextConfig: NextConfig = {
    */
   async redirects() {
     return [
-      { source: '/yonetim', destination: '/admin/fulfillment', permanent: false },
+      { source: '/yonetim', destination: '/admin', permanent: false },
       { source: '/yonetim/:path*', destination: '/admin/:path*', permanent: false },
       /**
-       * ⚠️ ÇIPLAK /admin'in KENDİ SAYFASI YOKTUR ve olmamalıdır. Bir
-       * "gösterge paneli" sayfası uydurmak, İş Kuyruğu'nun kopyası olurdu.
-       * Doğrudan asıl çalışma ekranına götürülür.
+       * ⚠️ ÇIPLAK /admin ARTIK KENDİ SAYFASIDIR — yönlendirme KALDIRILDI.
+       *
+       * Eskiden İş Kuyruğu'na yönlendiriyordu. İş Kuyruğu silindi ve
+       * yerine gerçek bir ana sayfa geldi: hesap bakiyeleri ve alacaklar.
+       * Yönlendirme burada bırakılsaydı /admin sonsuz bir 404'e giderdi.
        */
-      { source: '/admin', destination: '/admin/fulfillment', permanent: false },
     ]
   },
   async headers() {

@@ -21,7 +21,7 @@ export const metadata: Metadata = {
  * Giriş sayfası da o düzenin içinde olsaydı, kendi kendine yönlendiren
  * sonsuz bir döngü doğardı: /admin/giris → oturum yok → /admin/giris.
  *
- * Rota grubu URL'i DEĞİŞTİRMEZ; /admin/fulfillment hâlâ aynı adrestir.
+ * Rota grubu URL'i DEĞİŞTİRMEZ; /admin hâlâ aynı adrestir.
  * Tek yaptığı, düzeni yalnızca panel sayfalarına uygulamaktır.
  *
  * ⚠️ MÜŞTERİ GİRİŞ SAYFASI (`/giris`) BURAYA KARIŞMAZ. İkisi ayrı kapılar:
@@ -47,7 +47,7 @@ export default async function StaffLoginPage({
   const safeNext =
     typeof next === 'string' && /^\/admin\/[a-zA-Z0-9\-/_]*$/.test(next) && next !== '/admin/giris'
       ? next
-      : '/admin/fulfillment'
+      : '/admin'
 
   // Zaten yetkili bir oturum varsa form gösterilmez.
   if (user && ROLE_LEVEL[user.role] >= ROLE_LEVEL.SUPPORT) redirect(safeNext)

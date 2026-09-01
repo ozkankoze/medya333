@@ -196,7 +196,8 @@ describe('⚠️ KATALOG panelden kaldırıldı', () => {
 
   it('kalan menü bölümleri korundu', () => {
     const layout = read('src/app/(admin)/admin/(panel)/layout.tsx')
-    for (const label of ['İş Kuyruğu', 'Bildirimler', 'Kullanıcılar', 'Kasa', 'Hesabım']) {
+    // ⚠️ "İş Kuyruğu" ARTIK YOK — ekranı sonradan tamamen kaldırıldı.
+    for (const label of ['Panel', 'Bildirimler', 'Kullanıcılar', 'Kasa', 'Hesabım']) {
       expect(layout, `menüde "${label}" yok`).toContain(label)
     }
   })

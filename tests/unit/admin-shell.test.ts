@@ -87,7 +87,9 @@ describe('kök düzen ayrımı', () => {
 describe('adres yapısı', () => {
   it('panel /admin altında, rota grubu adrese hiçbir şey eklemiyor', () => {
     for (const p of [
-      '(panel)/fulfillment/page.tsx',
+      // ⚠️ ÇIPLAK /admin ARTIK KENDİ SAYFASI: hesap bakiyeleri ve alacaklar.
+      //    Eskiden İş Kuyruğu'na yönlendiriyordu; o ekran silindi.
+      '(panel)/page.tsx',
       // ⚠️ '(panel)/katalog' BİLEREK YOK — katalog ekranları panelden
       //    kaldırıldı (API uçları ve veri duruyor).
       '(panel)/notifications/page.tsx',
@@ -99,6 +101,21 @@ describe('adres yapısı', () => {
     ]) {
       expect(existsSync(path.join(ADMIN_DIR, p)), `${p} yok`).toBe(true)
     }
+  })
+
+  it('⚠️⚠️ İŞ KUYRUĞU EKRANLARI VE UÇLARI GERÇEKTEN SİLİNDİ', () => {
+    /**
+     * Kaldırılması istendi ve sonucu açıkça kabul edildi: siteden gelen
+     * ödenmiş bir sipariş veritabanına düşer ama panelde GÖRÜNMEZ.
+     *
+     * ⚠️ Bu test yalnızca EKRANLARIN gittiğini doğrular. `src/server/
+     * fulfillment/*` DURUYOR ve durmalı: ödeme webhook'u ona bağlı,
+     * silinseydi ödeme akışı kırılırdı — aşağıda ayrıca doğrulanıyor.
+     */
+    expect(existsSync(path.join(ADMIN_DIR, '(panel)/fulfillment'))).toBe(false)
+    expect(existsSync(path.join(ROOT, 'src/app/api/v1/admin/fulfillments'))).toBe(false)
+    expect(existsSync(path.join(ROOT, 'src/components/fulfillment'))).toBe(false)
+    expect(existsSync(path.join(ROOT, 'src/server/fulfillment')), 'ödeme akışı buna bağlı').toBe(true)
   })
 
   it('⚠️ ESKİ /yonetim ADRESİ YÖNLENDİRME İLE YAŞIYOR', () => {
@@ -157,7 +174,7 @@ describe('panel kabuğu', () => {
   const panelLayout = read(path.join(ADMIN_DIR, '(panel)/layout.tsx'))
 
   it('istenen bölümler menüde', () => {
-    for (const label of ['İş Kuyruğu', 'Bildirimler', 'Kullanıcılar', 'Kasa', 'Hesabım']) {
+    for (const label of ['Panel', 'Bildirimler', 'Kullanıcılar', 'Kasa', 'Hesabım']) {
       expect(panelLayout, `menüde "${label}" yok`).toContain(label)
     }
   })

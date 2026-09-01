@@ -28,7 +28,7 @@ export const dynamic = 'force-dynamic'
  */
 export default async function OperationsLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser()
-  if (!user) redirect('/admin/giris?next=/admin/fulfillment')
+  if (!user) redirect('/admin/giris?next=/admin')
   /**
    * ⚠️ YETKİSİZ KULLANICI /hesabim'e DEĞİL, PERSONEL KAPISINA GÖNDERİLİR.
    * Eskiden müşteri hesap sayfasına atılıyordu; panele girmeye çalışan
@@ -57,8 +57,20 @@ export default async function OperationsLayout({ children }: { children: React.R
    * istek atmak ya da veritabanında güncellemek gerekir. Sekmeyi geri
    * isteyen olursa ekranlar git geçmişinde duruyor.
    */
+  /**
+   * ⚠️⚠️ "İŞ KUYRUĞU" SEKMESİ BİLEREK YOK — ekranları ve uçları SİLİNDİ.
+   *
+   * Siteden gelen ödenmiş müşteri siparişlerini işleyen ekran buydu.
+   * Kaldırılması istendi ve sonucu açıkça söylendi: siteden bir sipariş
+   * gelirse veritabanına düşer ama panelde GÖRÜNMEZ, dolayısıyla
+   * işlenemez. Sipariş sahibi takip sayfasında işin ilerlemediğini görür.
+   *
+   * ⚠️ `src/server/fulfillment/*` SİLİNMEDİ ve silinmemeli: ödeme
+   * webhook'u ve sipariş durum geçişleri ona bağlı. Silinseydi ödeme
+   * alındığında sunucu hata verir, yani ÖDEME AKIŞI kırılırdı.
+   */
   const items: AdminNavItem[] = [
-    { href: '/admin/fulfillment', label: 'İş Kuyruğu', match: '/admin/fulfillment' },
+    { href: '/admin', label: 'Panel', match: '/admin', exact: true },
     { href: '/admin/notifications', label: 'Bildirimler', match: '/admin/notifications' },
   ]
   // ⚠️ Kullanıcı yönetimi yalnızca ADMIN+ — SUPPORT/OPERATOR görmez.
@@ -94,7 +106,7 @@ export default async function OperationsLayout({ children }: { children: React.R
             ⚠️ `plate` DA YOK: koyu çubukta çıplak altın logo doğru
             kullanımdır (bkz. Logo.tsx). Plaka açık zeminler içindir.
           */}
-          <Link href="/admin/fulfillment" className="flex shrink-0 items-center gap-2.5">
+          <Link href="/admin" className="flex shrink-0 items-center gap-2.5">
             <Logo href={null} />
             <span className="border-l border-white/20 pl-2.5 text-small font-semibold tracking-wide text-white/90">
               Yönetim

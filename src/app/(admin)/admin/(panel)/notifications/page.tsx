@@ -140,25 +140,15 @@ export default async function NotificationsPage({
           tone={alerts.failedNotifications > 0 ? 'danger' : 'ok'}
           testId="alert-failed"
         />
-        <Alert
-          label="İnceleme bekleyen iş"
-          value={alerts.reviewRequired}
-          tone={alerts.reviewRequired > 0 ? 'warning' : 'ok'}
-          href="/admin/fulfillment?bucket=review"
-          testId="alert-review"
-        />
-        <Alert
-          label="24 saatten uzun sıradaki iş"
-          value={alerts.waitingOver24h}
-          tone={alerts.waitingOver24h > 0 ? 'warning' : 'ok'}
-          href="/admin/fulfillment?bucket=new&sort=oldest"
-          testId="alert-waiting"
-          /**
-           * ⚠️ "GECİKTİ" DEMİYORUZ. Sistemde tanımlı bir SLA yok; uydurma bir
-           * eşiğe göre gecikme ilan etmek sahte aciliyet üretir.
-           */
-          note="Hedef teslim süresi tanımlı değil — bu bir gecikme bildirimi değil, bir ölçümdür."
-        />
+        {/*
+          ⚠️ "İNCELEME BEKLEYEN İŞ" VE "24 SAATTEN UZUN SIRADAKİ İŞ"
+          UYARILARI KALDIRILDI — İş Kuyruğu ekranı silindiği için
+          götürecekleri bir yer kalmadı.
+
+          Sayacı bırakıp bağlantıyı kaldırmak daha kötü olurdu: ekranda
+          "12 iş inceleme bekliyor" yazar, tıklanacak hiçbir şey olmaz ve
+          panel, yapılamayacak bir işi hatırlatıp durur.
+        */}
         <Alert
           label="30 gün içinde garantisi bitecek"
           value={alerts.guaranteeEndingSoon}
@@ -239,12 +229,10 @@ export default async function NotificationsPage({
                     {TEMPLATE_LABEL[n.template] ?? n.template}
                   </td>
                   <td className="px-4 py-3">
-                    <Link
-                      href={`/admin/fulfillment?bucket=all&q=${n.orderNo}`}
-                      className="font-mono text-caption text-brand-700 underline underline-offset-2"
-                    >
-                      {n.orderNo}
-                    </Link>
+                    {/* ⚠️ BAĞLANTI DEĞİL: sipariş detay ekranı (İş Kuyruğu)
+                        silindi. Ölü bir bağlantı bırakmak, tıklayan kişiye
+                        404 göstermek olurdu. */}
+                    <span className="font-mono text-caption text-ink-700">{n.orderNo}</span>
                   </td>
                   {/* ⚠️ MASKELİ ADRES. Ham e-posta veritabanında da yok. */}
                   <td className="px-4 py-3 font-mono text-caption text-ink-600">
