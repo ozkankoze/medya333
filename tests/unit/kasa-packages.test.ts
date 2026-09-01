@@ -10,13 +10,16 @@ import { describe, expect, it } from 'vitest'
  * olursa test kırılmalı.
  */
 import {
+  compareForList,
   derivePackageState,
   daysRemaining,
   netProfitMinor,
   retention,
   summarize,
   todayForOperator,
+  type ListSortable,
   type PackageLike,
+  type PackageState,
 } from '@/lib/kasa/packages'
 
 const TODAY = new Date(Date.UTC(2026, 8, 15)) // 15 Eylül 2026
@@ -290,5 +293,55 @@ describe('saat dilimi', () => {
     // Yaz ve kış aylarında aynı takvim gününü doğru üretmeli.
     expect(todayForOperator(new Date('2026-01-15T21:30:00Z')).toISOString().slice(0, 10)).toBe('2026-01-16')
     expect(todayForOperator(new Date('2026-07-15T21:30:00Z')).toISOString().slice(0, 10)).toBe('2026-07-16')
+  })
+})
+
+// ===========================================================================
+describe('liste sırası', () => {
+  const row = (state: PackageState, day: number, customerName = 'A'): ListSortable => ({
+    state,
+    endDate: new Date(Date.UTC(2026, 8, day)),
+    customerName,
+  })
+
+  const order = (rows: ListSortable[]) =>
+    [...rows].sort(compareForList).map((r) => `${r.state}:${r.endDate.getUTCDate()}`)
+
+  it('yaşayan paketlerde bitişi en yakın olan üstte', () => {
+    expect(order([row('AKTIF', 30), row('BITIYOR', 5), row('PLANLANDI', 12)])).toEqual([
+      'BITIYOR:5',
+      'PLANLANDI:12',
+      'AKTIF:30',
+    ])
+  })
+
+  it('⚠️ SÜRESİ DOLMUŞ VE İPTAL PAKETLER EN ALTTA', () => {
+    /**
+     * Düz bitiş tarihi sıralamasında bunlar EN ÜSTE çıkardı: bitiş
+     * tarihleri geçmişte, yani hepsinden "yakın". Ekranın ilk ekranı,
+     * hakkında yapılacak hiçbir şey olmayan ölü kayıtlarla dolardı.
+     */
+    expect(
+      order([row('SURESI_DOLDU', 2), row('AKTIF', 28), row('IPTAL', 1), row('BITIYOR', 20)]),
+    ).toEqual(['BITIYOR:20', 'AKTIF:28', 'SURESI_DOLDU:2', 'IPTAL:1'])
+  })
+
+  it('bitenlerde EN SON biten üstte — orada yakınlık geçmişe bakar', () => {
+    expect(order([row('SURESI_DOLDU', 1), row('IPTAL', 25), row('SURESI_DOLDU', 10)])).toEqual([
+      'IPTAL:25',
+      'SURESI_DOLDU:10',
+      'SURESI_DOLDU:1',
+    ])
+  })
+
+  it('⚠️ EŞİT TARİHTE SIRA RASTGELE KALMAZ', () => {
+    /**
+     * Kalan fark çözülmeseydi sıra veritabanının döndürdüğü düzene kalırdı;
+     * aynı sayfayı iki kez açan operatör satırların yer değiştirdiğini
+     * görürdü ve listeye güveni azalırdı.
+     */
+    const rows = [row('AKTIF', 9, 'Zeynep'), row('AKTIF', 9, 'Ali'), row('AKTIF', 9, 'Çağla')]
+    const names = [...rows].sort(compareForList).map((r) => r.customerName)
+    expect(names).toEqual(['Ali', 'Çağla', 'Zeynep'])
   })
 })

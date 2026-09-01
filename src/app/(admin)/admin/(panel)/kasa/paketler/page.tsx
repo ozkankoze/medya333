@@ -4,6 +4,7 @@ import { KasaTabs } from '@/components/kasa/KasaTabs'
 import { InlineEdit } from '@/components/kasa/InlineEdit'
 import { PackageForm } from '@/components/kasa/PackageForm'
 import { PackageActions } from '@/components/kasa/PackageActions'
+import { RowMenu } from '@/components/kasa/RowMenu'
 import { formatMinor } from '@/lib/money'
 import type { PackageState } from '@/lib/kasa/packages'
 import { getSessionUser } from '@/server/auth'
@@ -24,6 +25,12 @@ const STATE_LABEL: Record<PackageState, string> = {
   SURESI_DOLDU: 'Süresi doldu',
   IPTAL: 'İptal',
 }
+
+/**
+ * ⚠️ "YAŞAYAN" PAKET — listenin üst yarısı. Kalan gün yalnızca bunlarda
+ * anlamlıdır; süresi dolmuş bir pakette "-42 g" yazmak gürültüdür.
+ */
+const LIVING = new Set<PackageState>(['PLANLANDI', 'AKTIF', 'BITIYOR'])
 
 const STATE_CLASS: Record<PackageState, string> = {
   PLANLANDI: 'bg-ink-100 text-ink-700',
@@ -139,51 +146,89 @@ export default async function PackagesPage({
 
       {/* ──────────────────────────── LİSTE ──────────────────────────────── */}
       <section aria-labelledby="liste-baslik">
-        <h2 id="liste-baslik" className="text-h3 text-ink-900">Tüm paketler</h2>
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 id="liste-baslik" className="text-h3 text-ink-900">Tüm paketler</h2>
+          {/* ⚠️ SIRA YAZILI. Yazılmazsa "neden bu sırada?" sorusu her
+              seferinde tabloya bakarak tahmin edilir. */}
+          <p className="text-caption text-ink-500">
+            Bitişi en yakın olan üstte — süresi dolan ve iptaller en altta
+          </p>
+        </div>
         {data.rows.length === 0 ? (
           <div className="mt-4 rounded-[--radius-card] border border-dashed border-ink-300 bg-white p-8 text-center">
             <p className="text-body text-ink-700">Henüz paket yok.</p>
             <p className="mt-1 text-small text-ink-500">Eklediğin paketler burada listelenir.</p>
           </div>
         ) : (
+          /**
+           * ⚠️ TABLO SIKI TUTULUR: satır başına TEK SATIR yükseklik hedefi.
+           *
+           * Önceki hâlinde hizmet adı beş satıra sarıyor, işlem düğmeleri alt
+           * alta diziliyordu; ekrana dört paket sığıyordu ve tablo bir liste
+           * değil paragraf yığını gibi okunuyordu. Şimdi hizmet adı iki
+           * satıra kırpılıyor (tamamı `title` ile duruyor, bilgi kaybı yok)
+           * ve işlemler `RowMenu` içine giriyor.
+           */
           <div className="mt-4 overflow-x-auto rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
-            <table className="w-full text-small">
+            <table className="w-full border-collapse text-small">
               <thead>
-                <tr className="border-b border-ink-100 text-left text-caption uppercase tracking-wide text-ink-500">
-                  <th scope="col" className="px-4 py-3 font-medium">Müşteri</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Hizmet</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Dönem</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Durum</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Satış</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Maliyet</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Net kâr</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Ödeme</th>
-                  <th scope="col" className="px-4 py-3 font-medium">İşlem</th>
+                <tr className="border-b border-ink-200 bg-ink-50 text-left text-caption uppercase tracking-wide text-ink-500">
+                  <th scope="col" className="px-3 py-2 font-semibold">Müşteri</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Hizmet</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Dönem</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Durum</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Satış</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Maliyet</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Net kâr</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Ödeme</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
                 {data.rows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-4 py-3 font-medium text-ink-900">{r.customerName}</td>
-                    <td className="px-4 py-3 text-ink-700">{r.serviceName}</td>
-                    <td className="tabular whitespace-nowrap px-4 py-3 text-ink-600">
+                  /* ⚠️ Zebra: göz, dokuz sütunlu bir satırı şeritsiz takip
+                     ederken bir üst satıra kayıyor. */
+                  <tr key={r.id} className="align-middle odd:bg-white even:bg-ink-50">
+                    <td className="max-w-[14rem] truncate px-3 py-2 font-medium text-ink-900" title={r.customerName}>
+                      {r.customerName}
+                    </td>
+                    <td className="max-w-[20rem] px-3 py-2 text-ink-700" title={r.serviceName}>
+                      {/* ⚠️ Kırpma GİZLEME DEĞİL: tam metin `title`da duruyor
+                          ve düzenleme kutusunda zaten görünüyor. */}
+                      <span className="line-clamp-2">{r.serviceName}</span>
+                    </td>
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-ink-600">
                       {fmtDate(r.startDate)} – {fmtDate(r.endDate)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-3 py-2">
                       <span className={`rounded-full px-2 py-0.5 text-caption font-medium ${STATE_CLASS[r.state]}`}>
                         {STATE_LABEL[r.state]}
                       </span>
+                      {/* ⚠️ Liste bitiş tarihine göre sıralı; kalan günü
+                          yazmak sıranın SEBEBİNİ satırda görünür kılar. */}
+                      {LIVING.has(r.state) && (
+                        <span className="tabular ml-1.5 text-caption text-ink-500">
+                          {r.daysLeft} g
+                        </span>
+                      )}
                     </td>
-                    <td className="tabular px-4 py-3 text-right text-ink-900">
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-right text-ink-900">
                       {formatMinor(r.salePriceMinor)}
                     </td>
-                    <td className="tabular px-4 py-3 text-right text-ink-600">
+                    <td className="tabular whitespace-nowrap px-3 py-2 text-right text-ink-600">
                       {formatMinor(r.costMinor)}
                     </td>
-                    <td className="tabular px-4 py-3 text-right font-medium text-ink-900">
+                    {/* ⚠️ EKSİ NET KÂR KIRMIZI. Ekranda 250 ₺ satışa karşı
+                        1.250 ₺ maliyetli bir paket duruyordu ve eksi kâr
+                        diğerleriyle aynı siyahtı — göze çarpmıyordu. */}
+                    <td
+                      className={`tabular whitespace-nowrap px-3 py-2 text-right font-medium ${
+                        r.netMinor < 0 ? 'text-danger-600' : 'text-ink-900'
+                      }`}
+                    >
                       {formatMinor(r.netMinor)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-ink-600">
+                    <td className="whitespace-nowrap px-3 py-2 text-ink-600">
                       {r.paidAt ? (
                         <span className="text-success-700">Tahsil · {fmtDate(r.paidAt)}</span>
                       ) : (
@@ -193,13 +238,20 @@ export default async function PackagesPage({
                           paket cirosuna girmiyor. Bu fark görünmezse
                           "rakamlar neden tutmuyor?" sorusu cevapsız kalır. */}
                       {r.state === 'IPTAL' && r.paidAt && (
-                        <span className="mt-1 block text-caption text-warning-700">
+                        <span className="mt-0.5 block text-caption text-warning-700">
                           para kasada — iade elle girilmeli
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-start gap-1.5">
+                    <td className="px-3 py-2 text-right">
+                      {/*
+                        ⚠️ İŞLEMLER MENÜNÜN İÇİNDE. "Tahsil et", "Gideri işle"
+                        ve "İptal" her satırda açıkta durduğunda tablo
+                        okunamıyordu. Yetenek KALDIRILMADI — tahsilat hâlâ
+                        banka bakiyesini artıran tek yol; yalnızca bir tık
+                        geriye alındı.
+                      */}
+                      <RowMenu>
                         <PackageActions
                           id={r.id}
                           accounts={accountOptions}
@@ -243,7 +295,7 @@ export default async function PackagesPage({
                             { kind: 'text', name: 'note', label: 'Not', value: r.note ?? '' },
                           ]}
                         />
-                      </div>
+                      </RowMenu>
                     </td>
                   </tr>
                 ))}

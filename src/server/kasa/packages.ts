@@ -1,6 +1,14 @@
 import 'server-only'
 
-import { derivePackageState, netProfitMinor, retention, summarize, todayForOperator } from '@/lib/kasa/packages'
+import {
+  compareForList,
+  daysRemaining,
+  derivePackageState,
+  netProfitMinor,
+  retention,
+  summarize,
+  todayForOperator,
+} from '@/lib/kasa/packages'
 import type { PackageState } from '@/lib/kasa/packages'
 import { db } from '@/server/db'
 import { dayStartUtc, KasaError } from '@/server/kasa'
@@ -30,6 +38,12 @@ export interface PackageRow {
   netMinor: number
   /** ⚠️ SAKLANMAZ — tarihlerden türetilir. */
   state: PackageState
+  /**
+   * Bitişe kalan gün (bitiş günü dahil); süresi dolmuşsa negatif.
+   * ⚠️ Ekranda tekrar hesaplanmaz — sayfa `todayForOperator()`u kendi
+   * çağırsaydı, sunucunun UTC gününe düşme hatası oradan geri girerdi.
+   */
+  daysLeft: number
   paidAt: Date | null
   paymentEntryId: string | null
   costEntryId: string | null
@@ -60,6 +74,7 @@ function toRow(p: {
     costMinor: p.costMinor,
     netMinor: netProfitMinor(p),
     state: derivePackageState(p, today),
+    daysLeft: daysRemaining(p, today),
     paidAt: p.paidAt,
     paymentEntryId: p.paymentEntryId,
     costEntryId: p.costEntryId,
@@ -68,9 +83,15 @@ function toRow(p: {
 }
 
 export async function getPackages(year: number, month1: number, today = todayForOperator()) {
-  const all = await db.servicePackage.findMany({ orderBy: [{ startDate: 'desc' }] })
+  /**
+   * ⚠️ SIRALAMA VERİTABANINDA YAPILAMAZ. Sıra, kaydedilmeyen bir alana —
+   * tarihten TÜRETİLEN duruma — dayanıyor; PostgreSQL böyle bir sütun
+   * görmüyor. Buradaki `orderBy` yalnızca sonucu deterministik kılar,
+   * asıl sırayı `compareForList` verir.
+   */
+  const all = await db.servicePackage.findMany({ orderBy: [{ endDate: 'asc' }] })
 
-  const rows = all.map((p) => toRow(p, today))
+  const rows = all.map((p) => toRow(p, today)).sort(compareForList)
   const summary = summarize(all, today, { year, month1 })
   const retentionRows = retention(all, today)
 

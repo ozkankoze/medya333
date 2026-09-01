@@ -133,6 +133,56 @@ export function netProfitMinor(pkg: Pick<PackageLike, 'salePriceMinor' | 'costMi
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * ⭐ LİSTE SIRASI — BİTİŞİ EN YAKIN OLAN EN ÜSTTE
+ *
+ * ⚠️⚠️ AMA ÖNCE "YAŞAYAN" PAKETLER. Düz bitiş tarihi sırasında süresi
+ * dolmuş ve iptal edilmiş paketler listenin en üstüne çıkardı — çünkü
+ * onların bitiş tarihi geçmişte, yani hepsinden "yakın". Ekranın ilk
+ * ekranı, hiçbir şey yapılamayacak ölü kayıtlarla dolardı.
+ *
+ * Bu liste bir arşiv değil, bir İŞ LİSTESİDİR: üstte hep aranması gereken
+ * müşteri durmalı. Bu yüzden iki grup vardır ve sıralama grupların İÇİNDE
+ * yapılır:
+ *
+ *   0 · Yaşayanlar (planlandı / aktif / bitiyor) → bitişi en YAKIN üstte
+ *   1 · Bitenler   (süresi doldu / iptal)        → en SON biten üstte
+ *
+ * ⚠️ İkinci grup ters sıralanır çünkü orada "yakınlık" geçmişe bakar:
+ * dün biten paket, sekiz ay önce bitenden daha ilgi çekicidir.
+ *
+ * ⚠️ EŞİT TARİHLERDE MÜŞTERİ ADINA GÖRE. Kalan fark bırakılsaydı sıra
+ * veritabanının döndürdüğü rastgele düzene kalırdı; aynı sayfayı iki kez
+ * açan operatör satırların yer değiştirdiğini görürdü.
+ */
+const LIST_GROUP: Record<PackageState, 0 | 1> = {
+  PLANLANDI: 0,
+  AKTIF: 0,
+  BITIYOR: 0,
+  SURESI_DOLDU: 1,
+  IPTAL: 1,
+}
+
+export interface ListSortable {
+  state: PackageState
+  endDate: Date
+  customerName: string
+}
+
+export function compareForList(a: ListSortable, b: ListSortable): number {
+  const ga = LIST_GROUP[a.state]
+  const gb = LIST_GROUP[b.state]
+  if (ga !== gb) return ga - gb
+
+  const diff = a.endDate.getTime() - b.endDate.getTime()
+  // Yaşayanlarda artan (yakın olan üstte), bitenlerde azalan (son biten üstte).
+  if (diff !== 0) return ga === 0 ? diff : -diff
+
+  return a.customerName.localeCompare(b.customerName, 'tr')
+}
+
+// ---------------------------------------------------------------------------
 // ÖZET
 // ---------------------------------------------------------------------------
 
