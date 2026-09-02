@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { AccountBalances } from '@/components/kasa/AccountBalances'
+import { AlacakOdeme } from '@/components/kasa/AlacakOdeme'
 import { todayForOperator } from '@/lib/kasa/packages'
 import { formatMinor } from '@/lib/money'
 import { getSessionUser } from '@/server/auth'
@@ -42,6 +43,17 @@ export default async function PanelHomePage() {
     data.accounts.map((a) => [a.id, formatMinor(a.balanceMinor)]),
   )
 
+  /**
+   * ⚠️ ÖDEME KUTUSUNUN TANIYACAĞI HESAPLAR. Sipariş defterindekiyle AYNI
+   * liste ve aynı çözümleme kuralı — iki ekranda iki farklı davranış
+   * olsaydı hangisinin ne yaptığı ezberlenmek zorunda kalırdı.
+   */
+  const hesapSecenekleri = data.accounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    label: `${a.owner} · ${a.name}`,
+  }))
+
   return (
     <div className="flex flex-col gap-8">
       <header>
@@ -74,7 +86,8 @@ export default async function PanelHomePage() {
         </div>
         <p className="mt-1 text-caption text-ink-500">
           Sipariş defterinde ödeme kutusuna tarih yazdığın satırlar burada görünür.
-          Para gelince o satıra hesap adı yaz — listeden düşer.
+          Para gelince <strong>“Ödeme alındı”</strong> deyip hesap adını yaz — o hesaba gelir
+          yazılır ve satır listeden düşer.
         </p>
 
         {data.alacaklar.length === 0 ? (
@@ -90,6 +103,7 @@ export default async function PanelHomePage() {
                   <th scope="col" className="px-3 py-2 font-semibold">Kişi</th>
                   <th scope="col" className="px-3 py-2 font-semibold">İşlem</th>
                   <th scope="col" className="px-3 py-2 text-right font-semibold">Tutar</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
@@ -116,6 +130,16 @@ export default async function PanelHomePage() {
                     </td>
                     <td className="tabular whitespace-nowrap px-3 py-2 text-right font-medium text-ink-900">
                       {formatMinor(a.amountMinor)}
+                    </td>
+                    {/*
+                      ⚠️ ALACAK GÖRÜLDÜĞÜ YERDE KAPATILABİLMELİ. Önceden bu
+                      tablo salt okunurdu: para geldiğinde kullanıcı buradan
+                      hiçbir şey yapamıyor, Siparişler sayfasına gidip satırı
+                      aramak zorunda kalıyordu. Kayıt ertelenirse liste
+                      gerçeği göstermeyi bırakır.
+                    */}
+                    <td className="px-3 py-2 text-right">
+                      <AlacakOdeme source={a.source} id={a.id} hesaplar={hesapSecenekleri} />
                     </td>
                   </tr>
                 ))}

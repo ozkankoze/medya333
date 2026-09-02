@@ -16,6 +16,9 @@ import Link from 'next/link'
 const TABS = [
   { key: 'siparisler', href: '/admin/kasa/siparisler', label: 'Siparişler' },
   { key: 'paketler', href: '/admin/kasa/paketler', label: 'Aylık Paketler' },
+  // ⚠️ Denemeler aylık paketlerle AYNI TABLODA ama AYRI EKRANDA: ciroyu
+  //    karıştırmasınlar ve kendi sorusu ("dönüştü mü?") görünsün diye.
+  { key: 'deneme', href: '/admin/kasa/deneme', label: 'Deneme Paketleri' },
   { key: 'kasa', href: '/admin/kasa', label: 'Kasa' },
 ] as const
 

@@ -9,12 +9,12 @@ import { formatMinor } from '@/lib/money'
 import type { PackageState } from '@/lib/kasa/packages'
 import { getSessionUser } from '@/server/auth'
 import { listAccounts } from '@/server/kasa'
-import { getPackages } from '@/server/kasa/packages'
+import { getPackages, getTrialConversion } from '@/server/kasa/packages'
 
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Aylık Paketler',
+  title: 'Deneme Paketleri',
   robots: { index: false, follow: false },
 }
 
@@ -41,16 +41,21 @@ const STATE_CLASS: Record<PackageState, string> = {
 }
 
 /**
- * /admin/kasa/paketler — AYLIK MÜŞTERİ PAKETLERİ
+ * /admin/kasa/deneme — DENEME PAKETLERİ
  *
- * ⚠️ BU BİR ABONELİK EKRANI DEĞİLDİR. Hiçbir şey otomatik yenilenmez,
- * hiçbir tahakkuk kendiliğinden oluşmaz. Süresi dolan paket yalnızca
- * "süresi doldu" olarak GÖSTERİLİR; yenileme, elle açılan yeni bir kayıttır.
+ * Aylık paketlerle AYNI MANTIK: aynı tablo, aynı tahsilat akışı, aynı
+ * düzenleme ve dondurma kuralları. Tek fark `isTrial` bayrağı ve bu
+ * ekranın sorduğu soru.
  *
- * ⚠️ DURUMLAR TARİHTEN TÜRETİLİR, veritabanında saklanmaz — bu yüzden
- * hiçbir zaman bayatlamaz (bkz. `lib/kasa/packages.ts`).
+ * ⚠️⚠️ BU EKRANIN SORDUĞU SORU FARKLI: aylık pakette "ne kadar kazandım?",
+ * burada "kaç deneme ücretli müşteriye DÖNÜŞTÜ?". Deneme genelde ücretsiz
+ * ya da sembolik bedelli olduğu için ciroya bakmak bir şey anlatmaz;
+ * kampanyanın işe yarayıp yaramadığını dönüşüm oranı söyler.
+ *
+ * ⚠️ DÖNÜŞÜM BİR ÇIKARIMDIR, kaydedilmiş bir gerçek değil — kural ekranda
+ * yazılıdır (bkz. `getTrialConversion`).
  */
-export default async function PackagesPage({
+export default async function TrialPackagesPage({
   searchParams,
 }: {
   searchParams: Promise<{ y?: string; m?: string }>
@@ -59,7 +64,7 @@ export default async function PackagesPage({
   // ⚠️ Oturumsuz istek personel kapısına, yetkisiz oturum panele döner.
   //    İkisini tek satırda birleştirmek, oturumsuz ziyaretçiyi düzenin
   //    yeniden yönlendireceği bir sayfaya göndermek olurdu.
-  if (!user) redirect('/admin/giris?next=/admin/kasa/paketler')
+  if (!user) redirect('/admin/giris?next=/admin/kasa/deneme')
   if (user.role !== 'SUPERADMIN') redirect('/admin/notifications')
 
   const sp = await searchParams
@@ -67,7 +72,12 @@ export default async function PackagesPage({
   const year = Number(sp.y) || now.getUTCFullYear()
   const month = Number(sp.m) || now.getUTCMonth() + 1
 
-  const [data, accounts] = await Promise.all([getPackages(year, month, { trial: false }), listAccounts()])
+  const [data, accounts, conversion] = await Promise.all([
+    // ⚠️ `trial: true` — bu sayfa YALNIZCA deneme paketlerini gösterir.
+    getPackages(year, month, { trial: true }),
+    listAccounts(),
+    getTrialConversion(),
+  ])
   const accountOptions = accounts.map((a) => ({ id: a.id, label: `${a.owner} · ${a.name}` }))
 
   const monthName = new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(
@@ -79,20 +89,18 @@ export default async function PackagesPage({
       {/* ⚠️ Sekme çubuğu üç kasa sayfasında da AYNI bileşenden gelir.
           Her sayfaya elle kopyalansaydı, dördüncü bir sekme eklendiğinde
           birinde unutulur ve o sayfadan diğerine geçilemezdi. */}
-      <KasaTabs active="paketler" />
+      <KasaTabs active="deneme" />
 
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-h1 text-ink-900">Aylık Paketler</h1>
+          <h1 className="text-h1 text-ink-900">Deneme Paketleri</h1>
           <p className="mt-1 text-small text-ink-600">
-            Süreli müşteri hizmetleri — elle yönetilir, otomatik yenileme yoktur
+            Ücretsiz / tanıtım denemeleri — elle yönetilir, otomatik yenileme yoktur
           </p>
-          {/* ⚠️ Deneme paketleri BU LİSTEDE DEĞİL: aynı tabloda dururlar
-              ama ciroyu karıştırmasınlar diye ayrı ekranda. */}
           <p className="mt-0.5 text-caption text-ink-500">
-            Deneme paketleri burada görünmez —{' '}
-            <a href="/admin/kasa/deneme" className="font-medium text-brand-700 underline">
-              Deneme Paketleri
+            Ücretli işler burada görünmez —{' '}
+            <a href="/admin/kasa/paketler" className="font-medium text-brand-700 underline">
+              Aylık Paketler
             </a>
           </p>
         </div>
@@ -111,8 +119,25 @@ export default async function PackagesPage({
           <Stat label="Toplam satış" value={formatMinor(data.summary.monthSaleMinor)} />
           <Stat label="Toplam maliyet" value={formatMinor(data.summary.monthCostMinor)} />
           <Stat label="Toplam net kâr" value={formatMinor(data.summary.monthNetMinor)} strong />
-          <Stat label="Bu ay açılan paket" value={String(data.summary.monthCount)} />
+          <Stat label="Bu ay açılan deneme" value={String(data.summary.monthCount)} />
         </div>
+
+        {/*
+          ⚠️⚠️ ASIL ÖLÇÜ BU. Deneme genelde ücretsiz ya da sembolik
+          bedelli; yukarıdaki ciro satırı çoğu zaman sıfır olacak ve tek
+          başına hiçbir şey anlatmaz. Kampanyanın işe yarayıp yaramadığını
+          dönüşüm söyler.
+        */}
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <Stat label="Ücretliye dönüşen" value={String(conversion.convertedCount)} />
+          <Stat label="Dönüşmeyen" value={String(conversion.notConvertedCount)} />
+          <Stat label="Denemesi sürüyor" value={String(conversion.pendingCount)} muted />
+        </div>
+        <p className="mt-2 text-caption leading-relaxed text-ink-500">
+          <strong>Dönüşüm bir çıkarımdır:</strong> bir denemenin müşterisi için, o denemenin
+          bitiş tarihinden <strong>sonra başlayan</strong> ücretli bir paket varsa dönüşmüş
+          sayılır. Denemesi henüz bitmemiş olanlar hiçbir tarafa yazılmaz; iptaller sayılmaz.
+        </p>
 
         {/* ⚠️ Bu sayaçlar "ŞU AN" durumudur — seçili aydan bağımsızdır. */}
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -126,36 +151,26 @@ export default async function PackagesPage({
         </p>
       </section>
 
-      {/* ─────────────────── YENİLENEN / YENİLENMEYEN ────────────────────── */}
-      {data.retention.length > 0 && (
-        <section aria-labelledby="yenileme-baslik">
-          <h2 id="yenileme-baslik" className="text-h3 text-ink-900">Müşteri devamlılığı</h2>
-          {/* ⚠️ Bu bir ÇIKARIMDIR, kaydedilmiş bir gerçek değil — kural yazılı. */}
-          <p className="mt-1 text-caption leading-relaxed text-ink-500">
-            Otomatik yenileme olmadığı için “yenilendi” bilgisi çıkarımdır: süresi dolmuş bir
-            paketin müşterisi için, o paketin bitiş tarihinden sonra başlayan başka bir paket
-            varsa müşteri yenilenmiş sayılır. İptal edilen paketler sayılmaz.
-          </p>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <RetentionList title="Yenileyen" rows={data.renewed} tone="success" />
-            <RetentionList title="Yenilemeyen" rows={data.notRenewed} tone="danger" />
-          </div>
-        </section>
-      )}
+      {/* ⚠️ "Müşteri devamlılığı" bloğu BURADA YOK: denemede sorulan soru
+          "yenilendi mi?" değil "ücretliye dönüştü mü?". İkisi birden
+          gösterilseydi iki benzer ama farklı oran yan yana durur ve
+          hangisine bakılacağı belirsizleşirdi. */}
 
       {/* ────────────────────────── PAKET EKLE ───────────────────────────── */}
       <section aria-labelledby="ekle-baslik">
-        <h2 id="ekle-baslik" className="text-h3 text-ink-900">Yeni paket</h2>
+        <h2 id="ekle-baslik" className="text-h3 text-ink-900">Yeni deneme</h2>
         {/* ⚠️ Formun altında da yazılı: paket açmak bakiyeye dokunmaz. */}
         <div className="mt-4">
-          <PackageForm />
+          {/* ⚠️ `isTrial` ŞART: gönderilmezse kayıt normal paket olarak
+              açılır ve aylık ciroya karışır. */}
+          <PackageForm isTrial />
         </div>
       </section>
 
       {/* ──────────────────────────── LİSTE ──────────────────────────────── */}
       <section aria-labelledby="liste-baslik">
         <div className="flex items-baseline justify-between gap-4">
-          <h2 id="liste-baslik" className="text-h3 text-ink-900">Tüm paketler</h2>
+          <h2 id="liste-baslik" className="text-h3 text-ink-900">Tüm denemeler</h2>
           {/* ⚠️ SIRA YAZILI. Yazılmazsa "neden bu sırada?" sorusu her
               seferinde tabloya bakarak tahmin edilir. */}
           <p className="text-caption text-ink-500">
@@ -164,8 +179,8 @@ export default async function PackagesPage({
         </div>
         {data.rows.length === 0 ? (
           <div className="mt-4 rounded-[--radius-card] border border-dashed border-ink-300 bg-white p-8 text-center">
-            <p className="text-body text-ink-700">Henüz paket yok.</p>
-            <p className="mt-1 text-small text-ink-500">Eklediğin paketler burada listelenir.</p>
+            <p className="text-body text-ink-700">Henüz deneme paketi yok.</p>
+            <p className="mt-1 text-small text-ink-500">Eklediklerin burada listelenir.</p>
           </div>
         ) : (
           /**
@@ -357,37 +372,3 @@ function Stat({
   )
 }
 
-function RetentionList({
-  title,
-  rows,
-  tone,
-}: {
-  title: string
-  rows: Array<{ customerName: string; lastEndDate: Date }>
-  tone: 'success' | 'danger'
-}) {
-  return (
-    <div className="overflow-hidden rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
-      <h3 className="flex items-center justify-between border-b border-ink-100 bg-ink-50 px-4 py-2.5 text-small font-semibold text-ink-900">
-        {title}
-        <span className={tone === 'success' ? 'text-success-700' : 'text-danger-600'}>
-          {rows.length}
-        </span>
-      </h3>
-      {rows.length === 0 ? (
-        <p className="px-4 py-3 text-caption text-ink-500">Kayıt yok.</p>
-      ) : (
-        <ul className="divide-y divide-ink-100">
-          {rows.map((r) => (
-            <li key={r.customerName} className="flex justify-between gap-3 px-4 py-2.5">
-              <span className="truncate text-small text-ink-800">{r.customerName}</span>
-              <span className="tabular shrink-0 text-caption text-ink-500">
-                bitiş {fmtDate(r.lastEndDate)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}

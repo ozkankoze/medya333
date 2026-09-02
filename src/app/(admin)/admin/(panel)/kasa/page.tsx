@@ -52,7 +52,7 @@ export default async function KasaPage({
     getKasaOverview(year, month),
     listAccounts(),
     listEntries(year, month),
-    getPackages(year, month),
+    getPackages(year, month, { trial: false }),
   ])
 
   // ⚠️ Tek yerde türetilir: hem "Hareket ekle" formu hem tahsil/ödeme

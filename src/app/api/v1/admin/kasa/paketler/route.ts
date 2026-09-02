@@ -24,6 +24,12 @@ const schema = z.object({
   salePriceMinor: z.number().int().nonnegative(),
   costMinor: z.number().int().nonnegative(),
   note: z.string().max(1000).optional().nullable(),
+  /**
+   * ⚠️ DENEME PAKETİ Mİ? Aynı tabloya yazılır, yalnızca bu bayrakla
+   * ayrılır (bkz. şemadaki `isTrial` notu). Varsayılan `false`: bayrağı
+   * göndermeyen eski istemci normal paket açar.
+   */
+  isTrial: z.boolean().optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -42,6 +48,7 @@ export async function POST(req: NextRequest) {
         salePriceMinor: input.salePriceMinor,
         costMinor: input.costMinor,
         note: input.note ?? null,
+        isTrial: input.isTrial ?? false,
         createdById: user.id,
       })
       return { id: pkg.id }

@@ -82,14 +82,31 @@ function toRow(p: {
   }
 }
 
-export async function getPackages(year: number, month1: number, today = todayForOperator()) {
+/**
+ * ⚠️⚠️ FİLTRE ZORUNLU, VARSAYILANI YOK.
+ *
+ * Deneme paketleri normal paketlerle AYNI TABLODA duruyor (bkz. şemadaki
+ * `isTrial` notu). Filtre isteğe bağlı olsaydı, çağıran kod onu yazmayı
+ * unuttuğunda ekran ikisini birden gösterir — deneme paketleri aylık
+ * ciroya karışır ve hiçbir hata düşmezdi. Bu yüzden her iki sayfa da
+ * hangisini istediğini AÇIKÇA söylemek zorunda.
+ */
+export async function getPackages(
+  year: number,
+  month1: number,
+  opts: { trial: boolean },
+  today = todayForOperator(),
+) {
   /**
    * ⚠️ SIRALAMA VERİTABANINDA YAPILAMAZ. Sıra, kaydedilmeyen bir alana —
    * tarihten TÜRETİLEN duruma — dayanıyor; PostgreSQL böyle bir sütun
    * görmüyor. Buradaki `orderBy` yalnızca sonucu deterministik kılar,
    * asıl sırayı `compareForList` verir.
    */
-  const all = await db.servicePackage.findMany({ orderBy: [{ endDate: 'asc' }] })
+  const all = await db.servicePackage.findMany({
+    where: { isTrial: opts.trial },
+    orderBy: [{ endDate: 'asc' }],
+  })
 
   const rows = all.map((p) => toRow(p, today)).sort(compareForList)
   const summary = summarize(all, today, { year, month1 })
@@ -104,6 +121,58 @@ export async function getPackages(year: number, month1: number, today = todayFor
     expired: rows.filter((r) => r.state === 'SURESI_DOLDU'),
     renewed: retentionRows.filter((r) => r.renewed),
     notRenewed: retentionRows.filter((r) => !r.renewed),
+  }
+}
+
+/**
+ * ⭐ DENEME → ÜCRETLİ DÖNÜŞÜMÜ
+ *
+ * ⚠️ BU BİR ÇIKARIMDIR, kaydedilmiş bir gerçek değil ve kuralı ekranda
+ * yazılıdır: bir deneme paketinin müşterisi için, o denemenin BİTİŞ
+ * TARİHİNDEN SONRA başlayan ÜCRETLİ (deneme olmayan) bir paket varsa
+ * müşteri "dönüştü" sayılır.
+ *
+ * ⚠️ "SONRA BAŞLAYAN" ŞARTI ÖNEMLİ. Yalnızca "ücretli paketi var mı?"
+ * diye bakılsaydı, denemeden ÖNCE zaten müşteri olan biri de dönüşüm
+ * gibi sayılır ve deneme kampanyasının başarısı olduğundan yüksek
+ * görünürdü.
+ *
+ * ⚠️ İSİM KARŞILAŞTIRMASI TÜRKÇE KÜÇÜLTMEYLE. "Sevda" ile "SEVDA" aynı
+ * müşteridir; İngilizce küçültme "I" harfini yanlış çevirir.
+ */
+export async function getTrialConversion(today = todayForOperator()) {
+  const all = await db.servicePackage.findMany({
+    where: { canceledAt: null },
+    select: { customerName: true, startDate: true, endDate: true, isTrial: true },
+  })
+
+  const key = (n: string) => n.trim().toLocaleLowerCase('tr-TR')
+  const paid = new Map<string, Date[]>()
+  for (const p of all) {
+    if (p.isTrial) continue
+    const list = paid.get(key(p.customerName)) ?? []
+    list.push(p.startDate)
+    paid.set(key(p.customerName), list)
+  }
+
+  const rows = all
+    .filter((p) => p.isTrial)
+    .map((t) => ({
+      customerName: t.customerName,
+      endDate: t.endDate,
+      /** ⚠️ Denemesi henüz bitmemişse dönüşüm SORUSU HENÜZ SORULAMAZ. */
+      pending: t.endDate.getTime() >= today.getTime(),
+      converted: (paid.get(key(t.customerName)) ?? []).some(
+        (s) => s.getTime() > t.endDate.getTime(),
+      ),
+    }))
+
+  const bitmis = rows.filter((r) => !r.pending)
+  return {
+    rows,
+    convertedCount: bitmis.filter((r) => r.converted).length,
+    notConvertedCount: bitmis.filter((r) => !r.converted).length,
+    pendingCount: rows.filter((r) => r.pending).length,
   }
 }
 
@@ -159,6 +228,8 @@ export interface CreatePackageInput {
   salePriceMinor: number
   costMinor: number
   note?: string | null
+  /** Deneme paketi mi? Varsayılan: hayır. */
+  isTrial?: boolean
   createdById?: string | null
 }
 
@@ -195,6 +266,7 @@ export async function createPackage(input: CreatePackageInput) {
       salePriceMinor: input.salePriceMinor,
       costMinor: input.costMinor,
       note: input.note?.trim() || null,
+      isTrial: input.isTrial ?? false,
       createdById: input.createdById ?? null,
     },
   })

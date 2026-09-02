@@ -17,7 +17,7 @@ import { formatMinor, parseMajorToMinor } from '@/lib/money'
  * listedeki "Tahsil et" işlemiyle oluşur. Bu, ekranda da yazılıdır —
  * kullanıcının bakiyenin neden artmadığını merak etmemesi için.
  */
-export function PackageForm() {
+export function PackageForm({ isTrial = false }: { isTrial?: boolean } = {}) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -80,6 +80,9 @@ export function PackageForm() {
      * daha asla "ağ hatası" diye raporlanamaz.
      */
     const res = await postJson('/api/v1/admin/kasa/paketler', {
+      // ⚠️ Deneme mi normal mi — sunucu bu bayrakla ayırıyor. Formun
+      //    hangi sayfada olduğuna bakmak yerine açıkça gönderilir.
+      isTrial,
       customerName: form.get('customerName'),
       serviceName: form.get('serviceName'),
       startDate: form.get('startDate'),

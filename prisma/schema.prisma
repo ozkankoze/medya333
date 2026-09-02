@@ -1395,6 +1395,19 @@ model ServicePackage {
   /// tarih er geç ayrışır ve hangisinin doğru olduğu bilinemez.
   paidAt DateTime?
 
+  /// DENEME PAKETİ Mİ?
+  ///
+  /// ⚠️ AYRI TABLO AÇILMADI ve açılmamalı. Deneme paketi süresi ve fiyatı
+  /// dışında normal paketten farklı değil; ayrı tablo, tahsilat akışını,
+  /// tutar dondurma tetikleyicilerini ve silme korumalarını ikinci kez
+  /// yazmak demekti. İki kopya er geç ayrışır — birinde düzeltilen kusur
+  /// diğerinde yaşamaya devam eder.
+  ///
+  /// ⚠️ İKİ LİSTE BU ALANLA AYRILIR: Aylık Paketler `false`, Deneme
+  /// Paketleri `true` gösterir. Filtre unutulursa denemeler aylık ciroya
+  /// karışır — bu yüzden iki sayfa da filtreyi AÇIKÇA veriyor.
+  isTrial Boolean @default(false)
+
   /// ⚠️ BURADA "dueDate" YOKTUR ve olmamalı. Beklenen ödeme günü yalnızca
   /// `ManualOrder`ın alanıdır; paketin zaten kendi başlangıç–bitiş tarihi
   /// var. Bir kez yanlışlıkla buraya da eklenmişti: şemada duruyor ama

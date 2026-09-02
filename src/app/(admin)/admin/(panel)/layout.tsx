@@ -93,6 +93,7 @@ export default async function OperationsLayout({ children }: { children: React.R
     items.push(
       { href: '/admin/kasa/siparisler', label: 'Siparişler', match: '/admin/kasa/siparisler' },
       { href: '/admin/kasa/paketler', label: 'Aylık Paketler', match: '/admin/kasa/paketler' },
+      { href: '/admin/kasa/deneme', label: 'Deneme', match: '/admin/kasa/deneme' },
       { href: '/admin/finans', label: 'Gelir–Gider', match: '/admin/finans' },
       /**
        * ⚠️ `exact: true` ŞART: '/admin/kasa' diğer ikisinin ÖN EKİ.
