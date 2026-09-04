@@ -20,5 +20,24 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "//exclude": [
+    "⚠️ 'include' KÖK DİZİNİ TARAR: '**/*.ts(x)' depo kökündeki HER klasöre",
+    "girer. Bu yüzden derlemeye girmemesi gereken her klasör burada AÇIKÇA",
+    "yazılmak zorundadır — yoksa 'next build' onu da tip denetimine sokar.",
+    "GERÇEK OLAY: cihazdaki FUSE bağlaması 'rm'e izin vermediği için eski",
+    "kaynak ağaçları depo içindeki '_to_delete/' klasörüne taşınmıştı. O",
+    "kopyalardaki 'getPackages(year, month)' çağrısı yeni imzaya uymuyordu;",
+    "'npm run build' canlı kodda hiçbir kusur olmadığı halde düştü.",
+    "'_stage*' ve '_incoming*' de aynı sebeple burada: arşiv açarken",
+    "kullanılan geçici dizinler depo köküne düşüyordu."
+  ],
+  "exclude": [
+    "node_modules",
+    ".next",
+    "_to_delete",
+    "_stage*",
+    "_incoming*",
+    "**/_to_delete/**",
+    "**/_stage.*/**"
+  ]
 }

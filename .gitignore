@@ -69,3 +69,21 @@ yarn-error.log*
 # Redis anlık görüntüsü — sandbox'ta çalışan yerel Redis üretir.
 # Repoya girmemeli: katalog cache ve rate limit sayaçlarını içerir.
 dump.rdb
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ÇÖP / GEÇİCİ AĞAÇLAR — DEPOYA DA DERLEMEYE DE GİRMEZ
+#
+# ⚠️ Cihazdaki bağlama noktası `rm` çalıştırmaya izin vermiyor; silinmek
+#    istenen eski kaynak ağaçları bu yüzden `_to_delete/` altına TAŞINIYOR.
+#    Klasör depo kökünde durduğu için `tsconfig.json` içindeki
+#    `"**/*.tsx"` deseni onu da topladı ve `next build`, artık var olmayan
+#    bir imzayı çağıran ESKİ bir kopya yüzünden düştü.
+#
+#    Buradaki satırlar ikinci savunma hattıdır: asıl engelleme
+#    `tsconfig.json`'daki `exclude` listesindedir. İkisi birlikte durmalı —
+#    biri klasörün derlenmesini, diğeri commit edilmesini önler.
+# ═══════════════════════════════════════════════════════════════════════════
+_to_delete/
+_stage.*/
+_incoming.tgz
+_incoming*/
