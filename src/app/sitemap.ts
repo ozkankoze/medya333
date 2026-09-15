@@ -82,5 +82,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/satis-sozlesmesi`, lastModified: now, changeFrequency: 'yearly', priority: 0.2 },
     { url: `${base}/iptal-iade`, lastModified: now, changeFrequency: 'yearly', priority: 0.2 },
     { url: `${base}/cerez-politikasi`, lastModified: now, changeFrequency: 'yearly', priority: 0.2 },
+    /**
+     * ⚠️ MARTIS GİZLİLİK POLİTİKASI — diğer yasal metinlerden AYRI DURUR.
+     * Onlar `robots: { index: false }` ile işaretli taslaklardır; bu sayfa
+     * yayınlanmış, indekslenebilir bir belgedir ve App Store kaydında
+     * doğrudan bu adres verilir. Site haritasında bulunması, adresin
+     * erişilebilirliğini Google tarafında da doğrulanabilir kılar.
+     */
+    { url: `${base}/privacy-policy`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
   ]
 }

@@ -10,6 +10,14 @@ import { Logo } from '@/components/brand/Logo'
 
 const LEGAL_LINKS = [
   { href: '/kvkk-gizlilik', label: 'KVKK / Gizlilik' },
+  /**
+   * ⚠️ AYRI SATIR — KVKK BAĞLANTISININ YERİNE GEÇMEZ.
+   * Bu, Martis iOS uygulamasının İngilizce gizlilik politikasıdır ve App
+   * Store incelemesi doğrudan bu adresi açar. Türkçe sitenin KVKK aydınlatma
+   * metni bambaşka bir belgedir; ikisinden biri diğerinin yerine konursa
+   * taraflardan biri yasal metnine erişemez.
+   */
+  { href: '/privacy-policy', label: 'Privacy Policy (Martis)' },
   { href: '/kullanim-kosullari', label: 'Kullanım Koşulları' },
   { href: '/satis-sozlesmesi', label: 'Mesafeli Satış Sözleşmesi' },
   { href: '/iptal-iade', label: 'İptal ve İade' },
