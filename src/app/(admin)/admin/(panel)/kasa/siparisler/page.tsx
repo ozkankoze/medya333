@@ -1,8 +1,11 @@
+import { Fragment } from 'react'
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { AySecici } from '@/components/kasa/AySecici'
 import { GunSeridi, type GunOzeti } from '@/components/kasa/GunSeridi'
 import { KasaTabs } from '@/components/kasa/KasaTabs'
+import { SiparisAraclari, type DisaAktarSatiri } from '@/components/kasa/SiparisAraclari'
 import { ManualOrderActions } from '@/components/kasa/ManualOrderActions'
 import { InlineEdit } from '@/components/kasa/InlineEdit'
 import { ManualOrderForm } from '@/components/kasa/ManualOrderForm'
@@ -12,7 +15,7 @@ import { ORDER_STATUS_LABEL, summarizeOrders, type ManualOrderStatus } from '@/l
 import { formatMinor } from '@/lib/money'
 import { getSessionUser } from '@/server/auth'
 import { listAccounts } from '@/server/kasa'
-import { getOrders } from '@/server/kasa/orders'
+import { getOrders, musteriAdlari, type OrderRow } from '@/server/kasa/orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,7 +53,7 @@ const TEMEL_HREF = '/admin/kasa/siparisler'
 export default async function ManualOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ y?: string; m?: string; g?: string }>
+  searchParams: Promise<{ y?: string; m?: string; g?: string; q?: string; f?: string }>
 }) {
   const user = await getSessionUser()
   // ⚠️ Oturumsuz istek personel kapısına, yetkisiz oturum panele döner.
@@ -68,7 +71,15 @@ export default async function ManualOrdersPage({
   const seciliGun =
     Number.isInteger(gunParam) && gunParam >= 1 && gunParam <= gunSayisi ? gunParam : null
 
-  const [data, accounts] = await Promise.all([getOrders(year, month), listAccounts()])
+  const q = (sp.q ?? '').trim()
+  // ⚠️ BİLİNMEYEN SÜZGEÇ = SÜZGEÇ YOK. Adresten gelen değere güvenilmez.
+  const f = ['yeni', 'odenmedi', 'gecikmis', 'iptal'].includes(sp.f ?? '') ? sp.f! : ''
+
+  const [data, accounts, musteriler] = await Promise.all([
+    getOrders(year, month),
+    listAccounts(),
+    musteriAdlari(),
+  ])
   const accountOptions = accounts.map((a) => ({ id: a.id, label: `${a.owner} · ${a.name}` }))
 
   const monthName = new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(
@@ -92,15 +103,42 @@ export default async function ManualOrdersPage({
   }
 
   /* ── Seçime göre satırlar ve özet ───────────────────────────────────── */
-  const satirlar =
+  // ⚠️ BUGÜN UTC GÜN BAŞINA SABİTLENİR: `dueDate` de öyle tutuluyor;
+  //    saatli bir karşılaştırma, vadesi bugün olan satırı "gecikmiş"
+  //    gösterebilirdi.
+  const bugunUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const gecikmeGunu = (r: OrderRow): number | null => {
+    if (r.paidAt || !r.dueDate || r.status === 'IPTAL') return null
+    const fark = bugunUtc - r.dueDate.getTime()
+    return fark > 0 ? Math.floor(fark / 86_400_000) : null
+  }
+
+  const gunSuzulmus =
     seciliGun === null
       ? data.rows
       : data.rows.filter((r) => r.occurredAt.getUTCDate() === seciliGun)
 
+  // ⚠️ ARAMA TÜRKÇE KÜÇÜLTMEYLE: "İ" harfi `toLowerCase()` ile "i̇" olur ve
+  //    "İzmir" araması "izmir" satırını bulamazdı.
+  const kucult = (t: string) => t.toLocaleLowerCase('tr')
+  const aranan = kucult(q)
+  const satirlar = gunSuzulmus.filter((r) => {
+    if (aranan && !kucult(`${r.customerName} ${r.description}`).includes(aranan)) return false
+    if (f === 'yeni') return r.yeniMusteri
+    if (f === 'odenmedi') return !r.paidAt && r.status !== 'IPTAL'
+    if (f === 'gecikmis') return gecikmeGunu(r) !== null
+    if (f === 'iptal') return r.status === 'IPTAL'
+    return true
+  })
+  const suzuluyor = Boolean(q) || Boolean(f)
+
   // ⚠️ GÜN ÖZETİ AYNI SAF FONKSİYONLA hesaplanır. Ekranda ikinci bir
   //    toplama mantığı yazılsaydı, iptal ve tahsilat kuralları zamanla
   //    ay özetinden ayrışırdı.
-  const ozet = seciliGun === null ? data.summary : summarizeOrders(satirlar, { year, month1: month })
+  const ozet =
+    seciliGun === null && !suzuluyor
+      ? data.summary
+      : summarizeOrders(satirlar, { year, month1: month })
   const yeniMusteriAdedi = satirlar.filter((r) => r.yeniMusteri).length
 
   const secimAdi =
@@ -113,6 +151,67 @@ export default async function ManualOrdersPage({
           weekday: 'long',
           timeZone: 'UTC',
         }).format(new Date(Date.UTC(year, month - 1, seciliGun)))
+
+  /* ── Excel çıkışı için düz satırlar ─────────────────────────────────── */
+  // ⚠️ Rakamlar ekranla AYNI biçimde yazılır (1.250,00 ₺). Ham kuruş
+  //    yazılsaydı, dosyayı açan kişi 125000 görüp yanlış okurdu.
+  const disaAktar: DisaAktarSatiri[] = satirlar.map((r) => ({
+    tarih: fmtDate(r.occurredAt),
+    musteri: r.customerName,
+    islem: r.description,
+    fiyat: formatMinor(r.salePriceMinor),
+    maliyet: formatMinor(r.costMinor),
+    net: formatMinor(r.netMinor),
+    durum: ORDER_STATUS_LABEL[r.status],
+    odeme: r.paidAt
+      ? `${r.paidAccountName ?? 'Tahsil'} · ${fmtDate(r.paidAt)}`
+      : r.dueDate
+        ? `Beklenen: ${fmtDate(r.dueDate)}`
+        : '',
+  }))
+  const dosyaAdi =
+    seciliGun === null
+      ? `medya333-siparisler-${year}-${String(month).padStart(2, '0')}`
+      : `medya333-siparisler-${year}-${String(month).padStart(2, '0')}-${String(seciliGun).padStart(2, '0')}`
+
+  /* ── Görünen satırların toplamı (tablo altı) ────────────────────────── */
+  // ⚠️ SÜZÜLMÜŞ LİSTENİN TOPLAMI, ayın değil. Üstteki özet kutuları da aynı
+  //    seçime bakar; ikisinin farklı rakam göstermesi güveni bitirirdi.
+  const gecerliSatirlar = satirlar.filter((r) => r.status !== 'IPTAL')
+  const toplamSatis = gecerliSatirlar.reduce((a, r) => a + r.salePriceMinor, 0)
+  const toplamMaliyet = gecerliSatirlar.reduce((a, r) => a + r.costMinor, 0)
+
+  /**
+   * Ay görünümünde satırları HAFTAYA böler.
+   *
+   * ⚠️ YALNIZCA AY GENELİNDE. Tek gün seçiliyken hafta ayracı tek bir
+   * başlıktan ibaret kalır, bilgi vermez.
+   *
+   * ⚠️ HAFTA PAZARTESİ BAŞLAR (Türkiye'deki alışkanlık). Pazar başlangıcı
+   * seçilseydi, hafta sonu iki ayrı haftaya bölünürdü.
+   */
+  const haftaNo = (d: Date): number => {
+    const gun = (new Date(d).getUTCDay() + 6) % 7 // 0 = Pazartesi
+    const pazartesi = d.getTime() - gun * 86_400_000
+    return Math.floor(pazartesi / 86_400_000)
+  }
+  type Blok = { hafta: number; baslik: string; satirlar: OrderRow[] }
+  const bloklar: Blok[] = []
+  if (seciliGun === null) {
+    for (const r of satirlar) {
+      const h = haftaNo(r.occurredAt)
+      let blok = bloklar.find((b) => b.hafta === h)
+      if (!blok) {
+        const pazartesi = new Date(h * 86_400_000)
+        const pazar = new Date(pazartesi.getTime() + 6 * 86_400_000)
+        blok = { hafta: h, baslik: `${fmtDate(pazartesi)} – ${fmtDate(pazar)}`, satirlar: [] }
+        bloklar.push(blok)
+      }
+      blok.satirlar.push(r)
+    }
+  } else {
+    bloklar.push({ hafta: 0, baslik: '', satirlar: satirlar.slice() })
+  }
 
   const prev = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 }
   const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 }
@@ -206,7 +305,7 @@ export default async function ManualOrdersPage({
       <section aria-labelledby="ekle-baslik">
         <h2 id="ekle-baslik" className="text-h3 text-ink-900">Yeni sipariş</h2>
         <div className="mt-4">
-          <ManualOrderForm />
+          <ManualOrderForm musteriler={musteriler} />
         </div>
       </section>
 
@@ -214,7 +313,25 @@ export default async function ManualOrdersPage({
       <section aria-labelledby="liste-baslik">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 id="liste-baslik" className="text-h3 text-ink-900">{secimAdi}</h2>
-          <p className="tabular text-caption text-ink-500">{satirlar.length} kayıt</p>
+          <p className="tabular text-caption text-ink-500">
+            {satirlar.length} kayıt
+            {suzuluyor && gunSuzulmus.length !== satirlar.length
+              ? ` · ${gunSuzulmus.length} kayıttan süzüldü`
+              : ''}
+          </p>
+        </div>
+
+        <div className="mt-3">
+          <SiparisAraclari
+            temelHref={TEMEL_HREF}
+            year={year}
+            month1={month}
+            gun={seciliGun}
+            q={q}
+            f={f}
+            dosyaAdi={dosyaAdi}
+            satirlar={disaAktar}
+          />
         </div>
         {satirlar.length === 0 ? (
           <div className="mt-4 rounded-[--radius-card] border border-dashed border-ink-300 bg-white p-8 text-center">
@@ -226,7 +343,72 @@ export default async function ManualOrdersPage({
             </p>
           </div>
         ) : (
-          <div className="mt-4 overflow-x-auto rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card]">
+          <>
+          {/* ⚠️ TELEFONDA TABLO DEĞİL KART. Sekiz sütunluk bir tabloyu
+              telefonda yatay kaydırmak, defteri okunamaz kılıyordu; sipariş
+              çoğu zaman yolda, telefondan bakılarak kontrol ediliyor.
+              Masaüstündeki tablo olduğu gibi duruyor. */}
+          <ul className="mt-4 flex flex-col gap-2 md:hidden">
+            {satirlar.map((r) => (
+              <li
+                key={r.id}
+                className={
+                  'rounded-[--radius-card] border p-3 ' +
+                  (r.yeniMusteri
+                    ? 'border-yeni-200 bg-yeni-50'
+                    : 'border-ink-200 bg-white shadow-[--shadow-card]')
+                }
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <Link
+                    href={`${TEMEL_HREF}/musteri/${encodeURIComponent(r.customerName)}`}
+                    className="truncate font-semibold text-ink-900 underline-offset-2 hover:underline"
+                  >
+                    {r.customerName}
+                  </Link>
+                  <span className="tabular shrink-0 text-small font-semibold text-ink-900">
+                    {formatMinor(r.salePriceMinor)}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-small text-ink-700">{r.description}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-caption">
+                  <span className="tabular text-ink-500">{fmtDate(r.occurredAt)}</span>
+                  {r.yeniMusteri && (
+                    <span className="rounded-full bg-yeni-600 px-1.5 py-0.5 font-semibold text-white">
+                      Yeni müşteri
+                    </span>
+                  )}
+                  {r.status !== 'BEKLIYOR' && (
+                    <span className={`rounded-full px-1.5 py-0.5 font-medium ${STATUS_CLASS[r.status]}`}>
+                      {ORDER_STATUS_LABEL[r.status]}
+                    </span>
+                  )}
+                  {r.paidAt ? (
+                    <span className="text-success-700">
+                      {r.paidAccountName ?? 'Tahsil'} · {fmtDate(r.paidAt)}
+                    </span>
+                  ) : gecikmeGunu(r) !== null ? (
+                    <span className="font-semibold text-danger-600">
+                      {gecikmeGunu(r)} gün gecikti
+                    </span>
+                  ) : (
+                    <span className="text-warning-700">tahsil edilmedi</span>
+                  )}
+                  <span className="tabular ml-auto text-ink-500">
+                    net {formatMinor(r.netMinor)}
+                  </span>
+                </div>
+              </li>
+            ))}
+            <li className="rounded-[--radius-card] border border-ink-300 bg-ink-50 px-3 py-2 text-small font-semibold text-ink-900">
+              <span className="flex justify-between">
+                <span>Toplam · {gecerliSatirlar.length} sipariş</span>
+                <span className="tabular">{formatMinor(toplamSatis)}</span>
+              </span>
+            </li>
+          </ul>
+
+          <div className="mt-4 hidden overflow-x-auto rounded-[--radius-card] border border-ink-200 bg-white shadow-[--shadow-card] md:block">
             <table className="w-full border-collapse text-small">
               <thead>
                 <tr className="border-b border-ink-200 bg-ink-50 text-left text-caption uppercase tracking-wide text-ink-500">
@@ -241,7 +423,31 @@ export default async function ManualOrdersPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
-                {satirlar.map((r) => (
+                {bloklar.map((blok) => (
+                  <Fragment key={blok.hafta}>
+                    {/* ⚠️ HAFTA AYRACI yalnızca ay görünümünde ve birden çok
+                        hafta varken. Tek haftalık bir listede ayraç,
+                        bilgi değil gürültüdür. */}
+                    {seciliGun === null && bloklar.length > 1 && (
+                      <tr className="border-y border-ink-200 bg-ink-100/80">
+                        <td colSpan={8} className="px-3 py-1.5">
+                          <span className="flex flex-wrap items-baseline justify-between gap-2 text-caption">
+                            <span className="font-semibold uppercase tracking-wide text-ink-600">
+                              Hafta · {blok.baslik}
+                            </span>
+                            <span className="tabular text-ink-700">
+                              {blok.satirlar.filter((x) => x.status !== 'IPTAL').length} sipariş ·{' '}
+                              {formatMinor(
+                                blok.satirlar
+                                  .filter((x) => x.status !== 'IPTAL')
+                                  .reduce((a, x) => a + x.salePriceMinor, 0),
+                              )}
+                            </span>
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    {blok.satirlar.map((r) => (
                   <tr
                     key={r.id}
                     // ⚠️ YENİ MÜŞTERİ SATIRI PEMBE ZEMİN + SOL KENAR ÇİZGİSİ.
@@ -259,9 +465,18 @@ export default async function ManualOrdersPage({
                       {fmtDate(r.occurredAt)}
                     </td>
                     <td className="max-w-[13rem] px-3 py-2 font-medium text-ink-900">
-                      <span className="block truncate" title={r.customerName}>
+                      {/* ⚠️ AD BİR BAĞLANTI: o müşterinin bütün geçmişi tek
+                          tıkla açılır. Satırın geri kalanı tıklanabilir
+                          YAPILMADI — satıra basınca sayfa değiştiren bir
+                          tablo, düzenlemeye uzanan eli yanlışlıkla başka
+                          yere götürür. */}
+                      <Link
+                        href={`${TEMEL_HREF}/musteri/${encodeURIComponent(r.customerName)}`}
+                        title={`${r.customerName} — geçmişi`}
+                        className="block truncate underline-offset-2 hover:underline"
+                      >
                         {r.customerName}
-                      </span>
+                      </Link>
                       {/* ⚠️ ROZETLER ADIN ALTINDA, KENDİ SATIRINDA. Adın
                           yanına dizilince iki rozet yan yana geldiğinde
                           ("Yeni müşteri" + "Tamamlandı") ikisi de kırpılıp
@@ -325,6 +540,13 @@ export default async function ManualOrdersPage({
                           para kasada — iade elle girilmeli
                         </span>
                       )}
+                      {/* ⚠️ GECİKEN ALACAK SAYIYLA GÖSTERİLİR. "Gecikti"
+                          demek yetmez: üç gün ile üç ay aynı görünürdü. */}
+                      {gecikmeGunu(r) !== null && (
+                        <span className="mt-0.5 block text-caption font-semibold text-danger-600">
+                          {gecikmeGunu(r)} gün gecikti
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <RowMenu>
@@ -372,10 +594,35 @@ export default async function ManualOrdersPage({
                       </RowMenu>
                     </td>
                   </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
+              {/* ⚠️ GÖRÜNEN SATIRLARIN TOPLAMI. Uzun bir listede göz, üstteki
+                  özet kutusuna geri dönmek yerine burada toplamı bulur. */}
+              <tfoot>
+                <tr className="border-t-2 border-ink-300 bg-ink-50 font-semibold text-ink-900">
+                  <td className="px-3 py-2 text-caption uppercase tracking-wide text-ink-600" colSpan={3}>
+                    Toplam · {gecerliSatirlar.length} sipariş
+                    {satirlar.length !== gecerliSatirlar.length && (
+                      <span className="ml-1 font-normal normal-case tracking-normal text-ink-500">
+                        (iptaller hariç)
+                      </span>
+                    )}
+                  </td>
+                  <td className="tabular px-3 py-2 text-right">{formatMinor(toplamSatis)}</td>
+                  <td className="tabular px-3 py-2 text-right text-ink-600">
+                    {formatMinor(toplamMaliyet)}
+                  </td>
+                  <td className="tabular px-3 py-2 text-right">
+                    {formatMinor(toplamSatis - toplamMaliyet)}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>

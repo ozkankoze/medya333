@@ -45,6 +45,10 @@ export function GunSeridi({
   bicimle: (minor: number) => string
 }) {
   const ayHref = `${temelHref}?y=${year}&m=${month1}`
+  // ⚠️ ÇUBUKLAR AYIN EN YÜKSEK GÜNÜNE ORANLANIR, sabit bir tavana değil.
+  //    Sabit tavan olsaydı sakin bir ayda bütün çubuklar dibe yapışır ve
+  //    günler arasındaki fark görünmezdi.
+  const zirve = Math.max(1, ...gunler.map((g) => g.tutarMinor))
 
   return (
     <section aria-labelledby="gun-baslik">
@@ -125,6 +129,21 @@ export function GunSeridi({
                 className={'block text-caption ' + (aktif ? 'text-ink-200' : 'text-ink-500')}
               >
                 {bos ? '' : `${g.adet} sipariş`}
+              </span>
+              {/* ⚠️ Çubuk SÜS DEĞİL: ayın şekli (yoğun ve ölü günler) tek
+                  bakışta görünür. Rakamı okumak, otuz bir kutuda sırayla
+                  karşılaştırmak demekti. */}
+              <span
+                aria-hidden
+                className={
+                  'mt-1 block h-1 w-full overflow-hidden rounded-full ' +
+                  (aktif ? 'bg-white/25' : 'bg-ink-100')
+                }
+              >
+                <span
+                  className={'block h-full rounded-full ' + (aktif ? 'bg-white' : 'bg-brand-500')}
+                  style={{ width: `${bos ? 0 : Math.max(6, (g.tutarMinor / zirve) * 100)}%` }}
+                />
               </span>
             </Link>
           )

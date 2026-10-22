@@ -55,6 +55,9 @@ export default async function KasaPage({
     getPackages(year, month, { trial: false }),
   ])
 
+  /** Dolar kuru girilmiş mi? Girilmemişse tabloda o sütun hiç çizilmez. */
+  const dolarVar = ov.usdRateMinor > 0
+
   // ⚠️ Tek yerde türetilir: hem "Hareket ekle" formu hem tahsil/ödeme
   //    düğmeleri aynı listeyi kullanır. İki yerde ayrı yazılsaydı biri
   //    değiştiğinde diğeri sessizce eski kalırdı.
@@ -185,7 +188,13 @@ export default async function KasaPage({
               <tr className="border-b border-ink-100 text-left text-caption uppercase tracking-wide text-ink-500">
                 <th scope="col" className="px-5 py-3 font-medium">Hafta</th>
                 <th scope="col" className="px-5 py-3 text-right font-medium">Kazanç</th>
-                <th scope="col" className="px-5 py-3 text-right font-medium">Kazanç ($)</th>
+                {/* ⚠️ DOLAR SÜTUNU KUR GİRİLMEMİŞKEN HİÇ ÇİZİLMEZ.
+                    Baştan sona "—" yazan bir sütun hiçbir soruya cevap
+                    vermiyor, sadece tabloyu daraltıyordu. Kur girildiği an
+                    sütun kendiliğinden geri gelir. */}
+                {dolarVar && (
+                  <th scope="col" className="px-5 py-3 text-right font-medium">Kazanç ($)</th>
+                )}
                 <th scope="col" className="px-5 py-3 text-right font-medium">Net kâr</th>
               </tr>
             </thead>
@@ -196,11 +205,13 @@ export default async function KasaPage({
                   <td className="tabular px-5 py-3 text-right text-ink-900">
                     {formatMinor(w.revenueMinor)}
                   </td>
-                  <td className="tabular px-5 py-3 text-right text-ink-600">
-                    {/* ⚠️ Kur yoksa "$0,00" DEĞİL "—". Sıfır göstermek
-                        "hiç kazanmadın" demektir; doğrusu "kur girilmemiş". */}
-                    {w.usdMinor === null ? '—' : `$${(w.usdMinor / 100).toFixed(2)}`}
-                  </td>
+                  {dolarVar && (
+                    <td className="tabular px-5 py-3 text-right text-ink-600">
+                      {/* ⚠️ Kur yoksa "$0,00" DEĞİL "—". Sıfır göstermek
+                          "hiç kazanmadın" demektir; doğrusu "kur girilmemiş". */}
+                      {w.usdMinor === null ? '—' : `$${(w.usdMinor / 100).toFixed(2)}`}
+                    </td>
+                  )}
                   <td className="tabular px-5 py-3 text-right text-ink-900">
                     {formatMinor(w.netMinor)}
                   </td>
@@ -213,11 +224,13 @@ export default async function KasaPage({
                 <td className="tabular px-5 py-3 text-right text-ink-900">
                   {formatMinor(ov.monthRevenueMinor)}
                 </td>
-                <td className="tabular px-5 py-3 text-right text-ink-700">
-                  {ov.monthRevenueUsdMinor === null
-                    ? '—'
-                    : `$${(ov.monthRevenueUsdMinor / 100).toFixed(2)}`}
-                </td>
+                {dolarVar && (
+                  <td className="tabular px-5 py-3 text-right text-ink-700">
+                    {ov.monthRevenueUsdMinor === null
+                      ? '—'
+                      : `$${(ov.monthRevenueUsdMinor / 100).toFixed(2)}`}
+                  </td>
+                )}
                 <td className="tabular px-5 py-3 text-right text-ink-900">
                   {formatMinor(ov.monthNetMinor)}
                 </td>

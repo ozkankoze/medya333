@@ -20,6 +20,10 @@ const TABS = [
   //    karıştırmasınlar ve kendi sorusu ("dönüştü mü?") görünsün diye.
   { key: 'deneme', href: '/admin/kasa/deneme', label: 'Deneme Paketleri' },
   { key: 'kasa', href: '/admin/kasa', label: 'Kasa' },
+  // ⚠️ YIL ÖZETİ EN SONDA: günlük işte açılmaz, ay kapanışında ve
+  //    karşılaştırma yapılırken bakılır. Öne alınsaydı, en sık girilen
+  //    ekranları aşağı iterdi.
+  { key: 'yil', href: '/admin/kasa/yil', label: 'Yıl Özeti' },
 ] as const
 
 export type KasaTabKey = (typeof TABS)[number]['key']

@@ -525,3 +525,146 @@ export async function uygulaOdeme(params: {
   await db.manualOrder.update({ where: { id: params.orderId }, data: { dueDate: null } })
   return { kind: 'hesap' as const, accountLabel: girdi.accountLabel }
 }
+
+/* ===========================================================================
+   DEFTERİ OKUMAYA YARAYAN EK SORGULAR
+
+   ⚠️ HEPSİ SALT OKUMA. Bu bölümdeki hiçbir fonksiyon yazmaz; ekranlara veri
+   hazırlamaktan başka işleri yoktur.
+   =========================================================================== */
+
+/**
+ * Deftere girilmiş benzersiz müşteri adları — form önerisi için.
+ *
+ * ⚠️ NEDEN GEREKLİ: ad serbest metindir. "Ahmet Yılmaz" ile "ahmet yilmaz"
+ * iki ayrı müşteri sayılır; bu hem "yeni müşteri" rozetini yanıltır hem de
+ * müşteri geçmişini ikiye böler. Öneri listesi, doğru yazımı tek tıkla
+ * seçtirerek sorunu kaynağında keser.
+ *
+ * ⚠️ SON 500 AD ile sınırlı: tarayıcıya binlerce satırlık bir liste
+ * göndermek, öneri kutusunu hızlandırmaz, sayfayı yavaşlatır.
+ */
+export async function musteriAdlari(limit = 500): Promise<string[]> {
+  const satirlar = await db.manualOrder.findMany({
+    distinct: ['customerName'],
+    select: { customerName: true },
+    orderBy: { occurredAt: 'desc' },
+    take: limit,
+  })
+  return satirlar.map((s) => s.customerName).sort((a, b) => a.localeCompare(b, 'tr'))
+}
+
+export interface MusteriDefteri {
+  isim: string
+  rows: OrderRow[]
+  toplamSatisMinor: number
+  toplamMaliyetMinor: number
+  toplamNetMinor: number
+  tahsilEdilmemisMinor: number
+  adet: number
+  iptalAdedi: number
+  ilkTarih: Date | null
+  sonTarih: Date | null
+}
+
+/**
+ * Tek bir müşterinin BÜTÜN geçmişi.
+ *
+ * ⚠️ BURADA AY SINIRI YOKTUR, bilerek: ekranın tek sorusu "bu müşteriyle
+ * bugüne kadar ne yaptık" sorusudur. Tek müşterinin satır sayısı, bir ayın
+ * tamamından küçüktür; sayfalama gereksiz karmaşa olurdu.
+ */
+export async function musteriDefteri(isim: string): Promise<MusteriDefteri> {
+  const all = await db.manualOrder.findMany({
+    where: { customerName: isim },
+    orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],
+    include: { paymentEntry: { select: { account: { select: { name: true } } } } },
+  })
+
+  // ⚠️ İlk sipariş rozeti burada da aynı kuralla hesaplanır — iki ekranın
+  //    farklı şey söylemesi, ikisine de güveni bitirirdi.
+  const yeniler = await yeniMusteriSatirlari(all)
+  const rows = all.map((o) => toRow(o, yeniler.has(o.id)))
+
+  let toplamSatisMinor = 0
+  let toplamMaliyetMinor = 0
+  let tahsilEdilmemisMinor = 0
+  let iptalAdedi = 0
+  for (const r of rows) {
+    if (r.status === 'IPTAL') {
+      iptalAdedi += 1
+      continue
+    }
+    toplamSatisMinor += r.salePriceMinor
+    toplamMaliyetMinor += r.costMinor
+    if (!r.paidAt) tahsilEdilmemisMinor += r.salePriceMinor
+  }
+
+  const tarihler = rows.map((r) => r.occurredAt.getTime())
+  return {
+    isim,
+    rows,
+    toplamSatisMinor,
+    toplamMaliyetMinor,
+    toplamNetMinor: toplamSatisMinor - toplamMaliyetMinor,
+    tahsilEdilmemisMinor,
+    adet: rows.length,
+    iptalAdedi,
+    ilkTarih: tarihler.length ? new Date(Math.min(...tarihler)) : null,
+    sonTarih: tarihler.length ? new Date(Math.max(...tarihler)) : null,
+  }
+}
+
+export interface YilAyi {
+  month1: number
+  adet: number
+  satisMinor: number
+  maliyetMinor: number
+  netMinor: number
+  tahsilEdilmemisMinor: number
+}
+
+/**
+ * Bir yılın on iki ayı tek ekranda.
+ *
+ * ⚠️ SATIRLAR DEĞİL, YALNIZCA TOPLAMLAR çekilir: bir yılın bütün
+ * siparişlerini belleğe almak, on iki rakam göstermek için fazla pahalıdır.
+ * İptaller toplamlara girmez, ay özetindeki kuralla aynı.
+ */
+export async function yilOzeti(year: number): Promise<YilAyi[]> {
+  const start = new Date(Date.UTC(year, 0, 1))
+  const end = new Date(Date.UTC(year + 1, 0, 1))
+
+  const satirlar = await db.manualOrder.findMany({
+    where: { occurredAt: { gte: start, lt: end } },
+    select: {
+      occurredAt: true,
+      salePriceMinor: true,
+      costMinor: true,
+      status: true,
+      paidAt: true,
+    },
+  })
+
+  const aylar: YilAyi[] = Array.from({ length: 12 }, (_, i) => ({
+    month1: i + 1,
+    adet: 0,
+    satisMinor: 0,
+    maliyetMinor: 0,
+    netMinor: 0,
+    tahsilEdilmemisMinor: 0,
+  }))
+
+  for (const s of satirlar) {
+    const a = aylar[s.occurredAt.getUTCMonth()]
+    if (!a) continue
+    a.adet += 1
+    if (s.status === 'IPTAL') continue
+    a.satisMinor += s.salePriceMinor
+    a.maliyetMinor += s.costMinor
+    a.netMinor += s.salePriceMinor - s.costMinor
+    if (!s.paidAt) a.tahsilEdilmemisMinor += s.salePriceMinor
+  }
+
+  return aylar
+}

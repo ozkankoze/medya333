@@ -25,7 +25,7 @@ import { formatMinor, parseMajorToMinor } from '@/lib/money'
  * sipariş tahsil edilmiş görünürdü — bakiye ile defter ayrışırdı. Para
  * geldi demek, hangi hesaba geldiğini söylemek zorundadır.
  */
-export function ManualOrderForm() {
+export function ManualOrderForm({ musteriler = [] }: { musteriler?: readonly string[] }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -118,8 +118,25 @@ export function ManualOrderForm() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <label className={label} htmlFor="o-customer">Kullanıcı adı</label>
+          {/*
+            ⚠️ ÖNERİ LİSTESİ (`datalist`) — SEÇMEYE ZORLAMAZ.
+            Yeni müşteriyi yazmak serbest kalmalı; kapalı bir açılır liste
+            olsaydı deftere yeni bir isim girmek için önce kayıt açmak
+            gerekirdi. Öneri yalnızca aynı kişiyi iki farklı yazımla
+            girmeyi zorlaştırır: "Ahmet Yılmaz" ile "ahmet yilmaz" iki ayrı
+            müşteri sayılır, geçmişi böler ve "yeni müşteri" rozetini
+            yanıltır.
+          */}
           <input id="o-customer" name="customerName" required maxLength={200}
+            list="o-musteriler" autoComplete="off"
             placeholder="@kullaniciadi" className={`${field} mt-1`} />
+          {musteriler.length > 0 && (
+            <datalist id="o-musteriler">
+              {musteriler.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          )}
         </div>
         {/*
           ⚠️ SIRALAMA: kim → ne → ne zaman. "Sipariş içeriği" kullanıcı
