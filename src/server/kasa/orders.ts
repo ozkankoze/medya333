@@ -57,6 +57,20 @@ export interface OrderRow {
    * engel veritabanı tetikleyicisindedir.
    */
   canDelete: boolean
+  /**
+   * Bu satır, o müşterinin defterdeki İLK siparişi mi?
+   *
+   * ⚠️ SAKLANMAZ — hesaplanır. Elle işaretlenen bir "yeni müşteri" kutusu
+   * olsaydı, müşterinin ikinci siparişinde kutuyu kaldırmayı unutan kişi
+   * aynı müşteriyi yıl boyunca yeni gösterirdi. Burada ölçüt nettir:
+   * aynı isimde daha eski tarihli sipariş yoksa yenidir.
+   *
+   * ⚠️ ÖLÇÜT İSİMDİR, çünkü bu defterde müşteri kaydı yoktur; aynı kişiyi
+   * iki farklı yazımla girmek (”Ahmet Yılmaz” / ”ahmet yilmaz”) iki ayrı
+   * müşteri sayılmasına yol açar. Bu, yanlış pozitif üretir ama veriyi
+   * bozmaz ve düzeltmesi satırı düzenlemekten ibarettir.
+   */
+  yeniMusteri: boolean
 }
 
 interface DbOrder {
@@ -74,8 +88,9 @@ interface DbOrder {
   costEntryId: string | null
 }
 
-function toRow(o: DbOrder): OrderRow {
+function toRow(o: DbOrder, yeniMusteri = false): OrderRow {
   return {
+    yeniMusteri,
     id: o.id,
     customerName: o.customerName,
     description: o.description,
@@ -114,10 +129,58 @@ export async function getOrders(year: number, month1: number) {
     include: { paymentEntry: { select: { account: { select: { name: true } } } } },
   })
 
+  const yeniler = await yeniMusteriSatirlari(all)
+
   return {
-    rows: all.map(toRow),
+    rows: all.map((o) => toRow(o, yeniler.has(o.id))),
     summary: summarizeOrders(all, { year, month1 }),
   }
+}
+
+/**
+ * Verilen satırlardan hangileri, o müşterinin defterdeki İLK siparişidir?
+ *
+ * ⚠️ TÜM DEFTER ÇEKİLMEZ. Yalnızca ekrandaki isimler için, isim başına tek
+ * satırlık bir "en eski tarih" özeti alınır (`customerName` üzerinde zaten
+ * dizin var). Binlerce satırı belleğe almak, tek bir rozet için fazla
+ * pahalı olurdu.
+ *
+ * ⚠️ AYNI GÜN İKİ SİPARİŞ: yalnızca ilk kaydedilen işaretlenir. İkisi de
+ * işaretlenseydi "yeni müşteri" sayacı aynı kişiyi iki kez sayardı.
+ */
+async function yeniMusteriSatirlari(
+  all: readonly { id: string; customerName: string; occurredAt: Date; createdAt: Date }[],
+): Promise<Set<string>> {
+  const isimler = [...new Set(all.map((o) => o.customerName))]
+  if (isimler.length === 0) return new Set()
+
+  const ilkler = await db.manualOrder.groupBy({
+    by: ['customerName'],
+    where: { customerName: { in: isimler } },
+    _min: { occurredAt: true },
+  })
+
+  const ilkGun = new Map<string, number>()
+  for (const i of ilkler) {
+    if (i._min.occurredAt) ilkGun.set(i.customerName, i._min.occurredAt.getTime())
+  }
+
+  const sirali = [...all].sort(
+    (a, b) =>
+      a.occurredAt.getTime() - b.occurredAt.getTime() ||
+      a.createdAt.getTime() - b.createdAt.getTime(),
+  )
+
+  const secilen = new Set<string>()
+  const gorulen = new Set<string>()
+  for (const o of sirali) {
+    if (gorulen.has(o.customerName)) continue
+    if (ilkGun.get(o.customerName) === o.occurredAt.getTime()) {
+      secilen.add(o.id)
+      gorulen.add(o.customerName)
+    }
+  }
+  return secilen
 }
 
 // ---------------------------------------------------------------------------

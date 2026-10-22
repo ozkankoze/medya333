@@ -1,12 +1,14 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
+import { AySecici } from '@/components/kasa/AySecici'
+import { GunSeridi, type GunOzeti } from '@/components/kasa/GunSeridi'
 import { KasaTabs } from '@/components/kasa/KasaTabs'
 import { ManualOrderActions } from '@/components/kasa/ManualOrderActions'
 import { InlineEdit } from '@/components/kasa/InlineEdit'
 import { ManualOrderForm } from '@/components/kasa/ManualOrderForm'
 import { OdemeCell } from '@/components/kasa/OdemeCell'
 import { RowMenu } from '@/components/kasa/RowMenu'
-import { ORDER_STATUS_LABEL, type ManualOrderStatus } from '@/lib/kasa/orders'
+import { ORDER_STATUS_LABEL, summarizeOrders, type ManualOrderStatus } from '@/lib/kasa/orders'
 import { formatMinor } from '@/lib/money'
 import { getSessionUser } from '@/server/auth'
 import { listAccounts } from '@/server/kasa'
@@ -43,10 +45,12 @@ const STATUS_CLASS: Record<ManualOrderStatus, string> = {
  * sorulardır; ikincisi Kasa sekmesindedir. Rakamların farklı olması normal
  * ve başlıklarda hangi aralığın geçerli olduğu yazılıdır.
  */
+const TEMEL_HREF = '/admin/kasa/siparisler'
+
 export default async function ManualOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ y?: string; m?: string }>
+  searchParams: Promise<{ y?: string; m?: string; g?: string }>
 }) {
   const user = await getSessionUser()
   // ⚠️ Oturumsuz istek personel kapısına, yetkisiz oturum panele döner.
@@ -57,6 +61,12 @@ export default async function ManualOrdersPage({
   const now = new Date()
   const year = Number(sp.y) || now.getUTCFullYear()
   const month = Number(sp.m) || now.getUTCMonth() + 1
+  const gunSayisi = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  // ⚠️ GEÇERSİZ GÜN SESSİZCE AY GENELİNE DÜŞER. Hata sayfası göstermek,
+  //    adresi elle kurcalayan tek kullanıcı için gereksiz sert olurdu.
+  const gunParam = Number(sp.g)
+  const seciliGun =
+    Number.isInteger(gunParam) && gunParam >= 1 && gunParam <= gunSayisi ? gunParam : null
 
   const [data, accounts] = await Promise.all([getOrders(year, month), listAccounts()])
   const accountOptions = accounts.map((a) => ({ id: a.id, label: `${a.owner} · ${a.name}` }))
@@ -64,6 +74,45 @@ export default async function ManualOrdersPage({
   const monthName = new Intl.DateTimeFormat('tr-TR', { month: 'long', year: 'numeric' }).format(
     new Date(Date.UTC(year, month - 1, 1)),
   )
+
+  /* ── Gün şeridi: ayın satırlarından türetilir, ayrı sorgu yok ───────── */
+  const gunler: GunOzeti[] = Array.from({ length: gunSayisi }, (_, i) => ({
+    gun: i + 1,
+    adet: 0,
+    tutarMinor: 0,
+    yeniMusteri: false,
+  }))
+  for (const r of data.rows) {
+    const g = gunler[r.occurredAt.getUTCDate() - 1]
+    if (!g) continue
+    g.adet += 1
+    // ⚠️ İptaller gün toplamına GİRMEZ: üstteki özetle aynı kural.
+    if (r.status !== 'IPTAL') g.tutarMinor += r.salePriceMinor
+    if (r.yeniMusteri) g.yeniMusteri = true
+  }
+
+  /* ── Seçime göre satırlar ve özet ───────────────────────────────────── */
+  const satirlar =
+    seciliGun === null
+      ? data.rows
+      : data.rows.filter((r) => r.occurredAt.getUTCDate() === seciliGun)
+
+  // ⚠️ GÜN ÖZETİ AYNI SAF FONKSİYONLA hesaplanır. Ekranda ikinci bir
+  //    toplama mantığı yazılsaydı, iptal ve tahsilat kuralları zamanla
+  //    ay özetinden ayrışırdı.
+  const ozet = seciliGun === null ? data.summary : summarizeOrders(satirlar, { year, month1: month })
+  const yeniMusteriAdedi = satirlar.filter((r) => r.yeniMusteri).length
+
+  const secimAdi =
+    seciliGun === null
+      ? `${monthName} · ay geneli`
+      : new Intl.DateTimeFormat('tr-TR', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          weekday: 'long',
+          timeZone: 'UTC',
+        }).format(new Date(Date.UTC(year, month - 1, seciliGun)))
 
   const prev = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 }
   const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 }
@@ -81,15 +130,30 @@ export default async function ManualOrdersPage({
             Elle tutulan günlük defter — {monthName}
           </p>
         </div>
-        <nav aria-label="Ay seçimi" className="flex items-center gap-2">
-          <a href={`/admin/kasa/siparisler?y=${prev.y}&m=${prev.m}`} className={navLink}>
-            ← Önceki
-          </a>
-          <a href={`/admin/kasa/siparisler?y=${next.y}&m=${next.m}`} className={navLink}>
-            Sonraki →
-          </a>
-        </nav>
+        <div className="flex flex-wrap items-center gap-2">
+          <nav aria-label="Ay adımı" className="flex items-center gap-2">
+            <a href={`${TEMEL_HREF}?y=${prev.y}&m=${prev.m}`} className={navLink}>
+              ← Önceki
+            </a>
+            <a href={`${TEMEL_HREF}?y=${next.y}&m=${next.m}`} className={navLink}>
+              Sonraki →
+            </a>
+          </nav>
+          <AySecici year={year} month1={month} temelHref={TEMEL_HREF} />
+        </div>
       </header>
+
+      <GunSeridi
+        year={year}
+        month1={month}
+        gunler={gunler}
+        secili={seciliGun}
+        temelHref={TEMEL_HREF}
+        // ⚠️ GÜN KUTUSUNDA KURUŞ YOK (compact). Otuz bir kutunun hepsinde
+        //    ",00" yazmak rakamı kutuya sığdırmıyordu ve tarama sırasında
+        //    hiçbir şey anlatmıyor; kesin rakam zaten tablodadır.
+        bicimle={(m) => formatMinor(m, { compact: true })}
+      />
 
       {/*
         ⚠️ BU AYRIM EKRANDA YAZILI OLMALI. Yazmasaydı, "İş Kuyruğu'ndaki
@@ -107,29 +171,33 @@ export default async function ManualOrdersPage({
       <section aria-labelledby="ozet-baslik">
         <div className="flex items-baseline justify-between gap-4">
           <h2 id="ozet-baslik" className="text-h3 text-ink-900">Özet</h2>
+          {/* ⚠️ HANGİ ARALIĞIN TOPLANDIĞI HER ZAMAN YAZILI. Gün seçiliyken
+              ay rakamını görmeyi bekleyen göz, yazmasaydı yanlış okurdu. */}
           <p className="text-caption text-ink-500">
-            {monthName} — sipariş TARİHİNE göre
+            {secimAdi} — sipariş TARİHİNE göre
           </p>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Toplam sipariş tutarı" value={formatMinor(data.summary.monthSaleMinor)} />
-          <Stat label="Toplam maliyet" value={formatMinor(data.summary.monthCostMinor)} />
-          <Stat label="Net kâr" value={formatMinor(data.summary.monthNetMinor)} strong />
-          <Stat label="Sipariş adedi" value={String(data.summary.monthCount)} muted />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Stat label="Toplam sipariş tutarı" value={formatMinor(ozet.monthSaleMinor)} />
+          <Stat label="Toplam maliyet" value={formatMinor(ozet.monthCostMinor)} />
+          <Stat label="Net kâr" value={formatMinor(ozet.monthNetMinor)} strong />
+          <Stat label="Sipariş adedi" value={String(ozet.monthCount)} muted />
+          <Stat label="Yeni müşteri" value={String(yeniMusteriAdedi)} yeni />
         </div>
 
         {/* ⚠️ TAHSİL EDİLMEMİŞ TUTAR AYRI GÖSTERİLİR. Ciroya bakıp "bu para
             bende" sanmak, en pahalı yanlış okumadır. */}
-        {data.summary.monthUnpaidMinor > 0 && (
+        {ozet.monthUnpaidMinor > 0 && (
           <p className="mt-3 rounded-[--radius-card] border border-warning-300 bg-warning-50 px-4 py-3 text-small text-warning-800">
-            Bu ayın siparişlerinden <strong>{formatMinor(data.summary.monthUnpaidMinor)}</strong>{' '}
-            henüz tahsil edilmedi — bu tutar yukarıdaki cirodadır ama bankada değildir.
+            {seciliGun === null ? 'Bu ayın' : 'Bu günün'} siparişlerinden{' '}
+            <strong>{formatMinor(ozet.monthUnpaidMinor)}</strong> henüz tahsil edilmedi — bu tutar
+            yukarıdaki cirodadır ama bankada değildir.
           </p>
         )}
-        {data.summary.monthCanceledCount > 0 && (
+        {ozet.monthCanceledCount > 0 && (
           <p className="mt-2 text-caption text-ink-500">
-            {data.summary.monthCanceledCount} iptal edilmiş sipariş toplamlara dâhil edilmedi.
+            {ozet.monthCanceledCount} iptal edilmiş sipariş toplamlara dâhil edilmedi.
           </p>
         )}
       </section>
@@ -144,10 +212,15 @@ export default async function ManualOrdersPage({
 
       {/* ──────────────────────────── LİSTE ──────────────────────────────── */}
       <section aria-labelledby="liste-baslik">
-        <h2 id="liste-baslik" className="text-h3 text-ink-900">{monthName} siparişleri</h2>
-        {data.rows.length === 0 ? (
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 id="liste-baslik" className="text-h3 text-ink-900">{secimAdi}</h2>
+          <p className="tabular text-caption text-ink-500">{satirlar.length} kayıt</p>
+        </div>
+        {satirlar.length === 0 ? (
           <div className="mt-4 rounded-[--radius-card] border border-dashed border-ink-300 bg-white p-8 text-center">
-            <p className="text-body text-ink-700">Bu ayda sipariş yok.</p>
+            <p className="text-body text-ink-700">
+              {seciliGun === null ? 'Bu ayda sipariş yok.' : 'Bu günde sipariş yok.'}
+            </p>
             <p className="mt-1 text-small text-ink-500">
               Eklediğin siparişler burada listelenir.
             </p>
@@ -168,22 +241,50 @@ export default async function ManualOrdersPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
-                {data.rows.map((r) => (
-                  <tr key={r.id} className="align-middle odd:bg-white even:bg-ink-50">
+                {satirlar.map((r) => (
+                  <tr
+                    key={r.id}
+                    // ⚠️ YENİ MÜŞTERİ SATIRI PEMBE ZEMİN + SOL KENAR ÇİZGİSİ.
+                    //    Yalnızca rozet konsaydı, uzun bir listede göz onu
+                    //    satır satır aramak zorunda kalırdı; yalnızca zemin
+                    //    olsaydı renk körlüğünde hiçbir fark kalmazdı.
+                    className={
+                      'align-middle ' +
+                      (r.yeniMusteri
+                        ? 'bg-yeni-50 shadow-[inset_3px_0_0_var(--color-yeni-600)]'
+                        : 'odd:bg-white even:bg-ink-50')
+                    }
+                  >
                     <td className="tabular whitespace-nowrap px-3 py-2 text-ink-600">
                       {fmtDate(r.occurredAt)}
                     </td>
-                    <td className="max-w-[12rem] truncate px-3 py-2 font-medium text-ink-900" title={r.customerName}>
-                      {r.customerName}
-                      {/* ⚠️ İPTAL DURUMU AYRI SÜTUN DEĞİL, ADIN ALTINDA BİR
-                          ETİKET. Kendi sütununu hak edecek kadar sık
-                          kullanılmıyor; sütun açmak diğer yedi sütunu
-                          daraltırdı. */}
-                      {r.status !== 'BEKLIYOR' && (
-                        <span
-                          className={`ml-1.5 whitespace-nowrap rounded-full px-1.5 py-0.5 text-caption font-medium ${STATUS_CLASS[r.status]}`}
-                        >
-                          {ORDER_STATUS_LABEL[r.status]}
+                    <td className="max-w-[13rem] px-3 py-2 font-medium text-ink-900">
+                      <span className="block truncate" title={r.customerName}>
+                        {r.customerName}
+                      </span>
+                      {/* ⚠️ ROZETLER ADIN ALTINDA, KENDİ SATIRINDA. Adın
+                          yanına dizilince iki rozet yan yana geldiğinde
+                          ("Yeni müşteri" + "Tamamlandı") ikisi de kırpılıp
+                          okunamaz hâle geliyordu. Alt satır, sütunu
+                          genişletmeden ikisini de tam gösterir. */}
+                      {(r.yeniMusteri || r.status !== 'BEKLIYOR') && (
+                        <span className="mt-1 flex flex-wrap items-center gap-1">
+                          {r.yeniMusteri && (
+                            <span className="whitespace-nowrap rounded-full bg-yeni-600 px-1.5 py-0.5 text-caption font-semibold text-white">
+                              Yeni müşteri
+                            </span>
+                          )}
+                          {/* ⚠️ İPTAL DURUMU AYRI SÜTUN DEĞİL, BİR ETİKET.
+                              Kendi sütununu hak edecek kadar sık
+                              kullanılmıyor; sütun açmak diğer yedi sütunu
+                              daraltırdı. */}
+                          {r.status !== 'BEKLIYOR' && (
+                            <span
+                              className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-caption font-medium ${STATUS_CLASS[r.status]}`}
+                            >
+                              {ORDER_STATUS_LABEL[r.status]}
+                            </span>
+                          )}
                         </span>
                       )}
                     </td>
@@ -304,20 +405,31 @@ function Stat({
   value,
   strong,
   muted,
+  yeni,
 }: {
   label: string
   value: string
   strong?: boolean
   muted?: boolean
+  /** "Yeni müşteri" kutusu — tabloda kullanılan pembeyle aynı dili konuşur. */
+  yeni?: boolean
 }) {
   return (
     <div
       className={`rounded-[--radius-card] border p-4 ${
-        muted ? 'border-ink-200 bg-ink-50' : 'border-ink-200 bg-white shadow-[--shadow-card]'
+        yeni
+          ? 'border-yeni-200 bg-yeni-50'
+          : muted
+            ? 'border-ink-200 bg-ink-50'
+            : 'border-ink-200 bg-white shadow-[--shadow-card]'
       }`}
     >
       <p className="text-caption uppercase tracking-wide text-ink-500">{label}</p>
-      <p className={`tabular mt-1 ${strong ? 'text-h3' : 'text-body'} font-semibold text-ink-900`}>
+      <p
+        className={`tabular mt-1 ${strong ? 'text-h3' : 'text-body'} font-semibold ${
+          yeni ? 'text-yeni-700' : 'text-ink-900'
+        }`}
+      >
         {value}
       </p>
     </div>
