@@ -1514,3 +1514,62 @@ model ManualOrder {
   @@index([occurredAt])
   @@index([customerName])
 }
+
+/// ⭐ TAKİPÇİ SİPARİŞİ — GÜNLÜK DÜŞÜŞ KONTROLÜ
+///
+/// ⚠️ BU TABLO SİPARİŞ DEFTERİ (`ManualOrder`) DEĞİLDİR ve onunla
+/// ilişkilendirilmemiştir. Defter paranın kaydıdır; burası işin TESLİM
+/// SONRASI takibidir: "takipçi düştü mü, bugün baktım mı". İkisi bağlansaydı,
+/// takip için açılan her satır deftere de girmek zorunda kalırdı; oysa aynı
+/// müşteriye bir siparişle birden çok hesap verilebiliyor.
+///
+/// ⚠️ KASAYA HİÇBİR ETKİSİ YOKTUR. Burada yazılan hiçbir şey bakiye, ciro ya
+/// da kâr hesabına girmez.
+model FollowerOrder {
+  id String @id @default(cuid())
+
+  /// Takip edilecek hesap — arayüzde "Kullanıcı adı".
+  username String
+
+  /// Arayüzde "Bitiş sayısı": işin sonunda olması gereken takipçi sayısı.
+  /// ⚠️ Tam sayıdır, kuruş değil: burada para yok, adet var.
+  endCount Int
+
+  /// Serbest not (hangi paket, hangi müşteri vb.) — isteğe bağlı.
+  note String?
+
+  /// ⚠️ İŞİ BİTEN SATIR SİLİNMEZ, ARŞİVLENİR. Silinseydi geçmiş kontrol
+  /// işaretleri de giderdi ve "bu hesaba kaç gün baktık" sorusu cevapsız
+  /// kalırdı.
+  isArchived Boolean @default(false)
+
+  checks FollowerCheck[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+
+  @@index([isArchived, username])
+}
+
+/// Bir takipçi siparişinin BİR GÜNKÜ kontrol işareti.
+///
+/// ⚠️ İŞARET BİR SATIRIN VARLIĞIDIR, bir `true/false` alanı değil. Boolean
+/// olsaydı "hiç bakılmadı" ile "bakıldı, sonra işaret kaldırıldı" aynı
+/// görünürdü; satır silinince kayıt da gider, kalınca kim ne zaman
+/// işaretledi bellidir.
+model FollowerCheck {
+  id      String        @id @default(cuid())
+  orderId String
+  order   FollowerOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// ⚠️ GÜN BAŞINA SABİTLENMİŞ UTC. Saat tutulsaydı aynı güne iki işaret
+  /// düşebilir, ızgarada hangisinin geçerli olduğu bilinemezdi.
+  day DateTime
+
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  @@unique([orderId, day])
+  @@index([day])
+}

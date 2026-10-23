@@ -15,6 +15,11 @@ import Link from 'next/link'
  */
 const TABS = [
   { key: 'siparisler', href: '/admin/kasa/siparisler', label: 'Siparişler' },
+  // ⚠️ TAKİPÇİ KONTROLÜ SİPARİŞLERİN HEMEN YANINDA: günlük iş akışında
+  //    ikisi arka arkaya açılır (sipariş girilir, ertesi gün kontrol
+  //    edilir). Paketlerin arkasına atılsaydı her gün fazladan bir tık
+  //    daha uzakta olurdu.
+  { key: 'takipci', href: '/admin/kasa/takipci', label: 'Takipçi Kontrol' },
   { key: 'paketler', href: '/admin/kasa/paketler', label: 'Aylık Paketler' },
   // ⚠️ Denemeler aylık paketlerle AYNI TABLODA ama AYRI EKRANDA: ciroyu
   //    karıştırmasınlar ve kendi sorusu ("dönüştü mü?") görünsün diye.
