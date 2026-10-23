@@ -13,6 +13,7 @@ import {
   compareForList,
   derivePackageState,
   daysRemaining,
+  EXPIRY_WARNING_DAYS,
   netProfitMinor,
   retention,
   summarize,
@@ -60,13 +61,19 @@ describe('durum türetimi', () => {
     expect(derivePackageState(pkg({ endDate: end }), nextDay)).toBe('SURESI_DOLDU')
   })
 
-  it('bitişe 7 gün veya az kaldıysa BITIYOR', () => {
-    const p = pkg({ endDate: new Date(Date.UTC(2026, 8, 20)) }) // 5 gün var
+  /**
+   * ⚠️ EŞİK 7 GÜNDEN 3 GÜNE ÇEKİLDİ (işletme sahibinin kararı). Testler
+   * silinmedi, yönü güncellendi: eski eşiğe göre "bitiyor" sayılan 5
+   * günlük paket artık AKTİF olmalıdır. Silinseydi, eşik bir gün sessizce
+   * geri alındığında hiçbir şey uyarmazdı.
+   */
+  it(`bitişe ${EXPIRY_WARNING_DAYS} gün veya az kaldıysa BITIYOR`, () => {
+    const p = pkg({ endDate: new Date(Date.UTC(2026, 8, 18)) }) // 3 gün var
     expect(derivePackageState(p, TODAY)).toBe('BITIYOR')
   })
 
-  it('bitişe 8+ gün varsa hâlâ AKTİF', () => {
-    const p = pkg({ endDate: new Date(Date.UTC(2026, 8, 30)) })
+  it('eşikten uzaksa hâlâ AKTİF — 5 gün kalan paket artık uyarı listesinde değil', () => {
+    const p = pkg({ endDate: new Date(Date.UTC(2026, 8, 20)) }) // 5 gün var
     expect(derivePackageState(p, TODAY)).toBe('AKTIF')
   })
 
@@ -153,6 +160,47 @@ describe('özet', () => {
     expect(s.monthCount).toBe(1) // sayısı görünür
     expect(s.monthSaleMinor).toBe(0) // ama parası sayılmaz
     expect(s.canceledCount).toBe(1)
+  })
+
+  /**
+   * ⚠️ AYLIK DÜZENLİ TOPLAM, AYIN SATIŞI DEĞİLDİR.
+   * O ay hiç yeni paket açılmasa bile yürüyen paketler gelir getirmeye
+   * devam eder; ekrandaki ilk üç kutu bu soruyu yanıtlar.
+   */
+  it('⚠️ aylık düzenli toplam, seçili ayda satış olmasa da yürüyen paketleri toplar', () => {
+    const yuruyen = pkg({
+      startDate: new Date(Date.UTC(2026, 6, 1)), // temmuzda başlamış
+      endDate: new Date(Date.UTC(2026, 11, 1)),
+      salePriceMinor: 150_000,
+      costMinor: 40_000,
+    })
+    const s = summarize([yuruyen], TODAY, { year: 2026, month1: 10 }) // EKİM
+    expect(s.monthSaleMinor).toBe(0) // ekimde satış yok
+    expect(s.activeSaleMinor).toBe(150_000) // ama düzenli gelir duruyor
+    expect(s.activeCostMinor).toBe(40_000)
+    expect(s.activeNetMinor).toBe(110_000)
+  })
+
+  it('⚠️ henüz BAŞLAMAMIŞ paket düzenli gelire girmez', () => {
+    const planlanan = pkg({
+      startDate: new Date(Date.UTC(2026, 9, 1)), // bugünden sonra
+      endDate: new Date(Date.UTC(2026, 10, 1)),
+      salePriceMinor: 90_000,
+    })
+    const s = summarize([planlanan], TODAY, { year: 2026, month1: 9 })
+    expect(s.activeSaleMinor).toBe(0)
+    expect(s.activeCount).toBe(0)
+  })
+
+  it('⚠️ İPTAL ve SÜRESİ DOLAN paketler düzenli gelire girmez', () => {
+    const iptal = pkg({ canceledAt: new Date(Date.UTC(2026, 8, 10)), salePriceMinor: 70_000 })
+    const dolan = pkg({
+      startDate: new Date(Date.UTC(2026, 6, 1)),
+      endDate: new Date(Date.UTC(2026, 7, 1)),
+      salePriceMinor: 60_000,
+    })
+    const s = summarize([iptal, dolan], TODAY, { year: 2026, month1: 9 })
+    expect(s.activeSaleMinor).toBe(0)
   })
 
   it('⚠️ "bitiyor" olan paket AKTİF sayılır — hizmet hâlâ veriliyor', () => {

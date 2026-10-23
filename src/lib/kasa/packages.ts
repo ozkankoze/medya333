@@ -85,11 +85,18 @@ function day(d: Date): number {
 }
 
 /**
- * ⚠️ "YAKINDA BİTİYOR" EŞİĞİ. 7 gün, çünkü aylık bir pakette yenileme
- * konuşmasını başlatmak için makul en kısa süre budur. Daha kısası
- * (2-3 gün) müşteriye dönmek için zaman bırakmaz.
+ * ⚠️ "YAKINDA BİTİYOR" EŞİĞİ — 3 GÜN.
+ *
+ * Önce 7 gündü; uyarı listesi sürekli kalabalık olduğu için işletme
+ * sahibinin isteğiyle 3 güne çekildi. Gerekçe: yenileme konuşması zaten
+ * son günlerde yapılıyor, bir hafta öncesinden uyarmak listeyi
+ * "her zaman dolu" hâle getiriyor ve uyarı anlamını yitiriyordu.
+ *
+ * ⚠️ BU SAYI "BİTİYOR" DURUMUNU BELİRLER, paketin kendisini değil: eşik
+ * değişince hiçbir kayıt değişmez, yalnızca kaç paketin uyarı listesine
+ * düştüğü değişir.
  */
-export const EXPIRY_WARNING_DAYS = 7
+export const EXPIRY_WARNING_DAYS = 3
 
 /**
  * Paketin O ANKİ durumu.
@@ -193,6 +200,22 @@ export interface PackageSummary {
   monthCostMinor: number
   monthNetMinor: number
 
+  /**
+   * AYLIK DÜZENLİ TOPLAM — şu anda yürüyen paketlerin toplamı.
+   *
+   * ⚠️ AYA BAĞLI DEĞİLDİR ve o ay yeni satış olup olmaması bu rakamı
+   * değiştirmez: soru "bu ay ne sattım" değil, "şu anda aylık ne kadar
+   * düzenli gelirim var" sorusudur.
+   *
+   * ⚠️ HENÜZ BAŞLAMAMIŞ ("planlandı") PAKET SAYILMAZ. Hizmet başlamadan
+   * geliri düzenli gelire yazmak, daha kazanılmamış parayı bugünün
+   * tablosuna koymak olurdu. Süresi dolmuş ve iptal edilmiş paketler de
+   * doğal olarak dışarıdadır.
+   */
+  activeSaleMinor: number
+  activeCostMinor: number
+  activeNetMinor: number
+
   /** "Şu an" durumları — aya bağlı DEĞİL */
   activeCount: number
   endingSoonCount: number
@@ -223,6 +246,8 @@ export function summarize(
   let monthSaleMinor = 0
   let monthCostMinor = 0
   let activeCount = 0
+  let activeSaleMinor = 0
+  let activeCostMinor = 0
   let endingSoonCount = 0
   let expiredCount = 0
   let canceledCount = 0
@@ -244,11 +269,16 @@ export function summarize(
     switch (derivePackageState(p, today)) {
       case 'AKTIF':
         activeCount += 1
+        activeSaleMinor += p.salePriceMinor
+        activeCostMinor += p.costMinor
         break
       case 'BITIYOR':
-        // ⚠️ "Bitiyor" da AKTİF bir pakettir — hizmet hâlâ veriliyor.
-        //    Ayrıca sayılır ki uyarı listesi boş kalmasın.
+        // ⚠️ "Bitiyor" da AKTİF bir pakettir — hizmet hâlâ veriliyor,
+        //    parası da düzenli gelire dâhildir. Ayrıca sayılır ki uyarı
+        //    listesi boş kalmasın.
         activeCount += 1
+        activeSaleMinor += p.salePriceMinor
+        activeCostMinor += p.costMinor
         endingSoonCount += 1
         break
       case 'SURESI_DOLDU':
@@ -267,6 +297,9 @@ export function summarize(
     monthSaleMinor,
     monthCostMinor,
     monthNetMinor: monthSaleMinor - monthCostMinor,
+    activeSaleMinor,
+    activeCostMinor,
+    activeNetMinor: activeSaleMinor - activeCostMinor,
     activeCount,
     endingSoonCount,
     expiredCount,

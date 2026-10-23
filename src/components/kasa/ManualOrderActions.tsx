@@ -29,6 +29,8 @@ export function ManualOrderActions({
   isPaid,
   canRecordCost,
   canDelete,
+  yeniMusteri,
+  yeniMusteriGizli,
 }: {
   id: string
   accounts: Array<{ id: string; label: string }>
@@ -40,6 +42,10 @@ export function ManualOrderActions({
   canRecordCost: boolean
   /** Kasaya hareket yazılmışsa false — asıl engel veritabanındadır. */
   canDelete: boolean
+  /** Satırda şu an "Yeni müşteri" rozeti görünüyor mu? */
+  yeniMusteri: boolean
+  /** Rozet daha önce elle kapatılmış mı? */
+  yeniMusteriGizli: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState<null | 'tahsil' | 'maliyet'>(null)
@@ -154,6 +160,40 @@ export function ManualOrderActions({
           title="Maliyeti gerçek kasa çıkışına dönüştür"
         >
           Gideri işle
+        </button>
+      )}
+
+      {/*
+        ⚠️ ROZET ELLE KAPATILABİLİR. "Yeni müşteri" hesaplanan bir
+        bilgidir: aynı isimle daha eski sipariş yoksa müşteri yeni sayılır.
+        Ama aynı kişi iki farklı yazımla girilmiş olabilir ("nefesal" /
+        "_nefesal_"); defter bunu bilemez, sen bilirsin. Düğme yalnızca
+        rozeti etkiler, tutara ve tahsilata dokunmaz.
+      */}
+      {yeniMusteri && (
+        <button
+          type="button"
+          className={btn}
+          disabled={busy}
+          title="Bu müşteri aslında yeni değil — rozeti kaldır"
+          onClick={() =>
+            void send(`/api/v1/admin/kasa/siparisler/${id}/yeni-musteri`, { gizle: true })
+          }
+        >
+          Yeni müşteri değil
+        </button>
+      )}
+      {yeniMusteriGizli && (
+        <button
+          type="button"
+          className={btn}
+          disabled={busy}
+          title="Elle kapatmayı kaldır — hesap hâlâ geçerliyse rozet geri gelir"
+          onClick={() =>
+            void send(`/api/v1/admin/kasa/siparisler/${id}/yeni-musteri`, { gizle: false })
+          }
+        >
+          Rozeti geri aç
         </button>
       )}
 

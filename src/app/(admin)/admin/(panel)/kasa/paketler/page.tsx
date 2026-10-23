@@ -6,7 +6,7 @@ import { PackageForm } from '@/components/kasa/PackageForm'
 import { PackageActions } from '@/components/kasa/PackageActions'
 import { RowMenu } from '@/components/kasa/RowMenu'
 import { formatMinor } from '@/lib/money'
-import type { PackageState } from '@/lib/kasa/packages'
+import { EXPIRY_WARNING_DAYS, type PackageState } from '@/lib/kasa/packages'
 import { getSessionUser } from '@/server/auth'
 import { listAccounts } from '@/server/kasa'
 import { getPackages } from '@/server/kasa/packages'
@@ -103,15 +103,34 @@ export default async function PackagesPage({
         <div className="flex items-baseline justify-between gap-4">
           <h2 id="ozet-baslik" className="text-h3 text-ink-900">Özet</h2>
           <p className="text-caption text-ink-500">
-            Tutarlar {monthName} — ayda BAŞLAYAN paketler
+            Tutarlar ŞU AN aktif paketlerden — seçili aya göre değişmez
           </p>
         </div>
 
+        {/*
+          ⚠️ İLK ÜÇ KUTU AYLIK DÜZENLİ GELİRDİR (MRR), ayın satışı değil.
+          Soru "bu ay ne sattım" değil, "şu anda elimde aylık ne kadar
+          düzenli iş var" sorusudur: o ay hiç yeni satış olmasa bile yürüyen
+          paketler gelir getirmeye devam eder. Ayın satışı ise dördüncü
+          kutuda, adet olarak durur.
+
+          ⚠️ HENÜZ BAŞLAMAMIŞ PAKET SAYILMAZ; süresi dolan ve iptal edilen
+          de sayılmaz. Toplam, yalnızca bugün hizmeti yürüyen paketlerdir.
+        */}
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Toplam satış" value={formatMinor(data.summary.monthSaleMinor)} />
-          <Stat label="Toplam maliyet" value={formatMinor(data.summary.monthCostMinor)} />
-          <Stat label="Toplam net kâr" value={formatMinor(data.summary.monthNetMinor)} strong />
-          <Stat label="Bu ay açılan paket" value={String(data.summary.monthCount)} />
+          <Stat
+            label="Aylık düzenli toplam gelir"
+            value={formatMinor(data.summary.activeSaleMinor)}
+          />
+          <Stat
+            label="Aylık düzenli toplam maliyet"
+            value={formatMinor(data.summary.activeCostMinor)}
+          />
+          <Stat label="Toplam net kâr" value={formatMinor(data.summary.activeNetMinor)} strong />
+          <Stat
+            label={`Bu ay açılan paket (${monthName})`}
+            value={String(data.summary.monthCount)}
+          />
         </div>
 
         {/* ⚠️ Bu sayaçlar "ŞU AN" durumudur — seçili aydan bağımsızdır. */}
@@ -122,7 +141,9 @@ export default async function PackagesPage({
           <Stat label="İptal" value={String(data.summary.canceledCount)} muted />
         </div>
         <p className="mt-2 text-caption text-ink-500">
-          Alt satırdaki sayaçlar bugünün durumunu gösterir; seçili aya göre değişmez.
+          Tutarlar ve sayaçlar bugünün durumunu gösterir; yalnızca “bu ay açılan paket”
+          seçili aya bakar. “Yakında bitecek”, bitişine {EXPIRY_WARNING_DAYS} gün ya da daha az
+          kalan paketlerdir.
         </p>
       </section>
 

@@ -1507,6 +1507,17 @@ model ManualOrder {
   costEntryId String?    @unique
   costEntry   CashEntry? @relation("ManualOrderCost", fields: [costEntryId], references: [id], onDelete: Restrict)
 
+  /// "Yeni müşteri" rozeti ELLE kapatıldı mı?
+  ///
+  /// ⚠️ ROZET SAKLANMAZ, HESAPLANIR: aynı isimle daha eski sipariş yoksa
+  /// müşteri yenidir. Bu alan o hesabı GEÇERSİZ KILAR, yerine geçmez.
+  /// Gerekçesi: aynı kişi iki farklı yazımla girilebiliyor ("nefesal" /
+  /// "_nefesal_"); defter bunu bilemez, insan bilir. Rozeti elle açıp
+  /// kapatmak yerine yalnızca KAPATMAYA izin verilir, çünkü ters yönde
+  /// (gerçekten eski bir müşteriyi "yeni" göstermek) doğru bir kullanım
+  /// yok.
+  newCustomerHidden Boolean @default(false)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   createdById String?

@@ -559,6 +559,8 @@ export default async function ManualOrdersPage({
                           isPaid={Boolean(r.paidAt)}
                           canRecordCost={r.costMinor > 0 && !r.costEntryId && r.status !== 'IPTAL'}
                           canDelete={r.canDelete}
+                          yeniMusteri={r.yeniMusteri}
+                          yeniMusteriGizli={r.yeniMusteriGizli}
                         />
                         {/*
                           ⚠️ Kullanıcı adı, içerik ve tarih HER ZAMAN

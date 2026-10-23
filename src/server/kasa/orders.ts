@@ -69,13 +69,23 @@ export interface OrderRow {
    * iki farklı yazımla girmek (”Ahmet Yılmaz” / ”ahmet yilmaz”) iki ayrı
    * müşteri sayılmasına yol açar. Bu, yanlış pozitif üretir ama veriyi
    * bozmaz ve düzeltmesi satırı düzenlemekten ibarettir.
+   *
+   * ⚠️ ELLE KAPATMA BU HESABI EZER. Aynı kişi iki farklı yazımla
+   * girildiyse ("nefesal" / "_nefesal_") defter bunu bilemez; satırdaki
+   * `newCustomerHidden` işaretliyse bu alan her zaman false döner.
    */
   yeniMusteri: boolean
+  /**
+   * Rozet elle kapatılmış mı? Arayüz "rozeti geri aç" düğmesini buna göre
+   * gösterir; aksi hâlde kapatma geri alınamaz bir işlem olurdu.
+   */
+  yeniMusteriGizli: boolean
 }
 
 interface DbOrder {
   id: string
   customerName: string
+  newCustomerHidden?: boolean
   description: string
   occurredAt: Date
   salePriceMinor: number
@@ -90,7 +100,11 @@ interface DbOrder {
 
 function toRow(o: DbOrder, yeniMusteri = false): OrderRow {
   return {
-    yeniMusteri,
+    // ⚠️ ELLE KAPATMA HESABI EZER. Hesap "bu isimle daha eski sipariş yok"
+    //    diyor olabilir; aynı kişi başka bir yazımla girilmişse bunu
+    //    yalnızca insan bilir.
+    yeniMusteri: yeniMusteri && !o.newCustomerHidden,
+    yeniMusteriGizli: Boolean(o.newCustomerHidden),
     id: o.id,
     customerName: o.customerName,
     description: o.description,
@@ -667,4 +681,19 @@ export async function yilOzeti(year: number): Promise<YilAyi[]> {
   }
 
   return aylar
+}
+
+/**
+ * "Yeni müşteri" rozetini elle kapatır ya da geri açar.
+ *
+ * ⚠️ ROZETİ GERİ AÇMAK, "yeni" demek DEĞİLDİR: yalnızca elle kapatmayı
+ * kaldırır. Hesap hâlâ geçerliyse rozet geri gelir, değilse gelmez.
+ */
+export async function yeniMusteriRozetiniAyarla(orderId: string, gizle: boolean) {
+  await db.manualOrder.update({
+    where: { id: orderId },
+    data: { newCustomerHidden: gizle },
+    select: { id: true },
+  })
+  return { id: orderId, gizli: gizle }
 }
